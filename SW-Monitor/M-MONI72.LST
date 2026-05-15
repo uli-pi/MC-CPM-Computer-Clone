@@ -1,0 +1,2911 @@
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page   1
+M-MONI72Z80
+
+    1                   
+    2                   	.Z80
+    3                   
+    5                   	PAGE 60
+    6                   
+    7                   		;************************************
+    8                                   ;*            V 7.2  851216         *
+    9                   		;* RDK MONITOR  1.1  850129         *
+   10                   		;* General Revision des MC-Monitors *
+   11                   		;* Winchester = ro 352/basf 6188    *
+   12                   		;* 7.5/10 Mbyte verwendbar          *
+   13                   		;* FLO1 und FLO2 waehlbar           *
+   14                   		;* Rev 1.13 Joerg Schnyder  850520  *        
+   15                   		;************************************
+   16                   
+   17         0000      	org 000h
+   18                   		;
+   19                   		; IM ROM AUF ADRESSE 0
+   20                   		;
+   21 0000              BEGINN:
+   22 0000  31 FFFF     	LD SP,0FFFFH 	;DUMMY-LOAD 
+   23 0003  3E C9       	LD A,0C9H 	;ABLAGE RET-BEFEHL
+   24 0005  32 F000     	LD (0F000H),A 	;AUF ZIELADRESSE
+   25 0008  CD F000     	CALL 0F000H 	;FESTSTELLEN
+   26 000B              ANF:		;DER EIGENEN ADRESSE,
+   27 000B  3B          	DEC SP  	;UM START VON BELIEBIGER
+   28 000C  3B          	DEC SP  	;STELLE AUS ZU ERMOEGLICHEN
+   29 000D  D1          	POP DE  	;FUER TESTS SEHR GUT
+   30 000E  21 0012     	LD HL,HAUPTP-ANF
+   31 0011  19          	ADD HL,DE
+   32 0012  11 F000     	LD DE,0F000H 	;TRANSPORT ALLER ZELLEN
+   33 0015  01 0FFF     	LD BC,0FFFH 	;4K TRANSFER
+   34 0018  ED B0       	LDIR  	;EIGENTLICH ZUVIEL,ABER
+   35 001A  C3 F000     	JP 0F000H 	;STOERT NICHT WEITER
+   36                   		;
+   37 001D              HAUPTP:		;DISTANZ-MERKER
+   38                   		;
+   39                   	.PHASE 0F000H 	;START DES MONITORS
+   40                   		;CODE DENOCH HINTER BOOT BEREICH
+   41                   
+   42                   		; --- START DES EIGENTLICHEN MONITORS ---
+   43                   		;
+   44         000D      	CR EQU 0DH
+   45         000A      	LF EQU 0AH
+   46         0007      	BELL EQU 7
+   47         00FF      	RUB EQU 0FFH
+   48         0000      	FIL EQU 0
+   49         0007      	MAX EQU 7
+   50                   
+   51         0038      	RST7 EQU 38H
+   52                   		; ANFANG VERSCHIEBBAR
+   53                   		; der Vektor RST7 wird fuer Breakpoints gebraucht
+   54                   		;
+   55                   
+   56                   		;
+   57         00F0      	SIOADAT EQU 0F0H
+   58         00F1      	SIOASTS EQU 0F1H
+   59         00F2      	SIOBDAT EQU 0F2H
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page   2
+M-MONI72Z80
+
+   60         00F3      	SIOBSTS EQU 0F3H
+   61                   		;
+   62                   
+   63                   		;* VEKTOR TABELLE *
+   64                   		; CSTS 0FFH IN A, FALLS ZEICHEN DA
+   65                   		; IOCHK IN A AKTUELLE IO-KONFIGURATION
+   66                   		; IOSET VERAENDERN, IO IN C-REG
+   67                   		; MEMCK IN B HIGH IN A LOW MEMORY
+   68                   		; TRAP/BREAKPOINT ENTRY
+   69                   
+   70                   
+   71                   		; START DES MONITORPROGRAMMS
+   72 F000  C3 F065     	JP BEGIN
+   73 F003  C3 F068     	JP CI
+   74 F006  C3 F07B     	JP RI
+   75 F009  C3 F091     	JP CO
+   76 F00C  C3 F0A5     	JP POO
+   77 F00F  C3 F0BC     	JP LO
+   78 F012  C3 F0D3     	JP CSTS
+   79 F015  C3 F0E6     	JP IOBYTE
+   80 F018  C3 F0EA     	JP IOSET
+   81 F01B  C3 F0EF     	JP MEMCK
+   82 F01E              TRAP:
+   83 F01E  C3 F062     	JP RESTART1
+   84 F021  C3 F1F7     	JP FLOPPY   	;neue Floppy-Schnittstelle rev 1.0
+   85 F024  C3 F18D     	JP MAXI  	;FLOPPY EXEC VEKTOR SOFT (alt)
+   86 F027  C3 F1C8     	JP MINI  	;FLOPPY EXEC VEKTOR MINI (alt)
+   87 F02A  C3 F525     	JP HDSYS 	;Winchester EXEC VECTOR
+   88                   		;
+   89                   		; 
+   90                   		;
+   91 F02D  F11E        	DEFW TABSTART 	;TABELLEN-START, USER-BEREICH
+   92                   		;SPRUNGTABELLE, IMMER
+   93                   		;INDIREKT VERWENDEN
+   94 F02F  FE9A        	DEFW LASTMON 	;ADRESSE LETZTE BELEGTE ZELLE
+   95                   		;DES MONITORS DANACH PATCH FREI
+   96 F031  F6E1        	DEFW FREEMEM 	;Lade-Adresse hinter IO-Gebiet
+   97                   		;
+   98                   		; Sprungtabelle, um mit FLOMON kompatibel zu
+   99                   		; sein, (NDR-Computer).
+  100 F033    000D      	defs 13 	; f033,34,35,36,37,38,39,3a,3b,3c,3d,3e,3f
+  101                   		; BASIS F040h
+  102 F040  C3 F05E     	jp illegal 	; loeschen alle seiten
+  103 F043  C3 F05E     	jp illegal     	; loeschen unsichtbar
+  104 F046  C3 F05E     	jp illegal 	; moveto hl=x de=y
+  105 F049  C3 F05E     	jp illegal 	; drawto hl=x de=y
+  106 F04C  C3 F05E     	jp illegal 	; c=schreibseite 0,1,2,3
+  107 F04F  C3 F05E     	jp illegal 	; c=leseseite    0,1,2,3
+  108 F052  C3 F05E     	jp illegal      	; c=rmwmode      0=norm 1=rmw
+  109 F055  C3 F05E     	jp illegal 	; warten bis gdp fertig
+  110 F058  C3 F05E     	jp illegal        	; c=befehl fuer gdp  ACHTUNG in C-Register nicht A
+  111 F05B  C3 F05E     	jp illegal 	; hl=quelle,de=ziel,c=bank quelle, b=bank ziel
+  112                   		; carry wenn bankram auf f000h nicht da ist
+  113                   
+  114                   		; Ende Sprungtabelle
+  115                   
+  116 F05E              illegal:
+  117 F05E  3E FF       	ld a,0ffh
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page   3
+M-MONI72Z80
+
+  118 F060  37          	scf
+  119 F061  C9          	ret  	; Mit Fehler beenden
+  120                   
+  121                   
+  122                   
+  123 F062              RESTART1:
+  124 F062  C3 FD5B     	JP RESTART 	;kann kurzgeschlossen werden
+  125                   		;nach freemem ueberschreibung
+  126                   
+  127 F065              BEGIN:
+  128 F065  C3 F719     	JP BEGIN1 	;kurzschliessen ggf.
+  129                   		;
+  130                   		; ende fixed gebiet
+  131                   
+  132                   		;
+  133                   		;**************************************
+  134                   		;* IO Routinen                        *
+  135                   		;**************************************
+  136                   
+  137                   		;+++ CI MAIN ROUTINE +++
+  138 F068              CI:
+  139 F068  3A F130     	LD A,(IOBYT)
+  140 F06B  E6 03       	AND 3 	;CONSOLMASKE
+  141 F06D  20 09       	JR NZ,CI1 	;ANDERE DEVICES
+  142 F06F              TTYIN:
+  143 F06F  DB F1       	IN A,(SIOASTS)
+  144 F071  E6 01       	AND 1
+  145 F073  28 FA       	JR Z,TTYIN
+  146 F075  DB F0       	IN A,(SIOADAT)
+  147 F077  C9          	RET
+  148                   
+  149 F078              CI1:
+  150 F078  C3 F11E     	JP USERCI  	;DORT SPRUNG MOEGLICH
+  151                   
+  152                   
+  153                   		;+++ RI ROUTINE +++
+  154                   
+  155 F07B              RI:
+  156 F07B  3A F130     	LD A,(IOBYT)
+  157 F07E  E6 0C       	AND 00001100B
+  158 F080  CA F068     	JP Z,CI  	;AR=T
+  159 F083  FE 04       	CP 00000100B 
+  160 F085  C2 F121     	JP NZ,USERRI
+  161 F088              LXLPI:		;AR=P
+  162 F088  DB F3       	IN A,(SIOBSTS)
+  163 F08A  E6 01       	AND 1
+  164 F08C  28 FA       	JR Z,LXLPI
+  165 F08E  DB F2       	IN A,(SIOBDAT)
+  166 F090  C9          	RET
+  167                   		;
+  168                   
+  169                   		; +++ MAIN CO ROUTINE +++ MOD
+  170                   		;
+  171 F091              CO:
+  172 F091  3A F130     	LD A,(IOBYT)
+  173 F094  E6 03       	AND 3
+  174 F096  20 0A       	JR NZ,CO1
+  175                   		;
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page   4
+M-MONI72Z80
+
+  176 F098              TTYOUT:
+  177 F098  DB F1       	IN A,(SIOASTS)
+  178 F09A  E6 04       	AND 4
+  179 F09C  28 FA       	JR Z,TTYOUT
+  180 F09E  79          	LD A,C
+  181 F09F  D3 F0       	OUT (SIOADAT),A
+  182 F0A1  C9          	RET
+  183                   		;
+  184 F0A2              CO1:
+  185 F0A2  C3 F124     	JP USERCO 	;DORT SPRUNG MOEGLICH
+  186                   		;
+  187                   		;
+  188                   		;
+  189 F0A5              POO:		;+++ MAIN POO ROUTINE +++
+  190                   		;HIER ABFRAGE IOBYT MOEGLICH
+  191 F0A5  3A F130     	LD A,(IOBYT)
+  192 F0A8  E6 30       	AND 00110000B
+  193 F0AA  CA F091     	JP Z,CO  	;AP=T
+  194 F0AD  FE 10       	CP 00010000B
+  195 F0AF  C2 F127     	JP NZ,USERPOO
+  196 F0B2              LXLPO:		;AP=P
+  197 F0B2  DB F3       	IN A,(SIOBSTS)
+  198 F0B4  E6 04       	AND 4
+  199 F0B6  28 FA       	JR Z,LXLPO
+  200 F0B8  79          	LD A,C
+  201 F0B9  D3 F2       	OUT (SIOBDAT),A
+  202 F0BB  C9          	RET
+  203                   		;
+  204                   		;
+  205                   		; +++ MAIN LO ROUTINE +++ MOD
+  206                   
+  207 F0BC              LO:
+  208 F0BC  3A F130     	LD A,(IOBYT)
+  209 F0BF  E6 C0       	AND 0C0H
+  210 F0C1  CA F098     	JP Z,TTYOUT 	;AL=T
+  211 F0C4  FE 80       	CP 10000000B 	;
+  212 F0C6  C2 F12A     	JP NZ,USERLO
+  213                   		;AL=L
+  214 F0C9              LO1:
+  215 F0C9  DB F3       	IN A,(SIOBSTS)
+  216 F0CB  E6 04       	AND 4
+  217 F0CD  28 FA       	JR Z,LO1
+  218 F0CF  79          	LD A,C
+  219 F0D0  D3 F2       	OUT (SIOBDAT),A
+  220 F0D2  C9          	RET
+  221                   
+  222                   		;
+  223 F0D3              CSTS:		;+++ MAIN STATUS ROUTINE +++
+  224 F0D3  3A F130     	LD A,(IOBYT)
+  225 F0D6  E6 03       	AND 3
+  226 F0D8  20 09       	JR NZ,CS0
+  227 F0DA              TTYCSTS:
+  228 F0DA  DB F1       	IN A,(SIOASTS)
+  229 F0DC  E6 01       	AND 1
+  230 F0DE  C8          	RET Z
+  231 F0DF  3E FF       	LD A,0FFH
+  232 F0E1  B7          	OR A
+  233 F0E2  C9          	RET
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page   5
+M-MONI72Z80
+
+  234                   		;
+  235 F0E3              CS0:
+  236 F0E3  C3 F12D     	JP USERCSTS 	;USER BEREICH
+  237                   		;
+  238                   
+  239                   		; Das IOBYTE dient der Umschaltung von
+  240                   		; physikalischem nach logischem Geraet
+  241                   		; Es hat die gleiche Bedeutung
+  242                   		; wie im CP/M-Bios 
+  243                   		;
+  244                   		;IOBYTE
+  245                   
+  246 F0E6              IOBYTE:
+  247 F0E6  3A F130     	LD A,(IOBYT)
+  248 F0E9  C9          	RET
+  249                   
+  250                   		; IOSET
+  251                   		; kann z.B. im Bios gesetzt werden
+  252                   
+  253 F0EA              IOSET:
+  254 F0EA  79          	LD A,C
+  255 F0EB  32 F130     	LD (IOBYT),A
+  256 F0EE  C9          	RET
+  257                   
+  258                   		;
+  259 F0EF              MEMCK:		;prueft den Speicherbereich und gibt
+  260                   		;die hoechste verfuegbare Zelle an
+  261 F0EF  E5          	PUSH HL
+  262 F0F0  CD F0FC     	CALL MEMSIZ
+  263 F0F3  7D          	LD A,L
+  264 F0F4  D6 3C       	SUB 3CH
+  265 F0F6  30 01       	JR NC,LXBZ
+  266 F0F8  25          	DEC H
+  267 F0F9              LXBZ:
+  268 F0F9  44          	LD B,H
+  269 F0FA  E1          	POP HL
+  270 F0FB  C9          	RET
+  271                   
+  272                   		;
+  273                   		;
+  274 F0FC              MEMSIZ:		;Unterprogramm fuer Speicherendebestimmung
+  275 F0FC  C5          	PUSH BC
+  276 F0FD  21 FFFF     	LD HL,-1
+  277 F100              LXM0:
+  278 F100  24          	INC H
+  279 F101  7E          	LD A,(HL)
+  280 F102  2F          	CPL
+  281 F103  77          	LD (HL),A
+  282 F104  BE          	CP (HL)
+  283 F105  2F          	CPL
+  284 F106  77          	LD (HL),A
+  285 F107  20 F7       	JR NZ,LXM0
+  286 F109              LXM1:
+  287 F109  24          	INC H
+  288 F10A  7C          	LD A,H
+  289 F10B  FE F0       	CP 0F0H  	;ALL RAM
+  290 F10D  28 08       	JR Z,LXM2 	;READY 0F000H
+  291 F10F  7E          	LD A,(HL) 	;max 0f000h, da dort Monitor startet
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page   6
+M-MONI72Z80
+
+  292 F110  2F          	CPL
+  293 F111  77          	LD (HL),A
+  294 F112  BE          	CP (HL)
+  295 F113  2F          	CPL
+  296 F114  77          	LD (HL),A
+  297 F115  28 F2       	JR Z,LXM1
+  298 F117              LXM2:
+  299 F117  25          	DEC H
+  300 F118  01 FFDD     	LD BC,EXIT-ENDX
+  301 F11B  09          	ADD HL,BC
+  302 F11C  C1          	POP BC
+  303 F11D  C9          	RET
+  304                   		;
+  305 F11E              TABSTART:		;TABELLE SPRUNG-VEKTOREN
+  306                   		;
+  307 F11E  C3 F06F     USERCI:	JP TTYIN
+  308 F121  C3 F06F     USERRI:	JP TTYIN
+  309 F124  C3 F098     USERCO:	JP TTYOUT
+  310 F127  C3 F098     USERPOO:	JP TTYOUT
+  311 F12A  C3 F098     USERLO:	JP TTYOUT
+  312 F12D  C3 F0DA     USERCSTS:	JP TTYCSTS
+  313                   		;
+  314 F130  00          IOBYT:	DEFB 0  	;IOBYTE-SPEICHER 
+  315 F131    0003      OEXEC:	DEFS 3
+  316 F134    0003      IEXEC:	DEFS 3
+  317 F137    0003      KEXEC:	DEFS 3
+  318                   		;
+  319                   		;**************FLOPPY FLO2********************
+  320                   
+  321                   
+  322                   		; Autobestimmung des Formats
+  323 F13A              getflop:		; in C ist danach der gueltige
+  324                   		; Laufwerkscode, Vorgabe ist
+  325                   		; in C die Laufwerksnummer
+  326                   		; und ggf. Seite.
+  327 F13A  F3          	di  	; ohne Interrupts
+  328                   		; testet mini,sd =11
+  329                   		;        mini,dd =10
+  330                   		;        maxi,sd =01
+  331                   		;        maxi,dd =00
+  332 F13B  3E D0       	ld a,0d0h
+  333 F13D  D3 C0       	out (flo0),a 	; Stop Controller
+  334 F13F  DB C0       	in a,(flo0) 	; Ints loeschen
+  335 F141  79          	ld a,c
+  336 F142  E6 8F       	and 8fh 	; nur Drivecode ok
+  337 F144  4F          	ld c,a
+  338 F145  CD F2A7     	call wawa
+  339 F148  79          	ld a,c
+  340 F149  F6 30       	or 00110000b
+  341 F14B  4F          	ld c,a
+  342 F14C  CD F16A     	call get1flop
+  343 F14F  D0          	ret nc  	; kein Fehler, no carry
+  344 F150  79          	ld a,c
+  345 F151  E6 AF       	and 10101111b
+  346 F153  4F          	ld c,a
+  347 F154  CD F16A     	call get1flop
+  348 F157  D0          	ret nc
+  349 F158  79          	ld a,c
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page   7
+M-MONI72Z80
+
+  350 F159  E6 8F       	and 10001111b
+  351 F15B  F6 10       	or  00010000b
+  352 F15D  4F          	ld c,a
+  353 F15E  CD F16A     	call get1flop
+  354 F161  D0          	ret nc
+  355 F162  79          	ld a,c
+  356 F163  E6 8F       	and 10001111b
+  357 F165  4F          	ld c,a
+  358 F166  CD F16A     	call get1flop
+  359 F169  C9          	ret  	; carry, dann Fehler
+  360                   
+  361                   
+  362 F16A              get1flop:
+  363 F16A  3A F6E0     	ld a,(floc0)
+  364                   ;1 	if a=1  	;FLO1 
+  365 F16D  FE 01       	CP 1  
+  366 F16F  C2 F178     	JP NZ,.L1
+  367 F172  79          	ld a,c
+  368 F173  EE 10       	xor 10h 	;invertieren Dichtebit bei FLO1
+  369                   ;1 	else  	;FLO2
+  370 F175  C3 F179     	JP .L2
+  371 F178              .L1:
+  372 F178  79          	ld a,c
+  373                   ;1 	endif    
+  374 F179              .L2:
+  375 F179  D3 C4       	out (flo4),a 	; Drive-Code probieren
+  376 F17B  3E 0F       	ld a,0fh 	; RSTORE-Befehl mit Verify verwenden
+  377 F17D  D3 C0       	out (flo0),a 	; und ausgeben
+  378 F17F              get2flop:
+  379 F17F  DB C4       	in a,(flo4)
+  380 F181  E6 40       	and 40h 	; Bit 6 pruefen
+  381 F183  28 FA       	jr z,get2flop 	; bis INT da.
+  382 F185  DB C0       	in a,(flo0) 	; und dann status lesen, int loeschen
+  383 F187  E6 98       	and  10011000b 	; krit. Bit testen 
+  384 F189  37          	scf  	; falls Fehler, dann setzen
+  385 F18A  C0          	ret nz  	; carry=Fehler
+  386 F18B  AF          	xor a
+  387 F18C  C9          	ret  	; sonst ok nocarry (c=Code)
+  388                   
+  389                   
+  390                   		;*************************************************
+  391                   		;* Floppy Interface Paket Rev 1.0   841031       *
+  392                   		;* (C) 1984 Muenchen, Rolf-Dieter Klein          *
+  393                   		;*************************************************
+  394                   
+  395                   		; Routinen fuer MC-Kompatibilitaet
+  396                   		; wie floppy, jedoch Drive-Codierung anders
+  397                   		; nur fuer bestehende BIOS-Routinen gedacht
+  398                   		; 
+  399                   		; bei Maxi wird die Seite 1 mit Seitenpruefung auf 0
+  400                   		; angesprochen, bei Mini mit Seitenpruefung auf 1.
+  401                   		; nur fuer SD
+  402 F18D              maxi::		; c=0,1,2,3
+  403                   		; 0,2 gekoppelt  1,3 gekoppelt
+  404 F18D  CD F193     	call setcod
+  405 F190  C3 F1F7     	jp floppy 	; sso-flag auf 0 setzen, jedoch stepflag
+  406                   		; gueltig wenn bit 7 gesetzt.
+  407                   
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page   8
+M-MONI72Z80
+
+  408 F193              setcod:
+  409 F193  79          	ld a,c  	; SD MAXI
+  410 F194  E6 03       	and 3  	; muss Bereich 0..3 sein
+  411 F196  FE 00       	cp 0  	; 0 seite 0
+  412 F198  20 03       	jr nz,max1
+  413 F19A  0E 11       	ld c,00010001b 	; LW 1
+  414 F19C  C9          	ret
+  415 F19D              max1:
+  416 F19D  FE 01       	cp 1
+  417 F19F  20 03       	jr nz,max2
+  418 F1A1  0E 12       	ld c,00010010b 	; LW 2 seite 0
+  419 F1A3  C9          	ret
+  420 F1A4              max2:
+  421 F1A4  FE 02       	cp 2
+  422 F1A6  20 03       	jr nz,max3
+  423 F1A8  0E 91       	ld c,10010001b 	; LW 1 seite 1
+  424 F1AA  C9          	ret
+  425 F1AB              max3:
+  426 F1AB  0E 92       	ld c,10010010b 	; LW 2 seite 1
+  427 F1AD  C9          	ret
+  428                   
+  429                   
+  430 F1AE              set2cod:
+  431 F1AE  E6 03       	and 3  	;0,1,2,3 erlaubt
+  432 F1B0  FE 00       	cp 0
+  433 F1B2  20 03       	jr nz,min1
+  434 F1B4  0E 01       	ld c,00000001b 	; LW 1 seite 0
+  435 F1B6  C9          	ret
+  436 F1B7              min1:
+  437 F1B7  FE 01       	cp 1
+  438 F1B9  20 03       	jr nz,min2
+  439 F1BB  0E 81       	ld c,10000001b 	; LW 1 seite 1
+  440 F1BD  C9          	ret
+  441 F1BE              min2:
+  442 F1BE  FE 02       	cp 2
+  443 F1C0  20 03       	jr nz,min3
+  444 F1C2  0E 02       	ld c,00000010b 	; LW 2 seite 0
+  445 F1C4  C9          	ret
+  446                   
+  447 F1C5              min3:
+  448 F1C5  0E 82       	ld c,10000010b 	; LW 2 seite 1 
+  449 F1C7  C9          	ret
+  450                   
+  451                   
+  452 F1C8              mini::		;  rest unzul.
+  453                   		; 10,11 12,13 gekoppelt, d0,d1,d2,d3
+  454                   		; bit 6 =Dichtecode 1=Double dense
+  455 F1C8  79          	ld a,c
+  456 F1C9  E6 7F       	and 7fh 	; bit 7 interessiert nicht
+  457 F1CB  4F          	ld c,a
+  458 F1CC  F5          	push af
+  459 F1CD  CD F1AE     	call set2cod 	; codierung 2
+  460 F1D0  F1          	pop af
+  461 F1D1  E6 40       	and 40h 	; dd,sd 
+  462                   ;1 	if z  	; =0 sd
+  463 F1D3  C2 F1DD     	JP NZ,.L3
+  464 F1D6  79          	ld a,c
+  465 F1D7  F6 30       	or 00110000b 	; SD MINI
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page   9
+M-MONI72Z80
+
+  466 F1D9  4F          	ld c,a
+  467                   ;1 	else
+  468 F1DA  C3 F1E1     	JP .L4
+  469 F1DD              .L3:
+  470 F1DD  79          	ld a,c
+  471 F1DE  F6 20       	or 00100000b 	; DD MINI
+  472 F1E0  4F          	ld c,a
+  473                   ;1 	endif
+  474 F1E1              .L4:
+  475 F1E1  3E 02       	ld a,2  	; sso-flag setzen
+  476 F1E3  C3 F1F8     	jp floppy1 	; ok ausfuehren
+  477                   
+  478                   		;*****************************************
+  479                   		;* Floppy-Unterprogramme fuer FLO2       *
+  480                   		;* verwendet 1797 als Controller         *
+  481                   		;* Version 1.0   840506                  *
+  482                   		;* Rolf-Dieter Klein (C) 1984 Muenchen   *
+  483                   		;*****************************************
+  484                   
+  485                   		; Die Routinen ermoeglichen sowohl den Anschluss
+  486                   		; von Mini-,Mikro- als auch von Maxi-Laufwerken
+  487                   		; Die Routinen muessen im RAM stehen 
+  488                   		; da auch Buffer am Ende stehen
+  489                   		; alle Buffer sind jedoch gesammelt
+  490                   
+  491         00C0      	flo equ 0c0h 	; Basisadresse Floppy-Controller
+  492         00C0      	flo0 equ 0c0h   	; komp.
+  493         00C1      	flo1 equ 0c1h
+  494         00C2      	flo2 equ 0c2h
+  495         00C3      	flo3 equ 0c3h
+  496         00C4      	flo4 equ 0c4h 	; Port fuer Zusatzstatus etc.
+  497                   
+  498                   
+  499                   		; FLO4    als Leseport
+  500                   		;
+  501                   		; 7 6 5 4 3 2 1 0
+  502                   		;
+  503                   		; DRQ   INTRQ   headld x      x x x x
+  504                   		; 0=request
+  505                   		;      0=request
+  506                   		;  1=head down
+  507                   		;
+  508                   
+  509                   
+  510                   		; FLO4    als Schreibport
+  511                   		;
+  512                   		; 7 6 5 4 3 2 1 0
+  513                   		;
+  514                   		; sso moton mini dense d c b a
+  515                   		;
+  516                   		; 1=Seite 1
+  517                   		; 0=Motor an
+  518                   		;  1=Minilaufwerk
+  519                   		;   1=Single Dense
+  520                   		;    -------------------------
+  521                   		;                                      1=Laufwerk an
+  522                   		;
+  523                   
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  10
+M-MONI72Z80
+
+  524                   		; Bei einem Interrupt wird an diese Stelle gesprungen
+  525                   		; Der Interrupt erfolgt vom Floppy-Controller
+  526                   
+  527 F1E6              intex::		; Das INT-Program arbeitet nicht als
+  528                   		; Unterprogramm.
+  529 F1E6  F1          	pop af  	; alte Ret-Adresse vernichten
+  530 F1E7  DB C0       	in a,(flo) 	; Status lesen und INT loeschen
+  531 F1E9  FB          	ei  	; Interrupt wieder freigeben
+  532 F1EA  ED 4D       	reti  	; zurueck zum vorherigen Aufrufer
+  533                   
+  534 F1EC              iniflp::		; Floppy Routinen Init
+  535 F1EC  3E 03       	ld a,3  	; langsamste Steprate
+  536 F1EE  32 F3DE     	ld (steprate),a 	; einstellen, kein SSO
+  537 F1F1  3E FF       	ld a,0ffh
+  538 F1F3  32 F3E7     	ld (drvat),a 	; Drive ungueltig
+  539 F1F6  C9          	ret 
+  540                   
+  541         0038      	intvek equ 38h 	; Interruptziel
+  542                   
+  543 F1F7              floppy::		; Haupteingang der Floppy-Routinen
+  544 F1F7  AF          	xor a  	; sso-Flag auf 0 setzen
+  545 F1F8              floppy1::		; a=sso flag, nur 2 zunlaessig
+  546 F1F8  32 F3DF     	ld (ssoflag),a 	; ok setzen hier moeglich
+  547                   		; hl = Ziel oder Quelladresse
+  548                   		; E= Sektor D= Track
+  549                   		; C= Laufwerkscode+Dichtecode+Seite
+  550                   		; B= 0 dann Steprate setzen+SSO-Flag
+  551                   		;  = 1 dann lesen
+  552                   		;  = 2 dann schreiben
+  553 F1FB              cflo1:
+  554 F1FB  F5          	push af  	;entscheiden FLO1 oder FLO2
+  555 F1FC  3A F6E0     	ld a,(floc0)
+  556                   ;1 	if a=1  	;1 = flo1
+  557 F1FF  FE 01       	CP 1  
+  558 F201  C2 F20A     	JP NZ,.L5
+  559 F204  79          	ld a,c
+  560 F205  E6 BF       	and 10111111b 	;kein autowait 
+  561                   
+  562 F207  EE 10       	xor 10h 	;invertieren Dichtebit fuer FLO1
+  563 F209  4F          	ld c,a
+  564                   ;1 	endif
+  565 F20A              .L5:
+  566 F20A  F1          	pop af
+  567 F20B  ED 73 F3E0  	ld (sp0),sp 	; Stack umsetzen, da Tiefe ggf zu gross
+  568 F20F  31 F45C     	ld sp,tstack 	; fuer BDOS
+  569                   		;
+  570 F212  3E D0       	ld a,0d0h
+  571 F214  D3 C0       	out (flo),a 	; Floppy-Controller ruecksetzen
+  572 F216  3A 0038     	ld a,(intvek)
+  573 F219  32 F3E2     	ld (locint),a
+  574 F21C  3E C3       	ld a,0c3h 	; JP - Befehl
+  575 F21E  32 0038     	ld (intvek),a
+  576 F221  E5          	push hl 	; Ziel, Quelladresse
+  577 F222  2A 0039     	ld hl,(intvek+1)
+  578 F225  22 F3E3     	ld (locint+1),hl
+  579 F228  21 F1E6     	ld hl,intex 	; JP INTEX ablegen auf intvek
+  580 F22B  22 0039     	ld (intvek+1),hl
+  581 F22E  E1          	pop hl  	;
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  11
+M-MONI72Z80
+
+  582 F22F  DB C0       	in a,(flo) 	; Status - Port
+  583 F231  ED 56       	im 1  	; Mode 1 einstellen
+  584 F233  FB          	ei  	; Interrupt freigeben
+  585 F234  CD F2DF     	call softex
+  586 F237  F3          	di  	; Sperren Int
+  587 F238  F5          	push af 	; Status
+  588 F239  3A F3E2     	ld a,(locint)
+  589 F23C  32 0038     	ld (intvek),a 	; zurueckspeichern
+  590 F23F  E5          	push hl
+  591 F240  2A F3E3     	ld hl,(locint+1)
+  592 F243  22 0039     	ld (intvek+1),hl
+  593 F246  E1          	pop hl
+  594 F247  F1          	pop af
+  595 F248  ED 7B F3E0  	ld sp,(sp0) 	; und wieder user-stack verwenden
+  596 F24C  C9          	ret
+  597                   
+  598                   		; Diverse Unterprogramme
+  599                   		;
+  600                   
+  601 F24D              setup:		; testet ob der Kopf noch
+  602                   		; geladen ist und setzt die
+  603 F24D  06 00       	ld b,0  	; Flag fuer SSO-Bit
+  604 F24F  3A F3E6     	ld a,(ccode) 	; wenn Bit 7 gesetzt, dann abfragen
+  605 F252  E6 80       	and 80h
+  606 F254  28 11       	jr z,set2up 	; Seite 0, immer mit SSO=0
+  607 F256  3A F3DE     	ld a,(steprate) 	; jetzt pruefen ob flags da
+  608 F259  E6 80       	and 80h 	;<>0, dann SSO setzen, wenn seite 1
+  609 F25B  28 04       	jr z,set1up 	;=0, dann code 0, oder SSOFLAG
+  610 F25D  06 02       	ld b,2  	;SSO setzen 
+  611 F25F  18 06       	jr set2up
+  612 F261              set1up:		; pruefen ob SSO-Flag
+  613 F261  3A F3DF     	ld a,(ssoflag) 	; ok, 2=Flag
+  614 F264  E6 02       	and 2  	; SSO-Bit
+  615 F266  47          	ld b,a  	; 0,2 erlaubt 
+  616 F267              set2up:		; 
+  617                   		; entsprechenden Bits
+  618 F267  DB C4       	in a,(flo4) 	; Status Port
+  619 F269  E6 20       	and 20h 	; Head-Load Bit
+  620 F26B  20 04       	jr nz,noset 	; =1 dann Kopf auf Diskette
+  621 F26D  78          	ld a,b
+  622 F26E  F6 04       	or 4  	; sonst Bitmaske fuer headdown
+  623 F270  C9          	ret
+  624 F271              noset:
+  625 F271  78          	ld a,b
+  626 F272  C9          	ret  	; Code belassen.
+  627                   
+  628 F273              rdflp:		; einen Sektor lesen
+  629                   		; e=sektor nr
+  630 F273  79          	ld a,c
+  631 F274  D3 C4       	out (flo4),a 	; erst mal Dichtecode setzen und Seite
+  632 F276  7B          	ld a,e
+  633 F277  D3 C2       	out (flo2),a 	; ins Sektorregister
+  634 F279  0E C3       	ld c,flo3 	; Adresse Datenport dann nach c
+  635 F27B  CD F24D     	call setup 	; Register A vorbereiten
+  636 F27E  C6 88       	add a,88h 	; Lese-Befehl, sidesel=0
+  637 F280  D3 C0       	out (flo),a 	; Befehl ausfuehren
+  638 F282              rd1:
+  639 F282  DB C4       	in a,(flo4) 	; DRQ schon da ?
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  12
+M-MONI72Z80
+
+  640 F284  07          	rlca  	; bit7 = drq bit6 = int
+  641 F285  D2 F282     	jp nc,rd1 	; bis drq=1 da ist
+  642 F288  ED A2       	ini  	; dann Transport moeglich
+  643 F28A  C3 F282     	jp rd1  	; und alles wiederholen bis INT
+  644                   
+  645                   
+  646 F28D              wrflp:		; Floppy-Sektor schreiben
+  647 F28D  79          	ld a,c
+  648 F28E  D3 C4       	out (flo4),a 	; erst mal Seite anwaehlen und Dichte
+  649 F290  7B          	ld a,e  	; Sektorregister setzen
+  650 F291  D3 C2       	out (flo2),a
+  651 F293  0E C3       	ld c,flo3 	; Adresse Datenport laden
+  652 F295  CD F24D     	call setup 	; E-Code in A laden
+  653 F298  C6 A8       	add a,0a8h 	; Befehl Schreibe-Sektor
+  654 F29A  D3 C0       	out (flo),a 	; und Befehl ausfuehren
+  655 F29C              wr1:
+  656 F29C  DB C4       	in a,(flo4) 	; warten bis DRQ da
+  657 F29E  07          	rlca
+  658 F29F  D2 F29C     	jp nc,wr1 	; dann Wert ausgeben
+  659 F2A2  ED A3       	outi  	; mit Blockbefehl
+  660 F2A4  C3 F29C     	jp wr1  	; verlassen nur durch INT
+  661                   
+  662 F2A7              wawa:		; Warteschleife fuer einige ms
+  663 F2A7  C5          	push bc 	; pro Schleife ca 6ys bei 4MHz
+  664 F2A8  01 01F4     	ld bc,500 	; 500*6ys Dauer
+  665 F2AB  CD F2B0     	call delay
+  666 F2AE  C1          	pop bc
+  667 F2AF  C9          	ret
+  668                   
+  669 F2B0              delay:
+  670 F2B0  0B          	dec bc
+  671 F2B1  78          	ld a,b
+  672 F2B2  B1          	or c
+  673 F2B3  C2 F2B0     	jp nz,delay
+  674 F2B6  C9          	ret
+  675                   
+  676                   
+  677 F2B7              seek:		; Spur anfahren C=Drive D=Spur E=Sektor
+  678 F2B7  CD F2A7     	call wawa 	; Sicherheitshalber warten
+  679 F2BA  79          	ld a,c
+  680 F2BB  D3 C4       	out (flo4),a 	; Drive-Code und Dichte sowie Seite
+  681 F2BD  7B          	ld a,e
+  682 F2BE  D3 C2       	out (flo2),a 	; Sektor
+  683 F2C0  7A          	ld a,d
+  684 F2C1  D3 C3       	out (flo3),a 	; Spur
+  685 F2C3  06 1C       	ld b,1ch 	; Seek-Befehl
+  686 F2C5  3A F3DE     	ld a,(steprate)
+  687 F2C8  E6 03       	and 3  	; 0,1,2,3  zulaessig
+  688 F2CA  B0          	or b  	; Seek Befehl zusammen mit Steprate
+  689 F2CB  D3 C0       	out (flo),a 	; als Befehl ausgeben
+  690 F2CD  76          	halt  	; warten bis INT
+  691                   
+  692 F2CE              rstore:		; Kopf auf Spur 0 stellen
+  693 F2CE  CD F2A7     	call wawa
+  694 F2D1  79          	ld a,c  	; Laufwerkscode (drive)
+  695 F2D2  D3 C4       	out (flo4),a 	; mit Dichtecode etc. ausgeben
+  696 F2D4  06 08       	ld b,8  	; nur Head-load, kein verify
+  697 F2D6  3A F3DE     	ld a,(steprate)
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  13
+M-MONI72Z80
+
+  698 F2D9  E6 03       	and 3  	; 0,1,2,3 zulaessig
+  699 F2DB  B0          	or b  	; als Befehl kombiniert
+  700 F2DC  D3 C0       	out (flo),a 	; und ausfuehren
+  701 F2DE  76          	halt  	; bis INT dort warten
+  702                   
+  703                   
+  704 F2DF              softex:		; Floppy-Kernroutinen
+  705                   		; hl=adresse, d=track e=sektor
+  706                   		; b=Befehl 0=Steprate setzen 1=read 2=write
+  707                   		; c=Laufwerkscode
+  708                   		;   aufgebaut wie Statusregister
+  709                   		; 7    6    5    4    3    2    1    0
+  710                   		; sso  mot  min  dens d    d    d    d
+  711                   		; sso  = seitenauswahl 1=seite 1
+  712                   		; mot  = motor on code std=0
+  713                   		; min  = 1 bei Minilaufwerken
+  714                   		; dens = 1 bei Single Dense Aufzeichnung
+  715                   		; d=binaerer Laufwerkscode
+  716                   		;   normalerweise nur 1,2,4,8 moeglich
+  717                   		;   Kombinationen moeglich, wenn binaere
+  718                   		;   Dekodierung beim Laufwerk verwendet
+  719                   		;   wird
+  720 F2DF  78          	ld a,b
+  721 F2E0  B7          	or a
+  722 F2E1  20 08       	jr nz, soft1  	; dann Steprate in Register D (0..3)
+  723 F2E3  7A          	ld a,d   	;    (+80h =SSO verwenden und pruefen).
+  724 F2E4  E6 83       	and 83h  	; Bit 7=SSO-Flag bei Zugriffen wichtig,
+  725 F2E6  32 F3DE     	ld (steprate),a 	; die die zweite Seite verwenden.
+  726 F2E9  AF          	xor a
+  727 F2EA  C9          	ret
+  728                   
+  729 F2EB              soft1:
+  730 F2EB  AF          	xor a
+  731 F2EC  32 F3E5     	ld (fehza),a 	; Fehlerzahl 0
+  732 F2EF  79          	ld a,c
+  733 F2F0  32 F3E6     	ld (ccode),a 	; Drive-Code
+  734 F2F3  E6 0F       	and 0fh 	; fuer Vergleich
+  735 F2F5  4F          	ld c,a  	; wieder zurueck
+  736 F2F6  3A F3E7     	ld a,(drvat)
+  737 F2F9  FE FF       	cp 0ffh 	; ungueltig, dann setzen noetig
+  738 F2FB  28 14       	jr z,notdef
+  739 F2FD  E6 0F       	and 0fh 	; nur Laufwerksnummer relevant
+  740 F2FF  B9          	cp c  	; Vergleich ob Laufwerkewechsel
+  741 F300  CA F33F     	jp z,nurseek 	; nur Seek noetig
+  742 F303  E5          	push hl
+  743 F304  C5          	push bc
+  744 F305  21 F3E8     	ld hl,drvtab 	; Basisadresse
+  745 F308  4F          	ld c,a
+  746 F309  06 00       	ld b,0  	; Alter Laufwerktrack merken
+  747 F30B  09          	add hl,bc
+  748 F30C  DB C1       	in a,(flo1) 	; Tracknr
+  749 F30E  77          	ld (hl),a 	; und dort ablegen
+  750 F30F  C1          	pop bc
+  751 F310  E1          	pop hl
+  752 F311              notdef:		; Drive nur laden
+  753 F311  E5          	push hl
+  754 F312  C5          	push bc
+  755 F313  3A F3E6     	ld a,(ccode) 	; neues Laufwerk
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  14
+M-MONI72Z80
+
+  756 F316  E6 0F       	and 0fh 	; nur Laufwerkscode
+  757 F318  4F          	ld c,a
+  758 F319  06 00       	ld b,0
+  759 F31B  21 F3E8     	ld hl,drvtab 	; Tabellenstart
+  760 F31E  09          	add hl,bc 	; hl zeigt auf Laufwerkstrack
+  761 F31F  7E          	ld a,(hl)
+  762 F320  D3 C1       	out (flo1),a 	; und ins Register des FDs
+  763 F322  C1          	pop bc
+  764 F323  E1          	pop hl
+  765 F324  3A F3E6     	ld a,(ccode)
+  766 F327  32 F3E7     	ld (drvat),a 	; ist nun neues Laufwerk
+  767 F32A  C5          	push bc
+  768 F32B  01 00FA     	ld bc,1000*3/12 	; ca 1ms warten
+  769 F32E  CD F2B0     	call delay 	;
+  770 F331  3A F3E6     	ld a,(ccode) 	; Dann neues Laufwerk ansprechen
+  771 F334  D3 C4       	out (flo4),a 	;
+  772 F336  01 0B65     	ld bc,2917 	; ca 35ms .. 15ms
+  773 F339  CD F2B0     	call delay 	; um head-load-Zeit zu beruecksichtigen 
+  774 F33C  C1          	pop bc  	; alte Codes zurueck
+  775 F33D  18 06       	jr nur1 	; Immer auf ready pruefen, da
+  776                   		; head down sein kann und dennoch
+  777                   		; nicht ready
+  778                   
+  779                   
+  780 F33F              nurseek:
+  781 F33F  DB C4       	in a,(flo4) 	; wenn head down dann kein dummyseek
+  782 F341  E6 20       	and 20h
+  783 F343  20 0D       	jr nz,nodum
+  784 F345              nur1:		; immer einsprung
+  785 F345  3A F3E6     	ld a,(ccode)
+  786 F348  4F          	ld c,a
+  787 F349  CD F3D4     	call seekex 	; seek selekt dummy nur fuer readytest
+  788 F34C  DB C0       	in a,(flo) 	; test Status
+  789 F34E  E6 80       	and 80h 	; fuer Ready
+  790 F350  20 F3       	jr nz,nur1 	; Wiederhole solange bis Laufwerk READY
+  791 F352              nodum:		; Einsprung head down ok
+  792 F352  DB C1       	in a,(flo1) 	; nun pruefen of Tracks gleich sind
+  793 F354  FE FF       	cp 0ffh 	; nicht definiert
+  794 F356  28 0F       	jr z,try1 	; dann zuerst RESTORE
+  795 F358  BA          	cp d  	; oder schon auf dem Track
+  796 F359  CA F386     	jp z,sk11 	; ja dann nur lesen,schreiben
+  797 F35C              	try:  	; SEEK ausfuehren
+  798 F35C  3A F3E6     	ld a,(ccode)
+  799 F35F  4F          	ld c,a
+  800 F360  CD F3D4     	call seekex 	; und Track anfahren Reg retten
+  801 F363  E6 90       	and 10010000b 	; Fehlermaske
+  802 F365  28 1F       	jr z,sk11 	; ja dann R/W moeglich
+  803 F367              try1:		; Laufwerk normieren und RSTORE
+  804 F367  3A F3E6     	ld a,(ccode)
+  805 F36A  4F          	ld c,a
+  806 F36B  E5          	push hl
+  807 F36C  D5          	push de
+  808 F36D  C5          	push bc
+  809 F36E  CD F2CE     	call rstore
+  810 F371  C1          	pop bc
+  811 F372  D1          	pop de
+  812 F373  E1          	pop hl
+  813 F374  3A F3E5     	ld a,(fehza) 	; Fehler erhoehen
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  15
+M-MONI72Z80
+
+  814 F377  3C          	inc a
+  815 F378  32 F3E5     	ld (fehza),a
+  816 F37B  FE 0A       	cp 10  	; bei 10 Fatal-Fehler
+  817 F37D  38 DD       	jr c,try 	; sonst nochmals mit SEEK probieren
+  818 F37F              error1:
+  819 F37F  3E FF       	ld a,0ffh
+  820 F381  B7          	or a
+  821 F382  37          	scf  	; 0ffh, carry als Fehlerflag
+  822 F383  C9          	ret  	; ABBRUCH FATAL
+  823                   
+  824 F384              noerr1:		; Ausgang wenn kein Fehler da
+  825 F384  AF          	xor a
+  826 F385  C9          	ret
+  827                   
+  828                   
+  829 F386              sk11:		; r/w ausfuehren
+  830 F386  78          	ld a,b
+  831 F387  FE 02       	cp 2
+  832 F389  CA F3B2     	jp z,wrtex 	; Schreibbefehl
+  833 F38C  3A F3E6     	ld a,(ccode)
+  834 F38F  4F          	ld c,a
+  835 F390  E5          	push hl
+  836 F391  D5          	push de
+  837 F392  C5          	push bc
+  838 F393  CD F273     	call rdflp 	; und Lesen
+  839 F396  C1          	pop bc
+  840 F397  D1          	pop de
+  841 F398  E1          	pop hl
+  842 F399  E6 9C       	and 10011100b 	; Fehlermaske incl. Lost data
+  843 F39B  28 E7       	jr z,noerr1 	; ende
+  844 F39D  E6 10       	and 00010000b 	; bei record not found SEEK
+  845 F39F  20 C6       	jr nz,try1 	; mit vorherigem Restore
+  846 F3A1  3A F3E5     	ld a,(fehza)
+  847 F3A4  3C          	inc a
+  848 F3A5  32 F3E5     	ld (fehza),a 	; CRC Fehler sonst
+  849 F3A8  FE 05       	cp 5  	; kleiner als 5 dann nochmals probieren
+  850 F3AA  38 DA       	jr c,sk11 	;
+  851 F3AC  FE 0A       	cp 10
+  852 F3AE  38 B7       	jr c,try1 	; sonst rstore und seek
+  853 F3B0  18 CD       	jr error1 	; sonst FATAL - Fehler
+  854                   
+  855 F3B2              wrtex:		; Schreiben
+  856 F3B2  3A F3E6     	ld a,(ccode)
+  857 F3B5  4F          	ld c,a
+  858 F3B6  E5          	push hl
+  859 F3B7  D5          	push de
+  860 F3B8  C5          	push bc
+  861 F3B9  CD F28D     	call wrflp
+  862 F3BC  C1          	pop bc
+  863 F3BD  D1          	pop de
+  864 F3BE  E1          	pop hl
+  865 F3BF  E6 FC       	and 11111100b
+  866 F3C1  28 C1       	jr z,noerr1 	; alles ok
+  867 F3C3  E6 10       	and 00010000b 	; record not found
+  868 F3C5  20 A0       	jr nz,try1 	; gleich neuen Seek ausfuehren
+  869 F3C7  3A F3E5     	ld a,(fehza)
+  870 F3CA  3C          	inc a
+  871 F3CB  32 F3E5     	ld (fehza),a 	;
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  16
+M-MONI72Z80
+
+  872 F3CE  FE 04       	cp 4  	; recht bald, da i.A. nur record not fnd
+  873 F3D0  38 95       	jr c,try1 	; daher nur 4 Versuche
+  874 F3D2  18 AB       	jr error1 	; FATAL FEHLER
+  875                   
+  876 F3D4              seekex:		; Seek ausfuehren
+  877 F3D4  E5          	push hl
+  878 F3D5  D5          	push de
+  879 F3D6  C5          	push bc
+  880 F3D7  CD F2B7     	call seek
+  881 F3DA  C1          	pop bc
+  882 F3DB  D1          	pop de
+  883 F3DC  E1          	pop hl
+  884 F3DD  C9          	ret
+  885                   
+  886                   
+  887                   		; *** ENDE der Floppy-Routinen ***
+  888                   
+  889                   
+  890                   		;***********************************
+  891                   		;* Ram        *    
+  892                   		;***********************************
+  893                   
+  894                   
+  895                   		; Buffer Bereich fuer Floppy-Routinen
+  896                   
+  897 F3DE  00          steprate:	defb 0    	; Merker fuer die Steprate + SSO-Option
+  898 F3DF  00          ssoflag:	defb 0    	; zusaetzlich, dominant, fuer MINI
+  899 F3E0  0000        sp0:	defw 0    	; Stackmerker fuer BDOS
+  900                   		; =2, dann mit sso, sonst 0
+  901 F3E2  00 00 00    locint:	defb 0,0,0 	; Merker fuer alten Inhalt Intvektor
+  902 F3E5  00          fehza:	defb 0    	; Fehlerzaehler fuer retry
+  903 F3E6  00          ccode:	defb 0    	; Drive-Code
+  904 F3E7  FF          drvat:	defb 0ffh  	; letztes Laufwerk
+  905 F3E8  FF FF FF FF drvtab:	defb 0ffh,0ffh,0ffh,0ffh 	; 16 moegliche Laufwerke
+  906 F3EC  FF FF FF FF 	defb 0ffh,0ffh,0ffh,0ffh
+  907 F3F0  FF FF FF FF 	defb 0ffh,0ffh,0ffh,0ffh
+  908 F3F4  FF FF FF FF 	defb 0ffh,0ffh,0ffh,0ffh
+  909 F3F8    0064      	defs 100   	; lokaler Stack 
+  910 F45C  00          tstack:	defb 0
+  911                   		;
+  912                   		; ************* ENDE FLO2-Routinen ***************
+  913                   		;
+  914                   		;**************WINCHESTER*********************
+  915                   		;**********************************
+  916                   		;* Winchester Adapter Programm    *
+  917                   		;* Version 1.0  830629 R D Klein  *
+  918                   		;* XEBEC-Controller     *
+  919                   		;**********************************
+  920                   		; vers ro352 in Tabelle   --
+  921                   
+  922         007C      	hdbase equ 7ch 	;
+  923                   
+  924         007C      	hddata equ hdbase
+  925         007D      	hdstat equ hdbase+1
+  926         007D      	hdrst equ hdbase+1
+  927         007E      	hdsel equ  hdbase+2
+  928                   
+  929         0001      	hdreq equ 1 	;request bit position
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  17
+M-MONI72Z80
+
+  930         0002      	hdbsy equ 2 	;busy bit 
+  931         0004      	hdmsg equ 4 	;msg bit
+  932         0008      	hdc$d equ 8 	;c/d bit
+  933         0010      	hdi$o equ 10h 	;i/o bit
+  934                   
+  935         0002      	errmsk equ 2 	;error maske
+  936                   
+  937         0008      	comfhst equ 8 	;commdand from host
+  938         0000      	datfhst equ 0 	;data from host
+  939         0010      	datthst equ 10h 	;data to host
+  940         0018      	errthst equ 18h 	;error status to host
+  941         001C      	comrdy equ 1ch 	;command completed
+  942                   
+  943         0000      	drvrdyc equ 0 	;test for ready
+  944         0004      	formatc equ 4 	;format code
+  945         0008      	readc equ 8 	;read code
+  946         000A      	writec equ 0ah 	;write code
+  947         0003      	sensec equ 3 	;status sense 
+  948         000C      	initlc equ 0ch 	;init disk size
+  949         000B      	seekc equ 0bh 	;seek command
+  950         0001      	recalc equ 1 	;recalibrate
+  951         00E0      	ramdiag equ 0e0h 	;diagnostik ram
+  952                   
+  953                   
+  954 F45D              wiini::		;controller laden
+  955                   		;parameter einstellen
+  956                   		;nur wenn angesprochen
+  957                   		;aufruf der routine von sys aus
+  958                   
+  959 F45D  3E 00       	ld a,0
+  960 F45F  D3 7D       	out (hdrst),a  	;reset xebec controller
+  961                   
+  962 F461  3E 0C       	ld a,initlc  	;parameter tabelle
+  963 F463  CD F4CA     	call taskout
+  964 F466  06 08       	ld b,8
+  965 F468  21 F481     	ld hl,drvtbl  	;characteristika
+  966 F46B              deflop:
+  967 F46B  CD F4F3     	call reqwait
+  968 F46E  7E          	ld a,(hl)
+  969 F46F  D3 7C       	out (hddata),a
+  970 F471  23          	inc hl
+  971 F472  05          	dec b
+  972 F473  20 F6       	jr nz,deflop
+  973 F475  CD F4FE     	call getstat
+  974 F478  3E 01       	ld a,recalc
+  975 F47A  CD F4CA     	call taskout  	;recal drive durchfuehren
+  976 F47D  CD F4FE     	call getstat  	;
+  977 F480  C9          	ret   	;0= ok
+  978                   
+  979                   		;
+  980 F481              drvtbl:		;fuer RO 352
+  981 F481  01          	defb 1   	;msb cylinders
+  982 F482  32          	defb 50   	;lsb cylinders 306=50+256
+  983 F483  04          	defb 4   	;heads
+  984 F484  00          	defb 0   	;msb reduced write cyl 128
+  985 F485  80          	defb 128  	;lsb
+  986 F486  00          	defb 0   	;msb write precom cyl
+  987 F487  80          	defb 128  	;lsb
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  18
+M-MONI72Z80
+
+  988 F488  0B          	defb 11   	;ecc length
+  989                   		;
+  990                   
+  991                   
+  992 F489              hdwrite::		;sektor schreiben de=sectoradr
+  993 F489  3E 0A       	ld a,writec
+  994 F48B  CD F4CA     	call taskout
+  995 F48E  06 00       	ld b,0   	;256 bytes
+  996 F490  21 F5DB     	ld hl,hstbuf
+  997 F493  0E 7C       	ld c,hddata  	;quelle
+  998 F495  CD F4F3     	call reqwait
+  999 F498  FE 00       	cp datfhst  	;sonst fehler
+ 1000 F49A  20 27       	jr nz,hderror
+ 1001 F49C  ED B3       	otir   	;ausgabe
+ 1002 F49E  CD F4FE     	call getstat  	;ende status
+ 1003 F4A1  B7          	or a
+ 1004 F4A2  C8          	ret z   	;ok s.o
+ 1005 F4A3  18 1E       	jr hderror  	;fehler
+ 1006                   
+ 1007 F4A5              hdread::		;de =sector
+ 1008 F4A5  3E 08       	ld a,readc
+ 1009 F4A7  CD F4CA     	call taskout
+ 1010 F4AA  06 00       	ld b,0
+ 1011 F4AC  21 F5DB     	ld hl,hstbuf
+ 1012 F4AF  0E 7C       	ld c,hddata
+ 1013 F4B1  CD F4F3     	call reqwait
+ 1014 F4B4  FE 10       	cp datthst  	;data -> host
+ 1015 F4B6  20 0B       	jr nz,hderror
+ 1016 F4B8  ED B2       	inir   	;lesen
+ 1017 F4BA  CD F4FE     	call getstat  	;test
+ 1018 F4BD  FE 18       	cp 18h
+ 1019 F4BF  28 07       	jr z,noerr  	; corr Error
+ 1020                   		;
+ 1021 F4C1  B7          	or a
+ 1022 F4C2  C8          	ret z
+ 1023                   		;
+ 1024 F4C3              hderror:
+ 1025 F4C3  3E 01       	ld a,1
+ 1026 F4C5  B7          	or a
+ 1027 F4C6  37          	scf
+ 1028 F4C7  C9          	ret   	;fehler
+ 1029                   		;
+ 1030                   
+ 1031 F4C8              noerr:
+ 1032 F4C8  AF          	xor a
+ 1033 F4C9  C9          	ret
+ 1034                   
+ 1035                   
+ 1036 F4CA              taskout:
+ 1037 F4CA  21 F5D2     	ld hl,task  	;adresse
+ 1038 F4CD  77          	ld (hl),a  	;befehl
+ 1039 F4CE  23          	inc hl
+ 1040 F4CF  36 00       	ld (hl),0  	;msb
+ 1041 F4D1  23          	inc hl
+ 1042 F4D2  72          	ld (hl),d  	;middle
+ 1043 F4D3  23          	inc hl
+ 1044 F4D4  73          	ld (hl),e  	;lsb sector
+ 1045 F4D5  23          	inc hl
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  19
+M-MONI72Z80
+
+ 1046 F4D6  36 01       	ld (hl),1  	;einen sektor
+ 1047 F4D8  23          	inc hl
+ 1048 F4D9  36 00       	ld (hl),0  	;3ms steprate
+ 1049 F4DB  21 F5D2     	ld hl,task
+ 1050 F4DE  06 06       	ld b,6
+ 1051 F4E0  CD F517     	call selcntlr  	;select controller
+ 1052 F4E3              tskolp:
+ 1053 F4E3  CD F4F3     	call reqwait
+ 1054 F4E6  FE 08       	cp comfhst
+ 1055 F4E8  C2 F4C3     	jp nz,hderror  	;fehler 
+ 1056 F4EB  7E          	ld a,(hl)
+ 1057 F4EC  23          	inc hl
+ 1058 F4ED  D3 7C       	out (hddata),a
+ 1059 F4EF  10 F2       	djnz tskolp
+ 1060 F4F1  AF          	xor a
+ 1061 F4F2  C9          	ret   	;ok fertig
+ 1062                   
+ 1063 F4F3              reqwait:
+ 1064 F4F3  DB 7D       	in a,(hdstat)
+ 1065 F4F5  5F          	ld e,a
+ 1066 F4F6  CB 47       	bit 0,a  	;request aktive
+ 1067 F4F8  28 F9       	jr z,reqwait 	;nein
+ 1068 F4FA  7B          	ld a,e
+ 1069 F4FB  E6 1C       	and 01ch 	;msg c/d i/o als check
+ 1070 F4FD  C9          	ret
+ 1071                   
+ 1072                   		;
+ 1073 F4FE              getstat:
+ 1074 F4FE  CD F4F3     	call reqwait
+ 1075 F501  FE 18       	cp errthst
+ 1076 F503  C2 F4C3     	jp nz,hderror
+ 1077 F506  DB 7C       	in a,(hddata) 	;status
+ 1078 F508  57          	ld d,a
+ 1079 F509  CD F4F3     	call reqwait
+ 1080 F50C  FE 1C       	cp comrdy
+ 1081 F50E  C2 F4C3     	jp nz,hderror
+ 1082 F511  DB 7C       	in a,(hddata)
+ 1083 F513  7A          	ld a,d
+ 1084 F514  E6 02       	and errmsk
+ 1085 F516  C9          	ret  	;fehlermaske
+ 1086                   
+ 1087 F517              selcntlr:
+ 1088 F517  3E 01       	ld a,1
+ 1089 F519  D3 7C       	out (hddata),a
+ 1090 F51B  D3 7E       	out (hdsel),a 	;selekt controller 1
+ 1091 F51D              sel1:
+ 1092 F51D  DB 7D       	in a,(hdstat)
+ 1093 F51F  E6 02       	and hdbsy
+ 1094 F521  CA F51D     	jp z,sel1
+ 1095 F524  C9          	ret
+ 1096                   
+ 1097                   		;
+ 1098                   
+ 1099                   
+ 1100 F525              hdsys::		;b=1 read b=2 write
+ 1101                   		;hl = ziel,quell-adresse
+ 1102                   		;de indirekte adresse trk,sektor
+ 1103                   		;bei 7.5mb hier nur 0..ffff a 128 bytes
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  20
+M-MONI72Z80
+
+ 1104 F525  1A          	ld a,(de) 	;lsb
+ 1105 F526  4F          	ld c,a
+ 1106 F527  13          	inc de
+ 1107 F528  1A          	ld a,(de) 	;msb sektor a 128
+ 1108 F529  59          	ld e,c  	;lsb
+ 1109 F52A  57          	ld d,a  	;msb de=sektoradresse a 128
+ 1110                   		;
+ 1111 F52B  22 F6DE     	ld (imdma),hl 	;retten
+ 1112 F52E  ED 53 F6DC  	ld (sectrk),de 	;adresse
+ 1113 F532  78          	ld a,b
+ 1114 F533  32 F6DB     	ld (imbef),a 	;befehl
+ 1115 F536  3A F5DA     	ld a,(imwr) 	;=0ffh dann neustart
+ 1116 F539  FE FF       	cp 0ffh  	;
+ 1117 F53B  20 10       	jr nz,hd1 	;weiter sonst
+ 1118 F53D  E5          	push hl
+ 1119 F53E  D5          	push de
+ 1120 F53F  C5          	push bc
+ 1121 F540  CD F45D     	call wiini 	;init controller recalibrate
+ 1122 F543  C1          	pop bc
+ 1123 F544  D1          	pop de
+ 1124 F545  E1          	pop hl
+ 1125 F546  3E 00       	ld a,0
+ 1126 F548  32 F5DA     	ld (imwr),a 	;nicht geschrieben
+ 1127 F54B  18 13       	jr hd2  	;weiter nach checkout
+ 1128 F54D              hd1:
+ 1129 F54D  2A F6DC     	ld hl,(sectrk)
+ 1130 F550  ED 5B F5D8  	ld de,(oldsec) 	;bit 0 irrelevant
+ 1131 F554  CB 83       	res 0,e
+ 1132 F556  CB 85       	res 0,l  	;da bufferhaelfte angibt
+ 1133 F558  AF          	xor a
+ 1134 F559  ED 52       	sbc hl,de
+ 1135 F55B  7C          	ld a,h
+ 1136 F55C  B5          	or l  	;=0 dann schon da
+ 1137 F55D  CA F58B     	jp z,hd3 	;nicht mehr laden
+ 1138 F560              hd2:		;ohne check sektor nicht da
+ 1139                   		;ggf zurueckschreiben alten
+ 1140 F560  3A F5DA     	ld a,(imwr) 	;=1 dann beschriebener sector da
+ 1141 F563  FE 01       	cp 1
+ 1142 F565  20 12       	jr nz,hd21 	;weiter nur laden ok
+ 1143 F567  ED 5B F5D8  	ld de,(oldsec) 	;alter sector zurueck
+ 1144 F56B  CB 3A       	srl d  	;div 2
+ 1145 F56D  CB 1B       	rr e  	;
+ 1146 F56F  CD F489     	call hdwrite 	;zurueck damit
+ 1147 F572  C2 F5D1     	jp nz,errimi
+ 1148 F575  AF          	xor a
+ 1149 F576  32 F5DA     	ld (imwr),a 	;clear
+ 1150 F579              hd21:		;neuen sector holen
+ 1151 F579  ED 5B F6DC  	ld de,(sectrk)
+ 1152 F57D  ED 53 F5D8  	ld (oldsec),de 	;neuer sector nun
+ 1153 F581  CB 3A       	srl d
+ 1154 F583  CB 1B       	rr e  	;div 2
+ 1155 F585  CD F4A5     	call hdread 	;und lesen 256 bytes
+ 1156 F588  C2 F5D1     	jp nz,errimi 	;fehler
+ 1157 F58B              hd3:		;sector nun da
+ 1158 F58B  3A F6DB     	ld a,(imbef)
+ 1159 F58E  FE 01       	cp 1
+ 1160 F590  28 06       	jr z,rdbef
+ 1161 F592  FE 02       	cp 2
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  21
+M-MONI72Z80
+
+ 1162 F594  28 1C       	jr z,wrbef
+ 1163 F596  AF          	xor a
+ 1164 F597  C9          	ret  	;fehlerhafter befehl
+ 1165                   
+ 1166                   
+ 1167 F598              rdbef:
+ 1168 F598  21 F5DB     	ld hl,hstbuf 	;quelle
+ 1169 F59B  ED 5B F6DC  	ld de,(sectrk) 	;bit 0
+ 1170 F59F  CB 43       	bit 0,e  	;=0
+ 1171 F5A1  28 04       	jr z,rd11
+ 1172 F5A3  01 0080     	ld bc,128
+ 1173 F5A6  09          	add hl,bc 	;displacement quelle
+ 1174 F5A7              rd11:
+ 1175 F5A7  ED 5B F6DE  	ld de,(imdma)
+ 1176 F5AB  01 0080     	ld bc,128 	;anzahl bytes
+ 1177 F5AE  ED B0       	ldir  	;nach dmaadr
+ 1178 F5B0  AF          	xor a
+ 1179 F5B1  C9          	ret
+ 1180                   
+ 1181                   
+ 1182                   
+ 1183 F5B2              wrbef:
+ 1184                   		;
+ 1185 F5B2  3E 01       	ld a,1
+ 1186 F5B4  32 F5DA     	ld (imwr),a 	;written flag setzen
+ 1187 F5B7  21 F5DB     	ld hl,hstbuf 	;ziel
+ 1188 F5BA  ED 5B F6DC  	ld de,(sectrk)
+ 1189 F5BE  CB 43       	bit 0,e
+ 1190 F5C0  28 04       	jr z,wr11
+ 1191 F5C2  01 0080     	ld bc,128
+ 1192 F5C5  09          	add hl,bc
+ 1193 F5C6              wr11:
+ 1194 F5C6  EB          	ex de,hl 	;de = zieladresse
+ 1195 F5C7  2A F6DE     	ld hl,(imdma) 	;quelle
+ 1196 F5CA  01 0080     	ld bc,128
+ 1197 F5CD  ED B0       	ldir
+ 1198 F5CF  AF          	xor a
+ 1199 F5D0  C9          	ret  	;fertig
+ 1200                   
+ 1201                   
+ 1202                   
+ 1203 F5D1              errimi:
+ 1204 F5D1  C9          	ret  	;<> 0 fehler
+ 1205                   
+ 1206                   
+ 1207                   
+ 1208 F5D2    0006      task:	defs 6  	;task block
+ 1209                   
+ 1210 F5D8  0000        oldsec:	defw 0  	;frueherer sector a 128
+ 1211                   
+ 1212 F5DA  FF          imwr:	defb 0ffh 	;wichtig init auf ff,wiini etc
+ 1213 F5DB    0100      hstbuf::	defs 256 	;sector buffer
+ 1214                   
+ 1215 F6DB  00          imbef:	defb 0  	;befehl =1 read =2 write
+ 1216 F6DC  0000        sectrk:	defw 0  	;sectoradresse a 128
+ 1217 F6DE  0000        imdma:	defw 0  	;adresse ziel,quelle
+ 1218 F6E0  00          floc0:	defb 0  	;0=FLO2, 1=FLO1
+ 1219                   		;*********************************************
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  22
+M-MONI72Z80
+
+ 1220                   
+ 1221                   		;
+ 1222         F6E1      	FREEMEM EQU $ 	;dynamischer Platz fuer Buffer etc.
+ 1223                   
+ 1224                   		;********************************************
+ 1225                   		;* Bereich kann geloescht werden unter CP/M *
+ 1226                   		;* um Platz fuer Puffer etc zu bieten       *
+ 1227                   		;********************************************
+ 1228                   		;
+ 1229                   		;
+ 1230 F6E1              MSG:
+ 1231 F6E1  0D 0A       	DEFB 0DH,0AH
+ 1232 F6E3  07          	DEFB 7 	; BELL
+ 1233 F6E4  20 4D 43 20 	DEFM " MC COMPUTER"
+ 1234 F6F0  20 56 20 37 	DEFM " V 7.2 Winchester ro/basf"
+ 1235 F709  20 52 44 4B 	DEFM " RDK/JS 1985 "
+ 1236 F716  0D 0A 00    	DEFM 0DH,0AH,0
+ 1237         0038      	MSGL EQU $-MSG
+ 1238                   
+ 1239 F719              BEGIN1:		;nur einmal verwendet
+ 1240                   		;    ------ INIT ------
+ 1241 F719  0E F1       	LD C,SIOASTS
+ 1242 F71B  06 08       	LD B,8
+ 1243 F71D  21 F72D     	LD HL,TABSIO
+ 1244 F720  ED B3       	OTIR
+ 1245 F722  0E F3       	LD C,SIOBSTS
+ 1246 F724  06 08       	LD B,8
+ 1247 F726  21 F735     	LD HL,TABSIB
+ 1248 F729  ED B3       	OTIR
+ 1249 F72B  18 10       	JR SKSKL
+ 1250 F72D              TABSIO:
+ 1251 F72D  01 00       	DEFB 1,0
+ 1252 F72F  03 E1       	DEFB 3,11100001B 	; -CTS UND -DCD ENABLE rev 3.4 term1
+ 1253 F731  04 4C       	DEFB 4,01001100B
+ 1254 F733  05 EA       	DEFB 5,11101010B 	;dtr rts +12V bedeutet ready rev 3.4
+ 1255                   		;
+ 1256 F735              TABSIB:		;-CTS UND -DCD ENABLE
+ 1257 F735  01 00       	DEFB 1,0
+ 1258 F737  03 E1       	DEFB 3,11100001B
+ 1259 F739  04 4C       	DEFB 4,01001100B
+ 1260 F73B  05 EA       	DEFB 5,11101010B 	;dtr rts +12V bedeutet ready rev 3.4
+ 1261                   		;
+ 1262 F73D              SKSKL:
+ 1263                   
+ 1264                   		; pio nicht mehr noetig mit 3.2
+ 1265                   		;
+ 1266 F73D  3A 7000     	LD A,(7000H) 	;Bank-Select umschalten
+ 1267                   		;
+ 1268                   
+ 1269                   
+ 1270 F740  AF          	XOR A  	;alles auf Console schalten
+ 1271 F741  32 F130     	LD (IOBYT),A
+ 1272                   
+ 1273                   		;    ------ END INIT -------
+ 1274                   
+ 1275 F744  31 F748     	LD SP,AHEAD-4
+ 1276 F747  C3 F0FD     	JP MEMSIZ+1
+ 1277 F74A  F74C        	DEFW AHEAD
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  23
+M-MONI72Z80
+
+ 1278 F74C              AHEAD:
+ 1279 F74C  F9          	LD SP,HL
+ 1280 F74D  EB          	EX DE,HL
+ 1281 F74E  01 0023     	LD BC,ENDX-EXIT
+ 1282 F751  21 FE45     	LD HL,EXIT
+ 1283 F754  ED B0       	LDIR
+ 1284 F756  EB          	EX DE,HL
+ 1285 F757  01 FFA1     	LD BC,-5FH
+ 1286 F75A  09          	ADD HL,BC
+ 1287 F75B  E5          	PUSH HL
+ 1288 F75C  21 0000     	LD HL,0
+ 1289 F75F  06 0A       	LD B,10 	;REGISTER
+ 1290 F761              STKIT:
+ 1291 F761  E5          	PUSH HL
+ 1292 F762  10 FD       	DJNZ STKIT
+ 1293 F764              HELLO:
+ 1294 F764  0E 1A       	LD C,1AH
+ 1295 F766  CD F091     	CALL CO
+ 1296 F769  06 38       	LD B,MSGL
+ 1297 F76B  CD FBE2     	CALL TOM1
+ 1298                   		; Haupteingabeschleife
+ 1299 F76E              START:
+ 1300 F76E  11 F76E     	LD DE,START
+ 1301 F771  D5          	PUSH  DE
+ 1302 F772  CD FC57     	CALL CRLF
+ 1303 F775  0E 3E       	LD C,'>'
+ 1304 F777  CD F091     	CALL CO
+ 1305                   		; ------    U . S . W .
+ 1306 F77A              STAR0:
+ 1307 F77A  CD FDD3     	CALL TI
+ 1308 F77D  E6 7F       	AND 7FH
+ 1309 F77F  28 F9       	JR Z,STAR0
+ 1310 F781  D6 41       	SUB 'A'
+ 1311 F783  F8          	RET M
+ 1312 F784  FE 1A       	CP 'Z'-'A'+1
+ 1313 F786  D0          	RET NC
+ 1314 F787  87          	ADD A,A
+ 1315 F788  21 F798     	LD HL,TBL
+ 1316 F78B  85          	ADD A,L
+ 1317 F78C  6F          	LD L,A
+ 1318 F78D  7C          	LD A,H
+ 1319 F78E  CE 00       	ADC A,0
+ 1320 F790  67          	LD H,A
+ 1321 F791  7E          	LD A,(HL)
+ 1322 F792  23          	INC HL
+ 1323 F793  66          	LD H,(HL)
+ 1324 F794  6F          	LD L,A
+ 1325 F795  0E 02       	LD C,2
+ 1326 F797  E9          	JP (HL)  	;EXEC
+ 1327                   
+ 1328                   		; Befehlstabelle
+ 1329                   		; enthaelt alle Monitorbefehle
+ 1330                   
+ 1331 F798              TBL:
+ 1332 F798  F86C        	DEFW ASSIGN
+ 1333 F79A  F8B7        	DEFW BYE
+ 1334 F79C  F8E4        	DEFW COMP
+ 1335 F79E  F905        	DEFW DISP
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  24
+M-MONI72Z80
+
+ 1336 F7A0  F91C        	DEFW EOF
+ 1337 F7A2  F938        	DEFW FILL
+ 1338 F7A4  F945        	DEFW GOTO
+ 1339 F7A6  FCA9        	DEFW HEXN
+ 1340 F7A8  F7FD        	DEFW BOOT1
+ 1341 F7AA  F993        	DEFW TEST
+ 1342 F7AC  F137        	DEFW KEXEC
+ 1343 F7AE  FD20        	DEFW LOAD
+ 1344 F7B0  F9B1        	DEFW MOVE
+ 1345 F7B2  FC44        	DEFW NULL
+ 1346 F7B4  F131        	DEFW OEXEC
+ 1347 F7B6  F8C5        	DEFW PUTA
+ 1348 F7B8  FDF4        	DEFW QUERY
+ 1349 F7BA  F9BC        	DEFW READ
+ 1350 F7BC  FA75        	DEFW SUBS
+ 1351 F7BE  FA9E        	DEFW TYPE
+ 1352 F7C0  FC2F        	DEFW UNLO
+ 1353 F7C2  FE1F        	DEFW VERIFY
+ 1354 F7C4  FB06        	DEFW WRITE
+ 1355 F7C6  FB43        	DEFW XAM
+ 1356 F7C8  FABE        	DEFW WHERE
+ 1357 F7CA  FC13        	DEFW SIZE
+ 1358                   
+ 1359                   		;
+ 1360                   		; BOOT FLOPPY HARD/SOFT/MINI
+ 1361 F7CC              FLPMSG:
+ 1362 F7CC  0D 0A       	DEFB 0DH,0AH
+ 1363 F7CE  46 4C 4F 32 	DEFM "FLO2-Boot = 1, Winchester = 2, FLO1-Boot = 3 : " 
+ 1364         0031      	FLPL EQU $-FLPMSG
+ 1365                   		;
+ 1366 F7FD              BOOT1:
+ 1367 F7FD  CD F1EC     	CALL INIFLP 	;vektoren etc definieren
+ 1368 F800  21 F7CC     	LD HL,FLPMSG 	;FALLS DA
+ 1369 F803  06 31       	LD B,FLPL 	;Meldung ausgeben
+ 1370 F805  CD FBE5     	CALL TOM 	;dann Antwort abwarten
+ 1371 F808  CD F068     	CALL CI
+ 1372 F80B  E6 7F       	AND 7FH  	;ohne paritaet
+ 1373 F80D  4F          	LD C,A
+ 1374 F80E  CD F091     	CALL CO
+ 1375 F811  FE 49       	CP "I"  	;I-Vektor fuer Benutzerbefehl
+ 1376 F813  CA F134     	JP Z,IEXEC
+ 1377 F816  FE 32       	cp "2"
+ 1378 F818  28 41       	jr z,wiex 	; Winchester Boot
+ 1379                   ;1 	if a='3' 	; boot mit FLO1
+ 1380 F81A  FE 33       	CP '3' 
+ 1381 F81C  C2 F827     	JP NZ,.L6
+ 1382 F81F  3E 01       	ld a,1
+ 1383 F821  32 F6E0     	ld (floc0),a 	; 1 = FLO1 
+ 1384                   ;1 	elseif a='1' 	; boot mit FLO2
+ 1385 F824  C3 F836     	JP .L7
+ 1386 F827              .L6:
+ 1387 F827  FE 31       	CP '1' 
+ 1388 F829  C2 F833     	JP NZ,.L8
+ 1389 F82C  AF          	xor a
+ 1390 F82D  32 F6E0     	ld (floc0),a 	; 0 = FLO2
+ 1391                   ;1 	else
+ 1392 F830  C3 F836     	JP .L9
+ 1393 F833              .L8:
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  25
+M-MONI72Z80
+
+ 1394 F833  C3 FBF7     	jp error
+ 1395                   ;1 	endif
+ 1396 F836              .L9:
+ 1397 F836              .L7:
+ 1398                   		;
+ 1399 F836              bootx:
+ 1400                   		; automatisch Format bestimmen, REV 1.1
+ 1401 F836  0E 01       	ld c,00000001b 	; immer von Laufwerk A  Seite 0 booten
+ 1402 F838  CD F13A     	call getflop 	; Formatierung bestimmen
+ 1403 F83B  DA FBF7     	jp c,error 	; bei Fehler zurueck ins Menue
+ 1404 F83E  21 0080     	ld hl,80h 	; bei einfacher Dichte nach 80h
+ 1405 F841  CB 61       	bit 4,c  	; =0, dann dd, sonst sd
+ 1406 F843  20 03       	jr nz,exec1 	; sd
+ 1407 F845  21 FC00     	ld hl,0fc00h 	; sonst 1K Block ggf. dorthin.
+ 1408 F848              exec1:
+ 1409 F848  E5          	push hl 	; rev (1.5) 1.1
+ 1410 F849  06 01       	ld b,1  	; lesen
+ 1411 F84B  16 00       	ld d,0  	; track 0
+ 1412 F84D  1E 01       	ld e,1  	; sektor 1
+ 1413 F84F  CD F1F7     	call floppy
+ 1414 F852  E1          	pop hl  	; Sprungziel zurueck
+ 1415 F853  C2 FBF7     	jp nz,error
+ 1416 F856  E9          	jp (hl) 	; Starten sonst
+ 1417                   		;
+ 1418                   		;
+ 1419 F857              widat:
+ 1420 F857  00 00 00 00 	defb 0,0,0,0 	; Track=0 Sektor=0
+ 1421                   
+ 1422 F85B              wiex:
+ 1423 F85B  21 0080     	ld hl,80h 	; Boot 128 Bytes auf Adresse 0
+ 1424 F85E  11 F857     	ld de,widat
+ 1425 F861  06 01       	ld b,1  	; lesen
+ 1426 F863  CD F525     	call hdsys 	; start
+ 1427 F866  C2 FBF7     	jp nz,error 	; Fehler beim Boot
+ 1428 F869  C3 0080     	jp 80h  	; und ausfuehren
+ 1429                   
+ 1430                   
+ 1431                   		; IOBYTE ASSIGNE
+ 1432                   		; 000000XX CONSOLE
+ 1433                   		; 0000XX00 READER
+ 1434                   		; 00XX0000 PUNCH
+ 1435                   		; XX000000 LISTER
+ 1436                   
+ 1437                   		; 00= TELETYPE CONS
+ 1438                   
+ 1439 F86C              ASSIGN:		;ZUWEISUNG
+ 1440 F86C  CD FDD3     	CALL TI
+ 1441 F86F  21 FE31     	LD HL,LTBL
+ 1442 F872  01 0400     	LD BC,400H
+ 1443 F875  11 0005     	LD DE,5
+ 1444 F878              AREP0:
+ 1445 F878  BE          	CP (HL)
+ 1446 F879  28 06       	JR Z,AREP1
+ 1447 F87B  19          	ADD HL,DE
+ 1448 F87C  0C          	INC C
+ 1449 F87D  10 F9       	DJNZ AREP0
+ 1450 F87F  18 15       	JR LXERR
+ 1451 F881              AREP1:
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  26
+M-MONI72Z80
+
+ 1452 F881  59          	LD E,C
+ 1453 F882              AREP22:
+ 1454 F882  CD FDD3     	CALL TI
+ 1455 F885  FE 3D       	CP "="
+ 1456 F887  20 F9       	JR NZ,AREP22
+ 1457 F889  CD FDD3     	CALL TI
+ 1458 F88C  01 0400     	LD BC,400H
+ 1459 F88F              AREP33:
+ 1460 F88F  23          	INC HL
+ 1461 F890  BE          	CP (HL)
+ 1462 F891  28 06       	JR Z,LXA4
+ 1463 F893  0C          	INC C
+ 1464 F894  10 F9       	DJNZ AREP33
+ 1465 F896              LXERR:
+ 1466 F896  C3 FBF7     	JP ERROR
+ 1467 F899              LXA4:
+ 1468 F899  3E 03       	LD A,3
+ 1469 F89B  1C          	INC E
+ 1470 F89C              LXA5:
+ 1471 F89C  1D          	DEC E
+ 1472 F89D  28 08       	JR Z,LXA6
+ 1473 F89F  CB 21       	SLA  C
+ 1474 F8A1  CB 21       	SLA  C
+ 1475 F8A3  17          	RLA
+ 1476 F8A4  17          	RLA
+ 1477 F8A5  18 F5       	JR LXA5
+ 1478 F8A7              LXA6:
+ 1479 F8A7  2F          	CPL
+ 1480 F8A8  57          	LD D,A
+ 1481 F8A9              LXA7:
+ 1482 F8A9  CD FD0B     	CALL PCHK
+ 1483 F8AC  30 FB       	JR NC,LXA7
+ 1484 F8AE  3A F130     	LD A,(IOBYT)
+ 1485 F8B1  A2          	AND D
+ 1486 F8B2  B1          	OR C
+ 1487 F8B3  4F          	LD C,A
+ 1488 F8B4  C3 F0EA     	JP IOSET
+ 1489                   		;
+ 1490                   		; BYE COMMAND
+ 1491                   
+ 1492 F8B7              BYE:
+ 1493 F8B7  CD FC57     	CALL CRLF
+ 1494 F8BA              LXBY:
+ 1495 F8BA  CD FDCD     	CALL KI  	;In HEX Dump 1E 
+ 1496 F8BD  FE 0E       	CP 0EH  	;CRTL N ist 0eh
+ 1497 F8BF  20 F9       	JR NZ,LXBY 	;gaendert gegen MC-Vers
+ 1498 F8C1  D1          	POP DE
+ 1499 F8C2  C3 F764     	JP HELLO
+ 1500                   
+ 1501                   		;
+ 1502                   		;
+ 1503                   		; PUT ASCII INTO MEM
+ 1504                   		; Damit ist es moeglich Texte direkt in den Speicher
+ 1505                   		; einzugeben
+ 1506                   
+ 1507 F8C5              PUTA:
+ 1508 F8C5  CD FC6A     	CALL EXPR1
+ 1509 F8C8  CD FC57     	CALL CRLF
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  27
+M-MONI72Z80
+
+ 1510 F8CB  E1          	POP HL
+ 1511 F8CC              AREP11:
+ 1512 F8CC  CD FDCD     	CALL KI
+ 1513 F8CF  FE 04       	CP 4  	;beenden der Eingabe CTRL-D
+ 1514 F8D1  CA FC1A     	JP Z,LFADR
+ 1515 F8D4  FE 5F       	CP "_"  	;rueckwaerts schreiten
+ 1516 F8D6  28 08       	JR Z,AREP34
+ 1517 F8D8  77          	LD (HL),A
+ 1518 F8D9  4F          	LD C,A
+ 1519 F8DA  23          	INC HL
+ 1520 F8DB              AREP23:
+ 1521 F8DB  CD F091     	CALL CO
+ 1522 F8DE  18 EC       	JR AREP11
+ 1523 F8E0              AREP34:
+ 1524 F8E0  2B          	DEC HL
+ 1525 F8E1  4E          	LD C,(HL)
+ 1526 F8E2  18 F7       	JR AREP23
+ 1527                   		;
+ 1528                   		; COMPARE BIN
+ 1529                   		; Vergleich eines Speicherbereichs
+ 1530                   		; mit dem Reader
+ 1531                   
+ 1532 F8E4              COMP:
+ 1533 F8E4  CD FC52     	CALL EXLF
+ 1534 F8E7              LXC:
+ 1535 F8E7  CD FC0C     	CALL RIFF
+ 1536 F8EA  BE          	CP (HL)
+ 1537 F8EB  C4 F8F3     	CALL NZ,CERR
+ 1538 F8EE  CD FC99     	CALL HILOX
+ 1539 F8F1  18 F4       	JR LXC
+ 1540                   
+ 1541                   		; M AUSGABE
+ 1542                   
+ 1543 F8F3              CERR:
+ 1544 F8F3  47          	LD B,A
+ 1545 F8F4  CD FC1D     	CALL HLSP
+ 1546 F8F7  7E          	LD A,(HL)
+ 1547 F8F8  CD FCBA     	CALL LBYTE
+ 1548 F8FB  CD FC20     	CALL BLK
+ 1549 F8FE  78          	LD A,B
+ 1550 F8FF  CD FCBA     	CALL LBYTE
+ 1551 F902  C3 FC57     	JP CRLF
+ 1552                   
+ 1553                   		; DISPLAY
+ 1554                   		; Ausgabe eines Speicherbereichs
+ 1555                   
+ 1556 F905              DISP:
+ 1557 F905  CD FC52     	CALL EXLF
+ 1558 F908              LXD0:
+ 1559 F908  CD FC1A     	CALL LFADR
+ 1560 F90B              LXD1:
+ 1561 F90B  CD FC20     	CALL BLK
+ 1562 F90E  7E          	LD A,(HL)
+ 1563 F90F  CD FCBA     	CALL LBYTE
+ 1564 F912  CD FC99     	CALL HILOX
+ 1565 F915  7D          	LD A,L
+ 1566 F916  E6 0F       	AND 0FH
+ 1567 F918  20 F1       	JR NZ,LXD1
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  28
+M-MONI72Z80
+
+ 1568 F91A  18 EC       	JR LXD0
+ 1569                   		;
+ 1570                   		; EOF AUSGABE
+ 1571                   		; fuer Punch , Intel-Hex Ende ausgeben
+ 1572                   
+ 1573 F91C              EOF:
+ 1574 F91C  CD FC6A     	CALL EXPR1
+ 1575 F91F  CD FC25     	CALL PEOL
+ 1576 F922  0E 3A       	LD C,':'
+ 1577 F924  CD F0A5     	CALL POO
+ 1578 F927  AF          	XOR A
+ 1579 F928  CD FCEF     	CALL PBYTE
+ 1580 F92B  E1          	POP HL
+ 1581 F92C  CD FCEA     	CALL PADR
+ 1582 F92F  21 0000     	LD HL,0
+ 1583 F932  CD FCEA     	CALL PADR
+ 1584 F935  C3 FC44     	JP NULL
+ 1585                   
+ 1586                   		; FILL
+ 1587                   		; Einen Speicherbereich mit einem
+ 1588                   		; Wert fuellen
+ 1589                   
+ 1590 F938              FILL:
+ 1591 F938  CD FC5F     	CALL EXPR3
+ 1592 F93B              LXF:
+ 1593 F93B  71          	LD (HL),C
+ 1594 F93C  CD FC9F     	CALL HILO
+ 1595 F93F  30 FA       	JR NC,LXF
+ 1596 F941  D1          	POP DE
+ 1597 F942  C3 F76E     	JP START
+ 1598                   
+ 1599                   		;
+ 1600                   
+ 1601                   		; EXEC OTHER PRGS
+ 1602                   		; Start eines Anwenderprogramms
+ 1603                   		; mit Break-Points
+ 1604                   
+ 1605 F945              GOTO:
+ 1606 F945  CD FD0B     	CALL PCHK
+ 1607 F948  38 40       	JR C,LXG3
+ 1608 F94A  28 10       	JR Z,LXG0
+ 1609 F94C  CD FC91     	CALL EXF
+ 1610 F94F  D1          	POP DE
+ 1611 F950  21 0034     	LD HL,PLOC
+ 1612 F953  39          	ADD HL,SP
+ 1613 F954  72          	LD (HL),D
+ 1614 F955  2B          	DEC HL
+ 1615 F956  73          	LD (HL),E
+ 1616 F957  78          	LD A,B
+ 1617 F958  FE 0D       	CP 0DH
+ 1618 F95A  28 2E       	JR Z,LXG3
+ 1619 F95C              LXG0:
+ 1620 F95C  16 02       	LD D,2
+ 1621 F95E  21 0035     	LD HL,TLOC
+ 1622 F961  39          	ADD HL,SP
+ 1623 F962              LXG1:
+ 1624 F962  E5          	PUSH HL
+ 1625 F963  CD FC6A     	CALL EXPR1
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  29
+M-MONI72Z80
+
+ 1626 F966  58          	LD E,B
+ 1627 F967  C1          	POP BC
+ 1628 F968  E1          	POP HL
+ 1629 F969  78          	LD A,B
+ 1630 F96A  B1          	OR C
+ 1631 F96B  28 0A       	JR Z,LXG2
+ 1632 F96D  71          	LD (HL),C
+ 1633 F96E  23          	INC HL
+ 1634 F96F  70          	LD (HL),B
+ 1635 F970  23          	INC HL
+ 1636 F971  0A          	LD A,(BC)
+ 1637 F972  77          	LD (HL),A
+ 1638 F973  23          	INC HL
+ 1639 F974  3E FF       	LD A,0FFH
+ 1640 F976  02          	LD (BC),A
+ 1641 F977              LXG2:
+ 1642 F977  7B          	LD A,E
+ 1643 F978  FE 0D       	CP 0DH
+ 1644 F97A  28 03       	JR Z,LXG2A
+ 1645 F97C  15          	DEC D
+ 1646 F97D  20 E3       	JR NZ,LXG1
+ 1647 F97F              LXG2A:
+ 1648 F97F  3E C3       	LD A,0C3H 	;Rueckkehr mit RST7 vorbereiten
+ 1649 F981  32 0038     	LD (RST7),A
+ 1650 F984  21 F01E     	LD HL,TRAP
+ 1651 F987  22 0039     	LD (RST7+1),HL
+ 1652 F98A              LXG3:
+ 1653 F98A  CD FC57     	CALL CRLF
+ 1654 F98D  D1          	POP DE
+ 1655 F98E  21 0016     	LD HL,22
+ 1656 F991  39          	ADD HL,SP
+ 1657 F992  E9          	JP (HL)  	;und Programm starten
+ 1658                   
+ 1659                   
+ 1660                   		;
+ 1661                   		;
+ 1662                   		; TEST
+ 1663                   		; Schnelltest fuer den Speicher
+ 1664                   		; FAST Complement Test
+ 1665                   		;
+ 1666 F993              TEST:
+ 1667 F993  CD FC52     	CALL EXLF
+ 1668 F996              LXT11:
+ 1669 F996  7E          	LD A,(HL)
+ 1670 F997  47          	LD B,A
+ 1671 F998  2F          	CPL
+ 1672 F999  77          	LD (HL),A
+ 1673 F99A  AE          	XOR (HL)
+ 1674 F99B  28 0E       	JR Z,LXT2
+ 1675 F99D  D5          	PUSH DE
+ 1676 F99E  50          	LD D,B
+ 1677 F99F  5F          	LD E,A
+ 1678 F9A0  CD FC1D     	CALL HLSP
+ 1679 F9A3  CD FE06     	CALL BITS
+ 1680 F9A6  CD FC57     	CALL CRLF
+ 1681 F9A9  42          	LD B,D
+ 1682 F9AA  D1          	POP DE
+ 1683 F9AB              LXT2:
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  30
+M-MONI72Z80
+
+ 1684 F9AB  70          	LD (HL),B
+ 1685 F9AC  CD FC99     	CALL HILOX
+ 1686 F9AF  18 E5       	JR LXT11
+ 1687                   		;
+ 1688                   		; LDE
+ 1689                   
+ 1690                   		; Transport eines Speicherbereichs
+ 1691                   		; in einen anderen
+ 1692                   
+ 1693 F9B1              MOVE:
+ 1694 F9B1  CD FC5F     	CALL EXPR3
+ 1695 F9B4              LXM:
+ 1696 F9B4  7E          	LD A,(HL)
+ 1697 F9B5  02          	LD (BC),A
+ 1698 F9B6  03          	INC BC
+ 1699 F9B7  CD FC99     	CALL HILOX
+ 1700 F9BA  18 F8       	JR LXM
+ 1701                   
+ 1702                   
+ 1703                   		; READ ROUTINE
+ 1704                   		; einlesen von Intel-Hex oder TDL-Daten
+ 1705                   
+ 1706                   		;
+ 1707 F9BC              READ:
+ 1708 F9BC  CD FC6A     	CALL EXPR1
+ 1709 F9BF  78          	LD A,B
+ 1710 F9C0  D6 0D       	SUB 0DH
+ 1711 F9C2  47          	LD B,A
+ 1712 F9C3  4F          	LD C,A
+ 1713 F9C4  D1          	POP DE
+ 1714 F9C5  28 04       	JR Z,LXR00
+ 1715 F9C7  CD FC6A     	CALL EXPR1
+ 1716 F9CA  C1          	POP BC
+ 1717 F9CB              LXR00:
+ 1718 F9CB  EB          	EX DE,HL
+ 1719 F9CC  D9          	EXX
+ 1720 F9CD  CD FC57     	CALL CRLF
+ 1721 F9D0              LOD0:
+ 1722 F9D0  CD FD1A     	CALL RIX
+ 1723 F9D3  D6 3A       	SUB ':'
+ 1724 F9D5  47          	LD B,A
+ 1725 F9D6  E6 FE       	AND 0FEH
+ 1726 F9D8  20 F6       	JR NZ,LOD0
+ 1727 F9DA  57          	LD D,A
+ 1728 F9DB  CD FA56     	CALL SBYTE
+ 1729 F9DE  5F          	LD E,A
+ 1730 F9DF  CD FA56     	CALL SBYTE
+ 1731 F9E2  F5          	PUSH AF
+ 1732 F9E3  CD FA56     	CALL SBYTE
+ 1733 F9E6  D9          	EXX
+ 1734 F9E7  D1          	POP DE
+ 1735 F9E8  5F          	LD E,A
+ 1736 F9E9  C5          	PUSH BC
+ 1737 F9EA  D5          	PUSH DE
+ 1738 F9EB  E5          	PUSH HL
+ 1739 F9EC  19          	ADD HL,DE
+ 1740 F9ED  E3          	EX (SP),HL
+ 1741 F9EE  DD E1       	POP IX
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  31
+M-MONI72Z80
+
+ 1742 F9F0  D9          	EXX
+ 1743 F9F1  E1          	POP HL
+ 1744 F9F2  CD FA56     	CALL SBYTE
+ 1745 F9F5  3D          	DEC A
+ 1746 F9F6  78          	LD A,B
+ 1747 F9F7  C1          	POP BC
+ 1748 F9F8  20 03       	JR NZ,AREPA
+ 1749 F9FA  09          	ADD HL,BC
+ 1750 F9FB  DD 09       	ADD IX,BC
+ 1751 F9FD              AREPA:
+ 1752 F9FD  1C          	INC E
+ 1753 F9FE  1D          	DEC E
+ 1754 F9FF  28 19       	JR Z,DONE
+ 1755 FA01  3D          	DEC A
+ 1756 FA02  28 22       	JR Z,LODR
+ 1757 FA04              LXL11:
+ 1758 FA04  CD FA56     	CALL SBYTE
+ 1759 FA07  CD FA69     	CALL STORE
+ 1760 FA0A  20 F8       	JR NZ,LXL11
+ 1761 FA0C              LOD4:
+ 1762 FA0C  CD FA56     	CALL SBYTE
+ 1763 FA0F  28 BF       	JR Z,LOD0
+ 1764 FA11              ERR2:
+ 1765 FA11  DD E5       	PUSH IX
+ 1766 FA13  E1          	POP HL
+ 1767 FA14  CD FCB5     	CALL LADR
+ 1768 FA17  C3 FBF7     	JP ERROR
+ 1769 FA1A              DONE:
+ 1770 FA1A  7C          	LD A,H
+ 1771 FA1B  B5          	OR  L
+ 1772 FA1C  C8          	RET Z
+ 1773 FA1D  EB          	EX DE,HL
+ 1774 FA1E  21 0034     	LD HL,PLOC
+ 1775 FA21  39          	ADD HL,SP
+ 1776 FA22  72          	LD (HL),D
+ 1777 FA23  2B          	DEC HL
+ 1778 FA24  73          	LD (HL),E
+ 1779 FA25  C9          	RET
+ 1780 FA26              LODR:
+ 1781 FA26  2E 01       	LD L,1
+ 1782 FA28              LXL12:
+ 1783 FA28  CD FA46     	CALL LOD03
+ 1784 FA2B  38 07       	JR C,LXL33
+ 1785 FA2D              LXL5:
+ 1786 FA2D  CD FA69     	CALL STORE
+ 1787 FA30  20 F6       	JR NZ,LXL12
+ 1788 FA32  18 D8       	JR LOD4
+ 1789 FA34              LXL33:
+ 1790 FA34  4F          	LD C,A
+ 1791 FA35  CD FA46     	CALL LOD03
+ 1792 FA38  47          	LD B,A
+ 1793 FA39  D9          	EXX
+ 1794 FA3A  C5          	PUSH BC
+ 1795 FA3B  D9          	EXX 
+ 1796 FA3C  E3          	EX (SP),HL
+ 1797 FA3D  09          	ADD HL,BC
+ 1798 FA3E  7D          	LD A,L
+ 1799 FA3F  CD FA69     	CALL STORE
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  32
+M-MONI72Z80
+
+ 1800 FA42  7C          	LD A,H
+ 1801 FA43  E1          	POP HL
+ 1802 FA44  18 E7       	JR LXL5
+ 1803 FA46              LOD03:
+ 1804 FA46  2D          	DEC L
+ 1805 FA47  20 07       	JR NZ,LXL01
+ 1806 FA49  CD FA56     	CALL SBYTE
+ 1807 FA4C  1D          	DEC E
+ 1808 FA4D  67          	LD H,A
+ 1809 FA4E  2E 08       	LD L,8
+ 1810 FA50              LXL01:
+ 1811 FA50  CD FA56     	CALL SBYTE
+ 1812 FA53  CB 24       	SLA H
+ 1813 FA55  C9          	RET
+ 1814                   
+ 1815 FA56              SBYTE:
+ 1816 FA56  C5          	PUSH BC
+ 1817 FA57  CD FCD7     	CALL RIBBLE
+ 1818 FA5A  07          	RLCA
+ 1819 FA5B  07          	RLCA
+ 1820 FA5C  07          	RLCA
+ 1821 FA5D  07          	RLCA
+ 1822 FA5E  4F          	LD C,A
+ 1823 FA5F  CD FCD7     	CALL RIBBLE
+ 1824 FA62  B1          	OR C
+ 1825 FA63  4F          	LD C,A
+ 1826 FA64  82          	ADD A,D
+ 1827 FA65  57          	LD D,A
+ 1828 FA66  79          	LD  A,C
+ 1829 FA67  C1          	POP BC
+ 1830 FA68  C9          	RET
+ 1831                   
+ 1832 FA69              STORE:
+ 1833 FA69  DD 77 00    	LD (IX+0),A
+ 1834 FA6C  DD BE 00    	CP (IX+0)
+ 1835 FA6F  20 A0       	JR NZ,ERR2
+ 1836 FA71  DD 23       	INC IX
+ 1837 FA73  1D          	DEC E
+ 1838 FA74  C9          	RET
+ 1839                   
+ 1840                   
+ 1841                   		; SUBST
+ 1842                   		; Interaktive Eingabe von Hex-Werten
+ 1843                   
+ 1844 FA75              SUBS:
+ 1845 FA75  CD FC6A     	CALL EXPR1
+ 1846 FA78  E1          	POP HL
+ 1847 FA79              LXS0:
+ 1848 FA79  7E          	LD A,(HL)
+ 1849 FA7A  CD FCBA     	CALL LBYTE
+ 1850 FA7D  CD FD06     	CALL COPCK
+ 1851 FA80  D8          	RET C
+ 1852 FA81  28 0F       	JR Z,LXS1
+ 1853 FA83  FE 5F       	CP '_'
+ 1854 FA85  28 14       	JR Z,LXS2
+ 1855 FA87  E5          	PUSH HL
+ 1856 FA88  CD FC91     	CALL EXF
+ 1857 FA8B  D1          	POP DE
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  33
+M-MONI72Z80
+
+ 1858 FA8C  E1          	POP HL
+ 1859 FA8D  73          	LD (HL),E
+ 1860 FA8E  78          	LD A,B
+ 1861 FA8F  FE 0D       	CP 0DH
+ 1862 FA91  C8          	RET Z
+ 1863 FA92              LXS1:
+ 1864 FA92  23          	INC HL
+ 1865 FA93              LXS3:
+ 1866 FA93  7D          	LD A,L
+ 1867 FA94  E6 07       	AND 7
+ 1868 FA96  CC FC1A     	CALL Z,LFADR
+ 1869 FA99  18 DE       	JR LXS0
+ 1870 FA9B              LXS2:
+ 1871 FA9B  2B          	DEC HL
+ 1872 FA9C  18 F5       	JR LXS3
+ 1873                   
+ 1874                   		;
+ 1875                   		;
+ 1876                   		;  TYPE
+ 1877                   		; Ausgabe von Speicherbereichen in lesbarer
+ 1878                   		; Form
+ 1879                   		;
+ 1880                   
+ 1881 FA9E              TYPE:
+ 1882 FA9E  CD FC52     	CALL EXLF
+ 1883 FAA1              LXT0:
+ 1884 FAA1  CD FC1A     	CALL LFADR
+ 1885 FAA4  06 40       	LD B,32+32
+ 1886 FAA6              LXT1:
+ 1887 FAA6  7E          	LD A,(HL)
+ 1888 FAA7  E6 7F       	AND 7FH
+ 1889 FAA9  FE 20       	CP ' '
+ 1890 FAAB  30 02       	JR NC,LXT3
+ 1891 FAAD              LXT22:
+ 1892 FAAD  3E 2E       	LD A,'.'
+ 1893 FAAF              LXT3:
+ 1894 FAAF  FE 7C       	CP 7CH
+ 1895 FAB1  30 FA       	JR NC,LXT22
+ 1896 FAB3  4F          	LD C,A
+ 1897 FAB4  CD F091     	CALL CO
+ 1898 FAB7  CD FC99     	CALL HILOX
+ 1899 FABA  10 EA       	DJNZ LXT1
+ 1900 FABC  18 E3       	JR LXT0
+ 1901                   
+ 1902                   		;
+ 1903                   
+ 1904                   		;
+ 1905                   
+ 1906                   		; SEARCH
+ 1907                   		; Suchen von Werten im Speicher
+ 1908                   
+ 1909                   		;
+ 1910 FABE              WHERE:
+ 1911 FABE  16 00       	LD D,0
+ 1912 FAC0              LXW00:
+ 1913 FAC0  CD FC6A     	CALL EXPR1
+ 1914 FAC3  E1          	POP HL
+ 1915 FAC4  65          	LD H,L
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  34
+M-MONI72Z80
+
+ 1916 FAC5  E5          	PUSH HL
+ 1917 FAC6  33          	INC  SP
+ 1918 FAC7  14          	INC D
+ 1919 FAC8  78          	LD A,B
+ 1920 FAC9  D6 0D       	SUB 0DH
+ 1921 FACB  20 F3       	JR NZ,LXW00
+ 1922 FACD  47          	LD B,A
+ 1923 FACE  4F          	LD C,A
+ 1924 FACF  67          	LD H,A
+ 1925 FAD0  6A          	LD L,D
+ 1926 FAD1  2D          	DEC L
+ 1927 FAD2  39          	ADD HL,SP
+ 1928 FAD3  E5          	PUSH HL
+ 1929 FAD4  C5          	PUSH BC
+ 1930 FAD5              FINDC:
+ 1931 FAD5  C5          	PUSH BC
+ 1932 FAD6  CD FC57     	CALL CRLF
+ 1933 FAD9  C1          	POP BC
+ 1934 FADA              FIND:
+ 1935 FADA  E1          	POP HL
+ 1936 FADB  DD E1       	POP IX
+ 1937 FADD  5A          	LD E,D
+ 1938 FADE  DD 7E 00    	LD A,(IX+0)
+ 1939 FAE1  ED B1       	CPIR
+ 1940 FAE3  E2 FB01     	JP PO,DONE2
+ 1941 FAE6  DD E5       	PUSH IX
+ 1942 FAE8  E5          	PUSH HL
+ 1943 FAE9              FOUND:
+ 1944 FAE9  1D          	DEC E
+ 1945 FAEA  28 0B       	JR Z,TELL
+ 1946 FAEC  DD 7E FF    	LD A,(IX-1)
+ 1947 FAEF  BE          	CP (HL)
+ 1948 FAF0  20 E8       	JR NZ,FIND
+ 1949 FAF2  23          	INC HL
+ 1950 FAF3  DD 2B       	DEC IX
+ 1951 FAF5  18 F2       	JR FOUND
+ 1952 FAF7              TELL:
+ 1953 FAF7  E1          	POP HL
+ 1954 FAF8  E5          	PUSH HL
+ 1955 FAF9  2B          	DEC HL
+ 1956 FAFA  C5          	PUSH BC
+ 1957 FAFB  CD FCB5     	CALL LADR
+ 1958 FAFE  C1          	POP BC
+ 1959 FAFF  18 D4       	JR FINDC
+ 1960 FB01              DONE2:
+ 1961 FB01  33          	INC SP
+ 1962 FB02  1D          	DEC E
+ 1963 FB03  20 FC       	JR NZ,DONE2
+ 1964 FB05  C9          	RET
+ 1965                   		;
+ 1966                   		;
+ 1967 FB06              WRITE:
+ 1968 FB06  CD FC52     	CALL EXLF
+ 1969 FB09              LXW0:
+ 1970 FB09  CD FC25     	CALL PEOL
+ 1971 FB0C  01 003A     	LD BC,':'
+ 1972 FB0F  CD F0A5     	CALL POO
+ 1973 FB12  D5          	PUSH DE
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  35
+M-MONI72Z80
+
+ 1974 FB13  E5          	PUSH HL
+ 1975 FB14              LXW1:
+ 1976 FB14  04          	INC B
+ 1977 FB15  CD FC9F     	CALL HILO
+ 1978 FB18  38 24       	JR C,LXW4
+ 1979 FB1A  3E 18       	LD A,24
+ 1980 FB1C  90          	SUB B
+ 1981 FB1D  20 F5       	JR NZ,LXW1
+ 1982 FB1F  E1          	POP HL
+ 1983 FB20  CD FB26     	CALL LXW2
+ 1984 FB23  D1          	POP DE
+ 1985 FB24  18 E3       	JR LXW0
+ 1986 FB26              LXW2:
+ 1987 FB26  57          	LD D,A
+ 1988 FB27  78          	LD A,B
+ 1989 FB28  CD FCEF     	CALL PBYTE
+ 1990 FB2B  CD FCEA     	CALL PADR
+ 1991 FB2E  AF          	XOR  A
+ 1992 FB2F  CD FCEF     	CALL PBYTE
+ 1993 FB32              LXW3:
+ 1994 FB32  7E          	LD A,(HL)
+ 1995 FB33  CD FCEF     	CALL PBYTE
+ 1996 FB36  23          	INC HL
+ 1997 FB37  10 F9       	DJNZ LXW3
+ 1998 FB39  AF          	XOR A
+ 1999 FB3A  92          	SUB D
+ 2000 FB3B  C3 FCEF     	JP PBYTE
+ 2001 FB3E              LXW4:
+ 2002 FB3E  E1          	POP HL
+ 2003 FB3F  D1          	POP DE
+ 2004 FB40  AF          	XOR  A
+ 2005 FB41  18 E3       	JR LXW2
+ 2006                   		;
+ 2007                   		;
+ 2008                   		; XAM  USER REG
+ 2009                   		;
+ 2010 FB43              XAM:
+ 2011 FB43  CD FDD3     	CALL TI
+ 2012 FB46  21 FE68     	LD HL,ACTBL
+ 2013 FB49  FE 0D       	CP 0DH
+ 2014 FB4B  28 5A       	JR Z,LXX6
+ 2015 FB4D  FE 27       	CP "'"
+ 2016 FB4F  20 0A       	JR NZ,LXX0
+ 2017 FB51  21 FE81     	LD HL,PRMTB
+ 2018 FB54  CD FDD3     	CALL TI
+ 2019 FB57  FE 0D       	CP 0DH
+ 2020 FB59  28 4C       	JR Z,LXX6
+ 2021 FB5B              LXX0:
+ 2022 FB5B  BE          	CP (HL)
+ 2023 FB5C  28 09       	JR Z,LXX1
+ 2024 FB5E  CB 7E       	BIT 7,(HL)
+ 2025 FB60  C2 FBF7     	JP NZ,ERROR
+ 2026 FB63  23          	INC HL
+ 2027 FB64  23          	INC HL
+ 2028 FB65  18 F4       	JR LXX0
+ 2029 FB67              LXX1:
+ 2030 FB67  CD FC20     	CALL BLK
+ 2031 FB6A              LXX2:
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  36
+M-MONI72Z80
+
+ 2032 FB6A  23          	INC HL
+ 2033 FB6B  7E          	LD A,(HL)
+ 2034 FB6C  47          	LD B,A
+ 2035 FB6D  E6 3F       	AND 3FH
+ 2036 FB6F  EB          	EX DE,HL
+ 2037 FB70  6F          	LD L,A
+ 2038 FB71  26 00       	LD H,0
+ 2039 FB73  39          	ADD HL,SP
+ 2040 FB74  EB          	EX DE,HL
+ 2041 FB75  23          	INC HL
+ 2042 FB76  1A          	LD A,(DE)
+ 2043 FB77  CD FCBA     	CALL LBYTE
+ 2044 FB7A  CB 78       	BIT 7,B
+ 2045 FB7C  28 05       	JR Z,LXX3
+ 2046 FB7E  1B          	DEC DE
+ 2047 FB7F  1A          	LD A,(DE)
+ 2048 FB80  CD FCBA     	CALL LBYTE
+ 2049 FB83              LXX3:
+ 2050 FB83  CD FD06     	CALL COPCK
+ 2051 FB86  D8          	RET C
+ 2052 FB87  28 19       	JR Z,LXX5
+ 2053 FB89  E5          	PUSH HL
+ 2054 FB8A  C5          	PUSH BC
+ 2055 FB8B  CD FC91     	CALL EXF
+ 2056 FB8E  E1          	POP HL
+ 2057 FB8F  F1          	POP AF
+ 2058 FB90  C5          	PUSH BC
+ 2059 FB91  F5          	PUSH AF
+ 2060 FB92  7D          	LD A,L
+ 2061 FB93  12          	LD (DE),A
+ 2062 FB94  C1          	POP BC
+ 2063 FB95  CB 78       	BIT 7,B
+ 2064 FB97  28 03       	JR Z,LXX4
+ 2065 FB99  13          	INC DE
+ 2066 FB9A  7C          	LD A,H
+ 2067 FB9B  12          	LD (DE),A
+ 2068 FB9C              LXX4:
+ 2069 FB9C  C1          	POP BC
+ 2070 FB9D  E1          	POP HL
+ 2071 FB9E  78          	LD A,B
+ 2072 FB9F  FE 0D       	CP 0DH
+ 2073 FBA1  C8          	RET Z
+ 2074 FBA2              LXX5:
+ 2075 FBA2  CB 7E       	BIT 7,(HL)
+ 2076 FBA4  C0          	RET NZ
+ 2077 FBA5  18 C3       	JR LXX2
+ 2078 FBA7              LXX6:
+ 2079 FBA7  CD FC57     	CALL CRLF
+ 2080 FBAA              LXX7:
+ 2081 FBAA  CD FC20     	CALL BLK
+ 2082 FBAD  7E          	LD A,(HL)
+ 2083 FBAE  23          	INC HL
+ 2084 FBAF  B7          	OR A
+ 2085 FBB0  F8          	RET M
+ 2086 FBB1  4F          	LD C,A
+ 2087 FBB2  CD F091     	CALL CO
+ 2088 FBB5  0E 3D       	LD C,"="
+ 2089 FBB7  CD F091     	CALL CO
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  37
+M-MONI72Z80
+
+ 2090 FBBA  7E          	LD A,(HL)
+ 2091 FBBB  47          	LD B,A
+ 2092 FBBC  E6 3F       	AND 3FH
+ 2093 FBBE  23          	INC HL
+ 2094 FBBF  EB          	EX DE,HL
+ 2095 FBC0  6F          	LD L,A
+ 2096 FBC1  26 00       	LD H,0
+ 2097 FBC3  39          	ADD HL,SP
+ 2098 FBC4  EB          	EX DE,HL
+ 2099 FBC5  CB 70       	BIT 6,B
+ 2100 FBC7  20 0F       	JR NZ,LXX9
+ 2101 FBC9  1A          	LD A,(DE)
+ 2102 FBCA  CD FCBA     	CALL LBYTE
+ 2103 FBCD  CB 78       	BIT 7,B
+ 2104 FBCF  28 D9       	JR Z,LXX7
+ 2105 FBD1  1B          	DEC DE
+ 2106 FBD2  1A          	LD A,(DE)
+ 2107 FBD3              LXX8:
+ 2108 FBD3  CD FCBA     	CALL LBYTE
+ 2109 FBD6  18 D2       	JR LXX7
+ 2110 FBD8              LXX9:
+ 2111 FBD8  E5          	PUSH HL
+ 2112 FBD9  1A          	LD A,(DE)
+ 2113 FBDA  67          	LD H,A
+ 2114 FBDB  1B          	DEC DE
+ 2115 FBDC  1A          	LD A,(DE)
+ 2116 FBDD  6F          	LD L,A
+ 2117 FBDE  7E          	LD A,(HL)
+ 2118 FBDF  E1          	POP HL
+ 2119 FBE0  18 F1       	JR LXX8
+ 2120                   		;
+ 2121                   		; MESSAGE OUTPUT ROUTINE
+ 2122                   
+ 2123 FBE2              TOM1:
+ 2124 FBE2  21 F6E1     	LD HL,MSG
+ 2125                   
+ 2126 FBE5              TOM:
+ 2127 FBE5  4E          	LD C,(HL)
+ 2128 FBE6  23          	INC HL
+ 2129 FBE7  CD F091     	CALL CO
+ 2130 FBEA  10 F9       	DJNZ TOM
+ 2131 FBEC  CD F0D3     	CALL CSTS
+ 2132 FBEF  B7          	OR A
+ 2133 FBF0  C8          	RET Z
+ 2134                   		;
+ 2135                   		;IF CTRL C ABORT
+ 2136                   
+ 2137 FBF1              CCHK:
+ 2138 FBF1  CD FDCD     	CALL KI
+ 2139 FBF4  FE 03       	CP 3
+ 2140 FBF6  C0          	RET NZ
+ 2141                   		;
+ 2142                   
+ 2143                   		;
+ 2144                   		; ERROR
+ 2145                   		;
+ 2146 FBF7              ERROR:
+ 2147 FBF7  CD F0FC     	CALL MEMSIZ
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  38
+M-MONI72Z80
+
+ 2148 FBFA  11 FFEA     	LD DE,-22
+ 2149 FBFD  19          	ADD HL,DE
+ 2150 FBFE  F9          	LD SP,HL
+ 2151 FBFF  0E 07       	LD C,7
+ 2152 FC01  CD F091     	CALL CO
+ 2153 FC04  0E 2A       	LD C,'*'
+ 2154 FC06  CD F091     	CALL CO
+ 2155 FC09  C3 F76E     	JP START
+ 2156                   
+ 2157                   		;
+ 2158                   		; READER INPUT
+ 2159                   		; ABORT ON CARRY
+ 2160                   		; COMPARE WITH D
+ 2161 FC0C              RIFF:
+ 2162 FC0C  CD F07B     	CALL RI
+ 2163 FC0F  38 E6       	JR C,ERROR
+ 2164 FC11  BA          	CP D
+ 2165 FC12  C9          	RET
+ 2166                   		;
+ 2167                   		;
+ 2168                   		; SEARCH MEM
+ 2169                   
+ 2170 FC13              SIZE:
+ 2171 FC13  CD F0FC     	CALL MEMSIZ
+ 2172 FC16  01 0023     	LD BC,ENDX-EXIT
+ 2173 FC19  09          	ADD HL,BC
+ 2174                   		;
+ 2175                   		;
+ 2176 FC1A              LFADR:
+ 2177 FC1A  CD FC57     	CALL CRLF
+ 2178                   		;
+ 2179 FC1D              HLSP:
+ 2180 FC1D  CD FCB5     	CALL LADR
+ 2181                   		;
+ 2182 FC20              BLK:
+ 2183 FC20  0E 20       	LD C,' '
+ 2184 FC22  C3 F091     	JP CO
+ 2185                   
+ 2186                   		;
+ 2187                   		;
+ 2188                   		;
+ 2189                   
+ 2190 FC25              PEOL:
+ 2191 FC25  0E 0D       	LD C,0DH
+ 2192 FC27  CD F0A5     	CALL POO
+ 2193 FC2A  0E 0A       	LD C,0AH
+ 2194 FC2C  C3 F0A5     	JP POO
+ 2195                   		;
+ 2196                   		;
+ 2197                   		; UNLOAD ROUTINE
+ 2198                   		; Ausgabe eines Speicherbereichs binaer
+ 2199                   
+ 2200                   
+ 2201 FC2F              UNLO:
+ 2202 FC2F  CD FC52     	CALL EXLF
+ 2203 FC32  CD FCCE     	CALL LEAD
+ 2204 FC35  CD FCC9     	CALL MARK
+ 2205 FC38              LXO:
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  39
+M-MONI72Z80
+
+ 2206 FC38  4E          	LD C,(HL)
+ 2207 FC39  CD F0A5     	CALL POO
+ 2208 FC3C  CD FC9F     	CALL HILO
+ 2209 FC3F  30 F7       	JR NC,LXO
+ 2210 FC41  CD FCC9     	CALL MARK
+ 2211                   		; GOTO NULL
+ 2212                   		; NULL PUNCH
+ 2213                   		;
+ 2214 FC44              NULL:
+ 2215 FC44  CD FCCE     	CALL LEAD
+ 2216                   		;
+ 2217 FC47  C9          	RET
+ 2218                   		;
+ 2219                   
+ 2220 FC48              CONV:
+ 2221 FC48  E6 0F       	AND 0FH
+ 2222 FC4A  C6 90       	ADD A,90H
+ 2223 FC4C  27          	DAA 
+ 2224 FC4D  CE 40       	ADC A,40H
+ 2225 FC4F  27          	DAA
+ 2226 FC50  4F          	LD C,A 	;HEX TO ASC
+ 2227 FC51  C9          	RET
+ 2228                   		;
+ 2229 FC52              EXLF:
+ 2230 FC52  CD FC6C     	CALL EXPR
+ 2231 FC55  D1          	POP DE
+ 2232 FC56  E1          	POP HL
+ 2233                   		;
+ 2234                   		;
+ 2235 FC57              CRLF:
+ 2236 FC57  E5          	PUSH HL
+ 2237 FC58  06 02       	LD B,2
+ 2238 FC5A  CD FBE2     	CALL TOM1
+ 2239 FC5D  E1          	POP HL
+ 2240 FC5E  C9          	RET
+ 2241                   		;
+ 2242                   
+ 2243                   		; Eingabe von Hex Wertes von der Console
+ 2244                   		;
+ 2245                   		;
+ 2246 FC5F              EXPR3:
+ 2247 FC5F  0C          	INC C
+ 2248 FC60  CD FC6C     	CALL EXPR
+ 2249 FC63  CD FC57     	CALL CRLF
+ 2250 FC66  C1          	POP BC
+ 2251 FC67  D1          	POP DE
+ 2252 FC68  E1          	POP HL
+ 2253 FC69  C9          	RET
+ 2254                   		;
+ 2255                   
+ 2256                   		;
+ 2257 FC6A              EXPR1:
+ 2258 FC6A  0E 01       	LD C,1
+ 2259                   		;
+ 2260                   		;
+ 2261 FC6C              EXPR:
+ 2262 FC6C  21 0000     	LD HL,0
+ 2263 FC6F              EX0:
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  40
+M-MONI72Z80
+
+ 2264 FC6F  CD FDD3     	CALL TI
+ 2265 FC72              EX1:
+ 2266 FC72  47          	LD B,A
+ 2267 FC73  CD FCDA     	CALL NIBBLE
+ 2268 FC76  38 08       	JR C,LXEX2
+ 2269 FC78  29          	ADD HL,HL
+ 2270 FC79  29          	ADD HL,HL
+ 2271 FC7A  29          	ADD HL,HL
+ 2272 FC7B  29          	ADD HL,HL
+ 2273 FC7C  B5          	OR L
+ 2274 FC7D  6F          	LD L,A
+ 2275 FC7E  18 EF       	JR EX0
+ 2276 FC80              LXEX2:
+ 2277 FC80  E3          	EX (SP),HL
+ 2278 FC81  E5          	PUSH HL
+ 2279 FC82  78          	LD A,B
+ 2280 FC83  CD FD0E     	CALL QCHK
+ 2281 FC86  30 02       	JR NC,LXEX3
+ 2282 FC88  0D          	DEC  C
+ 2283 FC89  C8          	RET Z
+ 2284 FC8A              LXEX3:
+ 2285 FC8A  C2 FBF7     	JP NZ,ERROR
+ 2286 FC8D  0D          	DEC C
+ 2287 FC8E  20 DC       	JR NZ,EXPR
+ 2288 FC90  C9          	RET
+ 2289 FC91              EXF:
+ 2290 FC91  0E 01       	LD C,1
+ 2291 FC93  21 0000     	LD HL,0
+ 2292 FC96  C3 FC72     	JP EX1
+ 2293                   		;
+ 2294                   		;
+ 2295 FC99              HILOX:
+ 2296 FC99  CD FC9F     	CALL HILO
+ 2297 FC9C  D0          	RET NC
+ 2298 FC9D  D1          	POP DE
+ 2299 FC9E  C9          	RET
+ 2300                   		;
+ 2301 FC9F              HILO:
+ 2302 FC9F  23          	INC HL
+ 2303 FCA0  7C          	LD A,H
+ 2304 FCA1  B5          	OR L
+ 2305 FCA2  37          	SCF
+ 2306 FCA3  C8          	RET Z
+ 2307 FCA4  7B          	LD A,E
+ 2308 FCA5  95          	SUB L
+ 2309 FCA6  7A          	LD  A,D
+ 2310 FCA7  9C          	SBC A,H
+ 2311 FCA8  C9          	RET
+ 2312                   		;
+ 2313                   		;
+ 2314                   		; HEX MATH
+ 2315                   		;
+ 2316 FCA9              HEXN:
+ 2317 FCA9  CD FC52     	CALL EXLF
+ 2318 FCAC  E5          	PUSH HL
+ 2319 FCAD  19          	ADD HL,DE
+ 2320 FCAE  CD FC1D     	CALL HLSP
+ 2321 FCB1  E1          	POP HL
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  41
+M-MONI72Z80
+
+ 2322 FCB2  B7          	OR   A
+ 2323 FCB3  ED 52       	SBC HL,DE
+ 2324 FCB5              LADR:
+ 2325 FCB5  7C          	LD A,H
+ 2326 FCB6  CD FCBA     	CALL LBYTE
+ 2327 FCB9  7D          	LD A,L
+ 2328 FCBA              LBYTE:
+ 2329 FCBA  F5          	PUSH AF
+ 2330 FCBB  0F          	RRCA
+ 2331 FCBC  0F          	RRCA
+ 2332 FCBD  0F          	RRCA
+ 2333 FCBE  0F          	RRCA
+ 2334 FCBF  CD FCC3     	CALL LXR22
+ 2335 FCC2  F1          	POP AF
+ 2336 FCC3              LXR22:
+ 2337 FCC3  CD FC48     	CALL CONV
+ 2338 FCC6  C3 F091     	JP CO
+ 2339                   		;
+ 2340                   		;
+ 2341 FCC9              MARK:
+ 2342 FCC9  01 08FF     	LD BC,8FFH
+ 2343 FCCC  18 03       	JR LEO
+ 2344                   		;
+ 2345                   		;
+ 2346 FCCE              LEAD:
+ 2347 FCCE  01 4800     	LD BC,4800H
+ 2348 FCD1              LEO:
+ 2349 FCD1  CD F0A5     	CALL POO
+ 2350 FCD4  10 FB       	DJNZ  LEO
+ 2351 FCD6  C9          	RET
+ 2352                   		;
+ 2353                   
+ 2354                   
+ 2355                   		;
+ 2356 FCD7              RIBBLE:
+ 2357 FCD7  CD FD1A     	CALL RIX
+ 2358 FCDA              NIBBLE:
+ 2359 FCDA  D6 30       	SUB '0'
+ 2360 FCDC  D8          	RET C
+ 2361 FCDD  FE 17       	CP 'G'-'0'
+ 2362 FCDF  3F          	CCF
+ 2363 FCE0  D8          	RET C
+ 2364 FCE1  FE 0A       	CP 10
+ 2365 FCE3  3F          	CCF
+ 2366 FCE4  D0          	RET NC
+ 2367 FCE5  D6 07       	SUB 'A'-'9'-1
+ 2368 FCE7  FE 0A       	CP 0AH
+ 2369 FCE9  C9          	RET
+ 2370                   		;
+ 2371                   		;
+ 2372 FCEA              PADR:
+ 2373 FCEA  7C          	LD A,H
+ 2374 FCEB  CD FCEF     	CALL PBYTE
+ 2375 FCEE  7D          	LD A,L
+ 2376                   		;
+ 2377 FCEF              PBYTE:
+ 2378 FCEF  F5          	PUSH AF
+ 2379 FCF0  0F          	RRCA
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  42
+M-MONI72Z80
+
+ 2380 FCF1  0F          	RRCA
+ 2381 FCF2  0F          	RRCA
+ 2382 FCF3  0F          	RRCA
+ 2383 FCF4  CD FC48     	CALL CONV
+ 2384 FCF7  CD F0A5     	CALL POO
+ 2385 FCFA  F1          	POP AF
+ 2386 FCFB  F5          	PUSH AF
+ 2387 FCFC  CD FC48     	CALL CONV
+ 2388 FCFF  CD F0A5     	CALL POO
+ 2389 FD02  F1          	POP AF
+ 2390 FD03  82          	ADD A,D
+ 2391 FD04  57          	LD D,A
+ 2392 FD05  C9          	RET
+ 2393                   		;
+ 2394                   		;
+ 2395 FD06              COPCK:
+ 2396 FD06  0E 2D       	LD C,'-'
+ 2397 FD08  CD F091     	CALL CO
+ 2398 FD0B              PCHK:
+ 2399 FD0B  CD FDD3     	CALL TI
+ 2400 FD0E              QCHK:
+ 2401 FD0E  FE 20       	CP ' '
+ 2402 FD10  C8          	RET Z
+ 2403 FD11  FE 2C       	CP ','
+ 2404 FD13  C8          	RET Z
+ 2405 FD14  FE 0D       	CP 0DH
+ 2406 FD16  37          	SCF
+ 2407 FD17  C8          	RET Z
+ 2408 FD18  3F          	CCF
+ 2409 FD19  C9          	RET
+ 2410                   		;
+ 2411                   		;
+ 2412                   		;
+ 2413 FD1A              RIX:
+ 2414 FD1A  CD FC0C     	CALL RIFF
+ 2415 FD1D  E6 7F       	AND 7FH
+ 2416 FD1F  C9          	RET
+ 2417                   		;
+ 2418                   		; laden von Binaerdaten 
+ 2419                   		; startkennung ist eine Gruppe von 0FFh
+ 2420                   		; Werten
+ 2421                   		;
+ 2422 FD20              LOAD:
+ 2423 FD20  CD FC6A     	CALL EXPR1
+ 2424 FD23  E1          	POP HL
+ 2425 FD24  CD FC57     	CALL CRLF
+ 2426 FD27  16 FF       	LD D,0FFH
+ 2427 FD29              LXL0:
+ 2428 FD29  06 04       	LD B,4
+ 2429 FD2B              LXLL1:
+ 2430 FD2B  CD FC0C     	CALL RIFF
+ 2431 FD2E  20 F9       	JR NZ,LXL0
+ 2432 FD30  10 F9       	DJNZ LXLL1
+ 2433 FD32              LXL2:
+ 2434 FD32  CD FC0C     	CALL RIFF
+ 2435 FD35  28 FB       	JR Z,LXL2
+ 2436 FD37  77          	LD (HL),A
+ 2437 FD38  3E 07       	LD A,7
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  43
+M-MONI72Z80
+
+ 2438                   		;+++ OUT TTY +++
+ 2439 FD3A              LXL3:
+ 2440 FD3A  23          	INC HL
+ 2441 FD3B  CD FC0C     	CALL RIFF
+ 2442 FD3E  28 03       	JR Z,LXEL
+ 2443 FD40  77          	LD (HL),A
+ 2444 FD41  18 F7       	JR LXL3
+ 2445 FD43              LXEL:
+ 2446 FD43  1E 01       	LD E,1
+ 2447 FD45              LXEL0:
+ 2448 FD45  CD FC0C     	CALL RIFF
+ 2449 FD48  20 09       	JR NZ,LXEL1
+ 2450 FD4A  1C          	INC E
+ 2451 FD4B  3E 07       	LD A,7 	;MAX +++
+ 2452 FD4D  BB          	CP E
+ 2453 FD4E  20 F5       	JR NZ,LXEL0
+ 2454 FD50  C3 FCB5     	JP LADR
+ 2455 FD53              LXEL1:
+ 2456 FD53  72          	LD (HL),D
+ 2457 FD54  23          	INC HL
+ 2458 FD55  1D          	DEC  E
+ 2459 FD56  20 FB       	JR NZ,LXEL1
+ 2460 FD58  77          	LD (HL),A
+ 2461 FD59  18 DF       	JR  LXL3
+ 2462                   		;
+ 2463                   		;
+ 2464                   		; Eingang nach einem Break-Point
+ 2465                   		;
+ 2466 FD5B              RESTART:
+ 2467                   
+ 2468 FD5B  E5          	PUSH HL
+ 2469 FD5C  D5          	PUSH DE
+ 2470 FD5D  C5          	PUSH BC
+ 2471 FD5E  F5          	PUSH AF
+ 2472 FD5F  CD F0FC     	CALL MEMSIZ
+ 2473 FD62  EB          	EX DE,HL
+ 2474 FD63  21 000A     	LD HL,10
+ 2475 FD66  39          	ADD HL,SP
+ 2476 FD67  06 04       	LD B,4
+ 2477 FD69  EB          	EX DE,HL
+ 2478 FD6A              LXR0:
+ 2479 FD6A  2B          	DEC HL
+ 2480 FD6B  72          	LD (HL),D
+ 2481 FD6C  2B          	DEC HL
+ 2482 FD6D  73          	LD (HL),E
+ 2483 FD6E  D1          	POP DE
+ 2484 FD6F  10 F9       	DJNZ LXR0
+ 2485 FD71  C1          	POP BC
+ 2486 FD72  0B          	DEC BC
+ 2487 FD73  F9          	LD SP,HL
+ 2488 FD74  21 0025     	LD HL,TLOCX
+ 2489 FD77  39          	ADD HL,SP
+ 2490 FD78  7E          	LD A,(HL)
+ 2491 FD79  91          	SUB C
+ 2492 FD7A  23          	INC HL
+ 2493 FD7B  20 04       	JR NZ,LXR1
+ 2494 FD7D  7E          	LD A,(HL)
+ 2495 FD7E  90          	SUB B
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  44
+M-MONI72Z80
+
+ 2496 FD7F  28 0C       	JR Z,LXR3
+ 2497 FD81              LXR1:
+ 2498 FD81  23          	INC HL
+ 2499 FD82  23          	INC HL
+ 2500 FD83  7E          	LD  A,(HL)
+ 2501 FD84  91          	SUB C
+ 2502 FD85  20 05       	JR NZ,LXR2
+ 2503 FD87  23          	INC HL
+ 2504 FD88  7E          	LD  A,(HL)
+ 2505 FD89  90          	SUB B
+ 2506 FD8A  28 01       	JR Z,LXR3
+ 2507 FD8C              LXR2:
+ 2508 FD8C  03          	INC BC
+ 2509 FD8D              LXR3:
+ 2510 FD8D  21 0020     	LD HL,LLOCX
+ 2511 FD90  39          	ADD HL,SP
+ 2512 FD91  73          	LD (HL),E
+ 2513 FD92  23          	INC HL
+ 2514 FD93  72          	LD (HL),D
+ 2515 FD94  23          	INC HL
+ 2516 FD95  23          	INC HL
+ 2517 FD96  71          	LD (HL),C
+ 2518 FD97  23          	INC HL
+ 2519 FD98  70          	LD (HL),B
+ 2520 FD99  C5          	PUSH BC
+ 2521 FD9A  0E 40       	LD C,'@'
+ 2522 FD9C  CD F091     	CALL CO
+ 2523 FD9F  E1          	POP HL
+ 2524 FDA0  CD FCB5     	CALL LADR
+ 2525 FDA3  21 0025     	LD HL,TLOCX
+ 2526 FDA6  39          	ADD HL,SP
+ 2527 FDA7  01 0200     	LD BC,200H
+ 2528 FDAA              LXR4:
+ 2529 FDAA  5E          	LD E,(HL)
+ 2530 FDAB  71          	LD (HL),C
+ 2531 FDAC  23          	INC HL
+ 2532 FDAD  56          	LD D,(HL)
+ 2533 FDAE  71          	LD (HL),C
+ 2534 FDAF  23          	INC HL
+ 2535 FDB0  7B          	LD A,E
+ 2536 FDB1  B2          	OR D
+ 2537 FDB2  28 02       	JR Z,LXR5
+ 2538 FDB4  7E          	LD A,(HL)
+ 2539 FDB5  12          	LD (DE),A
+ 2540 FDB6              LXR5:
+ 2541 FDB6  23          	INC HL
+ 2542 FDB7  10 F1       	DJNZ LXR4
+ 2543 FDB9  08          	EX AF,AF'
+ 2544 FDBA  D9          	EXX
+ 2545 FDBB  E5          	PUSH HL
+ 2546 FDBC  D5          	PUSH DE
+ 2547 FDBD  C5          	PUSH BC
+ 2548 FDBE  F5          	PUSH AF
+ 2549 FDBF  DD E5       	PUSH IX
+ 2550 FDC1  FD E5       	PUSH IY
+ 2551 FDC3  ED 57       	LD A,I
+ 2552 FDC5  47          	LD B,A
+ 2553 FDC6  ED 5F       	LD A,R
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  45
+M-MONI72Z80
+
+ 2554 FDC8  4F          	LD C,A
+ 2555 FDC9  C5          	PUSH BC
+ 2556 FDCA  C3 F76E     	JP START
+ 2557                   		;
+ 2558                   		;
+ 2559                   		;
+ 2560 FDCD              KI:
+ 2561 FDCD  CD F068     	CALL CI
+ 2562 FDD0  E6 7F       	AND 7FH
+ 2563 FDD2  C9          	RET
+ 2564                   		;
+ 2565                   		;
+ 2566 FDD3              TI:
+ 2567 FDD3  CD FDCD     	CALL KI
+ 2568 FDD6  C8          	RET Z
+ 2569 FDD7  3C          	INC A
+ 2570 FDD8  F8          	RET M
+ 2571 FDD9  3D          	DEC A
+ 2572 FDDA  FE 0D       	CP 0DH
+ 2573 FDDC  C8          	RET Z
+ 2574 FDDD  FE 4E       	CP 'N'
+ 2575 FDDF  C8          	RET Z
+ 2576 FDE0  FE 6E       	CP 'n'
+ 2577 FDE2  28 0D       	JR Z,LXT
+ 2578 FDE4  C5          	PUSH BC
+ 2579 FDE5  4F          	LD C,A
+ 2580 FDE6  CD F091     	CALL CO
+ 2581 FDE9  79          	LD A,C
+ 2582 FDEA  C1          	POP BC
+ 2583 FDEB  FE 40       	CP 'A'-1
+ 2584 FDED  D8          	RET C
+ 2585 FDEE  FE 7B       	CP 'z'+1
+ 2586 FDF0  D0          	RET NC
+ 2587 FDF1              LXT:
+ 2588 FDF1  E6 5F       	AND 05FH
+ 2589 FDF3  C9          	RET
+ 2590                   
+ 2591                   		;
+ 2592                   		; Ein-und Ausgabe auf Ports
+ 2593                   		;
+ 2594                   		;
+ 2595 FDF4              QUERY:
+ 2596 FDF4  CD FDD3     	CALL TI
+ 2597 FDF7  FE 4F       	CP 'O'
+ 2598 FDF9  28 1C       	JR Z,QUO
+ 2599 FDFB  FE 49       	CP 'I'
+ 2600 FDFD  C2 FBF7     	JP NZ,ERROR
+ 2601 FE00  CD FC6A     	CALL EXPR1
+ 2602 FE03  C1          	POP BC
+ 2603 FE04  ED 58       	IN E,(C)
+ 2604 FE06              BITS:
+ 2605 FE06  06 08       	LD B,8
+ 2606 FE08  CD FC20     	CALL BLK
+ 2607 FE0B              LXQ2:
+ 2608 FE0B  CB 23       	SLA E
+ 2609 FE0D  3E 18       	LD A,'0' SHR 1
+ 2610 FE0F  8F          	ADC A,A
+ 2611 FE10  4F          	LD C,A
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  46
+M-MONI72Z80
+
+ 2612 FE11  CD F091     	CALL CO
+ 2613 FE14  10 F5       	DJNZ LXQ2
+ 2614 FE16  C9          	RET
+ 2615 FE17              QUO:
+ 2616 FE17  CD FC6C     	CALL EXPR
+ 2617 FE1A  D1          	POP DE
+ 2618 FE1B  C1          	POP BC
+ 2619 FE1C  ED 59       	OUT (C),E
+ 2620 FE1E  C9          	RET
+ 2621                   		;
+ 2622                   		; Vergleich von Speicherbereichen
+ 2623                   		;
+ 2624                   		; VERIFY
+ 2625 FE1F              VERIFY:
+ 2626 FE1F  CD FC5F     	CALL EXPR3
+ 2627 FE22              VERI0:
+ 2628 FE22  0A          	LD A,(BC)
+ 2629 FE23  BE          	CP (HL)
+ 2630 FE24  28 05       	JR Z,LXBBN
+ 2631 FE26  C5          	PUSH BC
+ 2632 FE27  CD F8F3     	CALL CERR
+ 2633 FE2A  C1          	POP BC
+ 2634 FE2B              LXBBN:
+ 2635 FE2B  03          	INC BC
+ 2636 FE2C  CD FC99     	CALL HILOX
+ 2637 FE2F  18 F1       	JR VERI0
+ 2638                   		;
+ 2639                   		; IO LOOKUP TABLE
+ 2640 FE31              LTBL:
+ 2641 FE31  43          	DEFB 'C'
+ 2642 FE32  54          	DEFB 'T'
+ 2643 FE33  56          	DEFB 'V'
+ 2644 FE34  42          	DEFB 'B'
+ 2645 FE35  55          	DEFB 'U'
+ 2646                   
+ 2647 FE36  52          	DEFB 'R'
+ 2648 FE37  54          	DEFB 'T'
+ 2649 FE38  50          	DEFB 'P'
+ 2650 FE39  43          	DEFB 'C'
+ 2651 FE3A  55          	DEFB 'U'
+ 2652                   
+ 2653 FE3B  50          	DEFB 'P'
+ 2654 FE3C  54          	DEFB 'T'
+ 2655 FE3D  50          	DEFB 'P'
+ 2656 FE3E  43          	DEFB 'C'
+ 2657 FE3F  55          	DEFB 'U'
+ 2658                   
+ 2659 FE40  4C          	DEFB 'L'
+ 2660 FE41  54          	DEFB 'T'
+ 2661 FE42  56          	DEFB 'V'
+ 2662 FE43  4C          	DEFB 'L'
+ 2663 FE44  55          	DEFB 'U'
+ 2664                   
+ 2665 FE45              EXIT:
+ 2666 FE45  C1          	POP BC
+ 2667 FE46  79          	LD A,C
+ 2668 FE47  ED 4F       	LD R,A
+ 2669 FE49  78          	LD A,B
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  47
+M-MONI72Z80
+
+ 2670 FE4A  ED 47       	LD I,A
+ 2671 FE4C  FD E1       	POP IY
+ 2672 FE4E  DD E1       	POP IX
+ 2673 FE50  F1          	POP AF
+ 2674 FE51  C1          	POP BC
+ 2675 FE52  D1          	POP DE
+ 2676 FE53  E1          	POP HL
+ 2677 FE54  08          	EX AF,AF'
+ 2678 FE55  D9          	EXX
+ 2679 FE56  D1          	POP DE
+ 2680 FE57  C1          	POP BC
+ 2681 FE58  F1          	POP AF
+ 2682 FE59  E1          	POP HL
+ 2683 FE5A  F9          	LD SP,HL
+ 2684 FE5B  00          	NOP
+ 2685 FE5C  21 0000     	LD HL,0
+ 2686 FE5F  C3 0000     	JP 0
+ 2687                   
+ 2688 FE62  0000        	DEFW 0
+ 2689 FE64  00          	DEFB 0
+ 2690 FE65  0000        	DEFW 0
+ 2691 FE67  00          	DEFB 0  	;TRAP AREA
+ 2692                   
+ 2693 FE68              ENDX:
+ 2694         0015      	ALOC EQU 15H
+ 2695         0013      	BLOC EQU 13H
+ 2696         0012      	CLOC EQU 12H
+ 2697         0011      	DLOC EQU 11H
+ 2698         0010      	ELOC EQU 10H
+ 2699         0014      	FLOC EQU 14H
+ 2700         0031      	HLOC EQU 31H
+ 2701         0030      	LLOC EQU 30H
+ 2702         0034      	PLOC EQU 34H
+ 2703         0017      	SLOC EQU 17H
+ 2704         0035      	TLOC EQU 35H
+ 2705         0025      	TLOCX EQU 25H
+ 2706         0020      	LLOCX EQU 20H
+ 2707                   
+ 2708         0009      	APLOC EQU 9
+ 2709         000B      	BPLOC EQU 0BH
+ 2710         000A      	CPLOC EQU 0AH
+ 2711         000D      	DPLOC EQU 0DH
+ 2712         000C      	EPLOC EQU 0CH
+ 2713         0008      	FPLOC EQU 8
+ 2714         000F      	HPLOC EQU 0FH
+ 2715         000E      	LPLOC EQU 0EH
+ 2716         0007      	XLOC EQU 7
+ 2717         0005      	YLOC EQU 5
+ 2718         0002      	RLOC EQU 2
+ 2719         0003      	ILOC EQU 3
+ 2720                   
+ 2721                   
+ 2722                   		; TABELLE
+ 2723 FE68              ACTBL:
+ 2724 FE68  41 15       	DEFB 'A',ALOC OR 0
+ 2725 FE6A  42 13       	DEFB 'B',BLOC OR 0
+ 2726 FE6C  43 12       	DEFB 'C',CLOC OR 0
+ 2727 FE6E  44 11       	DEFB 'D',DLOC OR 0
+'MC-MONITOR  850129 V 7.2 '     			    Z80ASM 1.32 Page  48
+M-MONI72Z80
+
+ 2728 FE70  45 10       	DEFB 'E',ELOC OR 0
+ 2729 FE72  46 14       	DEFB 'F',FLOC OR 0
+ 2730 FE74  48 31       	DEFB 'H',HLOC OR 0
+ 2731 FE76  4C 30       	DEFB 'L',LLOC OR 0
+ 2732 FE78  4D F1       	DEFB 'M',HLOC OR 0C0H
+ 2733 FE7A  50 B4       	DEFB 'P',PLOC OR 080H
+ 2734 FE7C  53 97       	DEFB 'S',SLOC OR 080H
+ 2735 FE7E  49 03       	DEFB 'I',ILOC OR 0
+ 2736                   
+ 2737 FE80  C1          	DEFB 0C1H
+ 2738                   
+ 2739 FE81              PRMTB:
+ 2740 FE81  41 09       	DEFB 'A',APLOC OR 0
+ 2741 FE83  42 0B       	DEFB 'B',BPLOC OR 0
+ 2742 FE85  43 0A       	DEFB 'C',CPLOC OR 0
+ 2743 FE87  44 0D       	DEFB 'D',DPLOC OR 0
+ 2744 FE89  45 0C       	DEFB 'E',EPLOC OR 0
+ 2745 FE8B  46 08       	DEFB 'F',FPLOC OR 0
+ 2746 FE8D  48 0F       	DEFB 'H',HPLOC OR 0
+ 2747 FE8F  4C 0E       	DEFB 'L',LPLOC OR 0
+ 2748 FE91  4D CF       	DEFB 'M',HPLOC OR 0C0H
+ 2749 FE93  58 87       	DEFB 'X',XLOC  OR 080H
+ 2750 FE95  59 85       	DEFB 'Y',YLOC  OR 080H
+ 2751 FE97  52 02       	DEFB 'R',RLOC  OR 0
+ 2752 FE99  C1          	DEFB 0C1H
+ 2753                   		;
+ 2754                   		;
+ 2755                   		;
+ 2756 FE9A  00          LASTMON:	DEFB 0 	;LAST STORAGE
+ 2757                   
+ 2758                   	.DEPHASE
+ 2759                   		; 
+ 2760                   		;
+ 2761                   	END 
+ 0 Error(s) Detected.
+ 3768 Absolute Bytes. 379 Symbols Detected.
+1H
+ 2738                   
+ 2739 FE81              PRMTB:
+ 2740 FE81  41 09       	DEFB 'A',APLOC OR 0
+ 

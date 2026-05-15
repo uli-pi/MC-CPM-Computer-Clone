@@ -1,0 +1,2769 @@
+
+	.Z80
+
+	TITLE 'MC-MONITOR  850129 V 7.2 '
+	PAGE 60
+
+		;************************************
+                ;*            V 7.2  851216         *
+		;* RDK MONITOR  1.1  850129         *
+		;* General Revision des MC-Monitors *
+		;* Winchester = ro 352/basf 6188    *
+		;* 7.5/10 Mbyte verwendbar          *
+		;* FLO1 und FLO2 waehlbar           *
+		;* Rev 1.13 Joerg Schnyder  850520  *        
+		;************************************
+
+	org 000h
+		;
+		; IM ROM AUF ADRESSE 0
+		;
+BEGINN:
+	LD SP,0FFFFH 	;DUMMY-LOAD 
+	LD A,0C9H 	;ABLAGE RET-BEFEHL
+	LD (0F000H),A 	;AUF ZIELADRESSE
+	CALL 0F000H 	;FESTSTELLEN
+ANF:		;DER EIGENEN ADRESSE,
+	DEC SP  	;UM START VON BELIEBIGER
+	DEC SP  	;STELLE AUS ZU ERMOEGLICHEN
+	POP DE  	;FUER TESTS SEHR GUT
+	LD HL,HAUPTP-ANF
+	ADD HL,DE
+	LD DE,0F000H 	;TRANSPORT ALLER ZELLEN
+	LD BC,0FFFH 	;4K TRANSFER
+	LDIR  	;EIGENTLICH ZUVIEL,ABER
+	JP 0F000H 	;STOERT NICHT WEITER
+		;
+HAUPTP:		;DISTANZ-MERKER
+		;
+	.PHASE 0F000H 	;START DES MONITORS
+		;CODE DENOCH HINTER BOOT BEREICH
+
+		; --- START DES EIGENTLICHEN MONITORS ---
+		;
+	CR EQU 0DH
+	LF EQU 0AH
+	BELL EQU 7
+	RUB EQU 0FFH
+	FIL EQU 0
+	MAX EQU 7
+
+	RST7 EQU 38H
+		; ANFANG VERSCHIEBBAR
+		; der Vektor RST7 wird fuer Breakpoints gebraucht
+		;
+
+		;
+	SIOADAT EQU 0F0H
+	SIOASTS EQU 0F1H
+	SIOBDAT EQU 0F2H
+	SIOBSTS EQU 0F3H
+		;
+
+		;* VEKTOR TABELLE *
+		; CSTS 0FFH IN A, FALLS ZEICHEN DA
+		; IOCHK IN A AKTUELLE IO-KONFIGURATION
+		; IOSET VERAENDERN, IO IN C-REG
+		; MEMCK IN B HIGH IN A LOW MEMORY
+		; TRAP/BREAKPOINT ENTRY
+
+
+		; START DES MONITORPROGRAMMS
+	JP BEGIN
+	JP CI
+	JP RI
+	JP CO
+	JP POO
+	JP LO
+	JP CSTS
+	JP IOBYTE
+	JP IOSET
+	JP MEMCK
+TRAP:
+	JP RESTART1
+	JP FLOPPY   	;neue Floppy-Schnittstelle rev 1.0
+	JP MAXI  	;FLOPPY EXEC VEKTOR SOFT (alt)
+	JP MINI  	;FLOPPY EXEC VEKTOR MINI (alt)
+	JP HDSYS 	;Winchester EXEC VECTOR
+		;
+		; 
+		;
+	DEFW TABSTART 	;TABELLEN-START, USER-BEREICH
+		;SPRUNGTABELLE, IMMER
+		;INDIREKT VERWENDEN
+	DEFW LASTMON 	;ADRESSE LETZTE BELEGTE ZELLE
+		;DES MONITORS DANACH PATCH FREI
+	DEFW FREEMEM 	;Lade-Adresse hinter IO-Gebiet
+		;
+		; Sprungtabelle, um mit FLOMON kompatibel zu
+		; sein, (NDR-Computer).
+	defs 13 	; f033,34,35,36,37,38,39,3a,3b,3c,3d,3e,3f
+		; BASIS F040h
+	jp illegal 	; loeschen alle seiten
+	jp illegal     	; loeschen unsichtbar
+	jp illegal 	; moveto hl=x de=y
+	jp illegal 	; drawto hl=x de=y
+	jp illegal 	; c=schreibseite 0,1,2,3
+	jp illegal 	; c=leseseite    0,1,2,3
+	jp illegal      	; c=rmwmode      0=norm 1=rmw
+	jp illegal 	; warten bis gdp fertig
+	jp illegal        	; c=befehl fuer gdp  ACHTUNG in C-Register nicht A
+	jp illegal 	; hl=quelle,de=ziel,c=bank quelle, b=bank ziel
+		; carry wenn bankram auf f000h nicht da ist
+
+		; Ende Sprungtabelle
+
+illegal:
+	ld a,0ffh
+	scf
+	ret  	; Mit Fehler beenden
+
+
+
+RESTART1:
+	JP RESTART 	;kann kurzgeschlossen werden
+		;nach freemem ueberschreibung
+
+BEGIN:
+	JP BEGIN1 	;kurzschliessen ggf.
+		;
+		; ende fixed gebiet
+
+		;
+		;**************************************
+		;* IO Routinen                        *
+		;**************************************
+
+		;+++ CI MAIN ROUTINE +++
+CI:
+	LD A,(IOBYT)
+	AND 3 	;CONSOLMASKE
+	JR NZ,CI1 	;ANDERE DEVICES
+TTYIN:
+	IN A,(SIOASTS)
+	AND 1
+	JR Z,TTYIN
+	IN A,(SIOADAT)
+	RET
+
+CI1:
+	JP USERCI  	;DORT SPRUNG MOEGLICH
+
+
+		;+++ RI ROUTINE +++
+
+RI:
+	LD A,(IOBYT)
+	AND 00001100B
+	JP Z,CI  	;AR=T
+	CP 00000100B 
+	JP NZ,USERRI
+LXLPI:		;AR=P
+	IN A,(SIOBSTS)
+	AND 1
+	JR Z,LXLPI
+	IN A,(SIOBDAT)
+	RET
+		;
+
+		; +++ MAIN CO ROUTINE +++ MOD
+		;
+CO:
+	LD A,(IOBYT)
+	AND 3
+	JR NZ,CO1
+		;
+TTYOUT:
+	IN A,(SIOASTS)
+	AND 4
+	JR Z,TTYOUT
+	LD A,C
+	OUT (SIOADAT),A
+	RET
+		;
+CO1:
+	JP USERCO 	;DORT SPRUNG MOEGLICH
+		;
+		;
+		;
+POO:		;+++ MAIN POO ROUTINE +++
+		;HIER ABFRAGE IOBYT MOEGLICH
+	LD A,(IOBYT)
+	AND 00110000B
+	JP Z,CO  	;AP=T
+	CP 00010000B
+	JP NZ,USERPOO
+LXLPO:		;AP=P
+	IN A,(SIOBSTS)
+	AND 4
+	JR Z,LXLPO
+	LD A,C
+	OUT (SIOBDAT),A
+	RET
+		;
+		;
+		; +++ MAIN LO ROUTINE +++ MOD
+
+LO:
+	LD A,(IOBYT)
+	AND 0C0H
+	JP Z,TTYOUT 	;AL=T
+	CP 10000000B 	;
+	JP NZ,USERLO
+		;AL=L
+LO1:
+	IN A,(SIOBSTS)
+	AND 4
+	JR Z,LO1
+	LD A,C
+	OUT (SIOBDAT),A
+	RET
+
+		;
+CSTS:		;+++ MAIN STATUS ROUTINE +++
+	LD A,(IOBYT)
+	AND 3
+	JR NZ,CS0
+TTYCSTS:
+	IN A,(SIOASTS)
+	AND 1
+	RET Z
+	LD A,0FFH
+	OR A
+	RET
+		;
+CS0:
+	JP USERCSTS 	;USER BEREICH
+		;
+
+		; Das IOBYTE dient der Umschaltung von
+		; physikalischem nach logischem Geraet
+		; Es hat die gleiche Bedeutung
+		; wie im CP/M-Bios 
+		;
+		;IOBYTE
+
+IOBYTE:
+	LD A,(IOBYT)
+	RET
+
+		; IOSET
+		; kann z.B. im Bios gesetzt werden
+
+IOSET:
+	LD A,C
+	LD (IOBYT),A
+	RET
+
+		;
+MEMCK:		;prueft den Speicherbereich und gibt
+		;die hoechste verfuegbare Zelle an
+	PUSH HL
+	CALL MEMSIZ
+	LD A,L
+	SUB 3CH
+	JR NC,LXBZ
+	DEC H
+LXBZ:
+	LD B,H
+	POP HL
+	RET
+
+		;
+		;
+MEMSIZ:		;Unterprogramm fuer Speicherendebestimmung
+	PUSH BC
+	LD HL,-1
+LXM0:
+	INC H
+	LD A,(HL)
+	CPL
+	LD (HL),A
+	CP (HL)
+	CPL
+	LD (HL),A
+	JR NZ,LXM0
+LXM1:
+	INC H
+	LD A,H
+	CP 0F0H  	;ALL RAM
+	JR Z,LXM2 	;READY 0F000H
+	LD A,(HL) 	;max 0f000h, da dort Monitor startet
+	CPL
+	LD (HL),A
+	CP (HL)
+	CPL
+	LD (HL),A
+	JR Z,LXM1
+LXM2:
+	DEC H
+	LD BC,EXIT-ENDX
+	ADD HL,BC
+	POP BC
+	RET
+		;
+TABSTART:		;TABELLE SPRUNG-VEKTOREN
+		;
+USERCI:	JP TTYIN
+USERRI:	JP TTYIN
+USERCO:	JP TTYOUT
+USERPOO:	JP TTYOUT
+USERLO:	JP TTYOUT
+USERCSTS:	JP TTYCSTS
+		;
+IOBYT:	DEFB 0  	;IOBYTE-SPEICHER 
+OEXEC:	DEFS 3
+IEXEC:	DEFS 3
+KEXEC:	DEFS 3
+		;
+		;**************FLOPPY FLO2********************
+
+
+		; Autobestimmung des Formats
+getflop:		; in C ist danach der gueltige
+		; Laufwerkscode, Vorgabe ist
+		; in C die Laufwerksnummer
+		; und ggf. Seite.
+	di  	; ohne Interrupts
+		; testet mini,sd =11
+		;        mini,dd =10
+		;        maxi,sd =01
+		;        maxi,dd =00
+	ld a,0d0h
+	out (flo0),a 	; Stop Controller
+	in a,(flo0) 	; Ints loeschen
+	ld a,c
+	and 8fh 	; nur Drivecode ok
+	ld c,a
+	call wawa
+	ld a,c
+	or 00110000b
+	ld c,a
+	call get1flop
+	ret nc  	; kein Fehler, no carry
+	ld a,c
+	and 10101111b
+	ld c,a
+	call get1flop
+	ret nc
+	ld a,c
+	and 10001111b
+	or  00010000b
+	ld c,a
+	call get1flop
+	ret nc
+	ld a,c
+	and 10001111b
+	ld c,a
+	call get1flop
+	ret  	; carry, dann Fehler
+
+
+get1flop:
+	ld a,(floc0)
+;1 	if a=1  	;FLO1 
+	CP 1  
+	JP NZ,.L1
+	ld a,c
+	xor 10h 	;invertieren Dichtebit bei FLO1
+;1 	else  	;FLO2
+	JP .L2
+.L1:
+	ld a,c
+;1 	endif    
+.L2:
+	out (flo4),a 	; Drive-Code probieren
+	ld a,0fh 	; RSTORE-Befehl mit Verify verwenden
+	out (flo0),a 	; und ausgeben
+get2flop:
+	in a,(flo4)
+	and 40h 	; Bit 6 pruefen
+	jr z,get2flop 	; bis INT da.
+	in a,(flo0) 	; und dann status lesen, int loeschen
+	and  10011000b 	; krit. Bit testen 
+	scf  	; falls Fehler, dann setzen
+	ret nz  	; carry=Fehler
+	xor a
+	ret  	; sonst ok nocarry (c=Code)
+
+
+		;*************************************************
+		;* Floppy Interface Paket Rev 1.0   841031       *
+		;* (C) 1984 Muenchen, Rolf-Dieter Klein          *
+		;*************************************************
+
+		; Routinen fuer MC-Kompatibilitaet
+		; wie floppy, jedoch Drive-Codierung anders
+		; nur fuer bestehende BIOS-Routinen gedacht
+		; 
+		; bei Maxi wird die Seite 1 mit Seitenpruefung auf 0
+		; angesprochen, bei Mini mit Seitenpruefung auf 1.
+		; nur fuer SD
+maxi::		; c=0,1,2,3
+		; 0,2 gekoppelt  1,3 gekoppelt
+	call setcod
+	jp floppy 	; sso-flag auf 0 setzen, jedoch stepflag
+		; gueltig wenn bit 7 gesetzt.
+
+setcod:
+	ld a,c  	; SD MAXI
+	and 3  	; muss Bereich 0..3 sein
+	cp 0  	; 0 seite 0
+	jr nz,max1
+	ld c,00010001b 	; LW 1
+	ret
+max1:
+	cp 1
+	jr nz,max2
+	ld c,00010010b 	; LW 2 seite 0
+	ret
+max2:
+	cp 2
+	jr nz,max3
+	ld c,10010001b 	; LW 1 seite 1
+	ret
+max3:
+	ld c,10010010b 	; LW 2 seite 1
+	ret
+
+
+set2cod:
+	and 3  	;0,1,2,3 erlaubt
+	cp 0
+	jr nz,min1
+	ld c,00000001b 	; LW 1 seite 0
+	ret
+min1:
+	cp 1
+	jr nz,min2
+	ld c,10000001b 	; LW 1 seite 1
+	ret
+min2:
+	cp 2
+	jr nz,min3
+	ld c,00000010b 	; LW 2 seite 0
+	ret
+
+min3:
+	ld c,10000010b 	; LW 2 seite 1 
+	ret
+
+
+mini::		;  rest unzul.
+		; 10,11 12,13 gekoppelt, d0,d1,d2,d3
+		; bit 6 =Dichtecode 1=Double dense
+	ld a,c
+	and 7fh 	; bit 7 interessiert nicht
+	ld c,a
+	push af
+	call set2cod 	; codierung 2
+	pop af
+	and 40h 	; dd,sd 
+;1 	if z  	; =0 sd
+	JP NZ,.L3
+	ld a,c
+	or 00110000b 	; SD MINI
+	ld c,a
+;1 	else
+	JP .L4
+.L3:
+	ld a,c
+	or 00100000b 	; DD MINI
+	ld c,a
+;1 	endif
+.L4:
+	ld a,2  	; sso-flag setzen
+	jp floppy1 	; ok ausfuehren
+
+		;*****************************************
+		;* Floppy-Unterprogramme fuer FLO2       *
+		;* verwendet 1797 als Controller         *
+		;* Version 1.0   840506                  *
+		;* Rolf-Dieter Klein (C) 1984 Muenchen   *
+		;*****************************************
+
+		; Die Routinen ermoeglichen sowohl den Anschluss
+		; von Mini-,Mikro- als auch von Maxi-Laufwerken
+		; Die Routinen muessen im RAM stehen 
+		; da auch Buffer am Ende stehen
+		; alle Buffer sind jedoch gesammelt
+
+	flo equ 0c0h 	; Basisadresse Floppy-Controller
+	flo0 equ 0c0h   	; komp.
+	flo1 equ 0c1h
+	flo2 equ 0c2h
+	flo3 equ 0c3h
+	flo4 equ 0c4h 	; Port fuer Zusatzstatus etc.
+
+
+		; FLO4    als Leseport
+		;
+		; 7 6 5 4 3 2 1 0
+		;
+		; DRQ   INTRQ   headld x      x x x x
+		; 0=request
+		;      0=request
+		;  1=head down
+		;
+
+
+		; FLO4    als Schreibport
+		;
+		; 7 6 5 4 3 2 1 0
+		;
+		; sso moton mini dense d c b a
+		;
+		; 1=Seite 1
+		; 0=Motor an
+		;  1=Minilaufwerk
+		;   1=Single Dense
+		;    -------------------------
+		;                                      1=Laufwerk an
+		;
+
+		; Bei einem Interrupt wird an diese Stelle gesprungen
+		; Der Interrupt erfolgt vom Floppy-Controller
+
+intex::		; Das INT-Program arbeitet nicht als
+		; Unterprogramm.
+	pop af  	; alte Ret-Adresse vernichten
+	in a,(flo) 	; Status lesen und INT loeschen
+	ei  	; Interrupt wieder freigeben
+	reti  	; zurueck zum vorherigen Aufrufer
+
+iniflp::		; Floppy Routinen Init
+	ld a,3  	; langsamste Steprate
+	ld (steprate),a 	; einstellen, kein SSO
+	ld a,0ffh
+	ld (drvat),a 	; Drive ungueltig
+	ret 
+
+	intvek equ 38h 	; Interruptziel
+
+floppy::		; Haupteingang der Floppy-Routinen
+	xor a  	; sso-Flag auf 0 setzen
+floppy1::		; a=sso flag, nur 2 zunlaessig
+	ld (ssoflag),a 	; ok setzen hier moeglich
+		; hl = Ziel oder Quelladresse
+		; E= Sektor D= Track
+		; C= Laufwerkscode+Dichtecode+Seite
+		; B= 0 dann Steprate setzen+SSO-Flag
+		;  = 1 dann lesen
+		;  = 2 dann schreiben
+cflo1:
+	push af  	;entscheiden FLO1 oder FLO2
+	ld a,(floc0)
+;1 	if a=1  	;1 = flo1
+	CP 1  
+	JP NZ,.L5
+	ld a,c
+	and 10111111b 	;kein autowait 
+
+	xor 10h 	;invertieren Dichtebit fuer FLO1
+	ld c,a
+;1 	endif
+.L5:
+	pop af
+	ld (sp0),sp 	; Stack umsetzen, da Tiefe ggf zu gross
+	ld sp,tstack 	; fuer BDOS
+		;
+	ld a,0d0h
+	out (flo),a 	; Floppy-Controller ruecksetzen
+	ld a,(intvek)
+	ld (locint),a
+	ld a,0c3h 	; JP - Befehl
+	ld (intvek),a
+	push hl 	; Ziel, Quelladresse
+	ld hl,(intvek+1)
+	ld (locint+1),hl
+	ld hl,intex 	; JP INTEX ablegen auf intvek
+	ld (intvek+1),hl
+	pop hl  	;
+	in a,(flo) 	; Status - Port
+	im 1  	; Mode 1 einstellen
+	ei  	; Interrupt freigeben
+	call softex
+	di  	; Sperren Int
+	push af 	; Status
+	ld a,(locint)
+	ld (intvek),a 	; zurueckspeichern
+	push hl
+	ld hl,(locint+1)
+	ld (intvek+1),hl
+	pop hl
+	pop af
+	ld sp,(sp0) 	; und wieder user-stack verwenden
+	ret
+
+		; Diverse Unterprogramme
+		;
+
+setup:		; testet ob der Kopf noch
+		; geladen ist und setzt die
+	ld b,0  	; Flag fuer SSO-Bit
+	ld a,(ccode) 	; wenn Bit 7 gesetzt, dann abfragen
+	and 80h
+	jr z,set2up 	; Seite 0, immer mit SSO=0
+	ld a,(steprate) 	; jetzt pruefen ob flags da
+	and 80h 	;<>0, dann SSO setzen, wenn seite 1
+	jr z,set1up 	;=0, dann code 0, oder SSOFLAG
+	ld b,2  	;SSO setzen 
+	jr set2up
+set1up:		; pruefen ob SSO-Flag
+	ld a,(ssoflag) 	; ok, 2=Flag
+	and 2  	; SSO-Bit
+	ld b,a  	; 0,2 erlaubt 
+set2up:		; 
+		; entsprechenden Bits
+	in a,(flo4) 	; Status Port
+	and 20h 	; Head-Load Bit
+	jr nz,noset 	; =1 dann Kopf auf Diskette
+	ld a,b
+	or 4  	; sonst Bitmaske fuer headdown
+	ret
+noset:
+	ld a,b
+	ret  	; Code belassen.
+
+rdflp:		; einen Sektor lesen
+		; e=sektor nr
+	ld a,c
+	out (flo4),a 	; erst mal Dichtecode setzen und Seite
+	ld a,e
+	out (flo2),a 	; ins Sektorregister
+	ld c,flo3 	; Adresse Datenport dann nach c
+	call setup 	; Register A vorbereiten
+	add a,88h 	; Lese-Befehl, sidesel=0
+	out (flo),a 	; Befehl ausfuehren
+rd1:
+	in a,(flo4) 	; DRQ schon da ?
+	rlca  	; bit7 = drq bit6 = int
+	jp nc,rd1 	; bis drq=1 da ist
+	ini  	; dann Transport moeglich
+	jp rd1  	; und alles wiederholen bis INT
+
+
+wrflp:		; Floppy-Sektor schreiben
+	ld a,c
+	out (flo4),a 	; erst mal Seite anwaehlen und Dichte
+	ld a,e  	; Sektorregister setzen
+	out (flo2),a
+	ld c,flo3 	; Adresse Datenport laden
+	call setup 	; E-Code in A laden
+	add a,0a8h 	; Befehl Schreibe-Sektor
+	out (flo),a 	; und Befehl ausfuehren
+wr1:
+	in a,(flo4) 	; warten bis DRQ da
+	rlca
+	jp nc,wr1 	; dann Wert ausgeben
+	outi  	; mit Blockbefehl
+	jp wr1  	; verlassen nur durch INT
+
+wawa:		; Warteschleife fuer einige ms
+	push bc 	; pro Schleife ca 6ys bei 4MHz
+	ld bc,500 	; 500*6ys Dauer
+	call delay
+	pop bc
+	ret
+
+delay:
+	dec bc
+	ld a,b
+	or c
+	jp nz,delay
+	ret
+
+
+seek:		; Spur anfahren C=Drive D=Spur E=Sektor
+	call wawa 	; Sicherheitshalber warten
+	ld a,c
+	out (flo4),a 	; Drive-Code und Dichte sowie Seite
+	ld a,e
+	out (flo2),a 	; Sektor
+	ld a,d
+	out (flo3),a 	; Spur
+	ld b,1ch 	; Seek-Befehl
+	ld a,(steprate)
+	and 3  	; 0,1,2,3  zulaessig
+	or b  	; Seek Befehl zusammen mit Steprate
+	out (flo),a 	; als Befehl ausgeben
+	halt  	; warten bis INT
+
+rstore:		; Kopf auf Spur 0 stellen
+	call wawa
+	ld a,c  	; Laufwerkscode (drive)
+	out (flo4),a 	; mit Dichtecode etc. ausgeben
+	ld b,8  	; nur Head-load, kein verify
+	ld a,(steprate)
+	and 3  	; 0,1,2,3 zulaessig
+	or b  	; als Befehl kombiniert
+	out (flo),a 	; und ausfuehren
+	halt  	; bis INT dort warten
+
+
+softex:		; Floppy-Kernroutinen
+		; hl=adresse, d=track e=sektor
+		; b=Befehl 0=Steprate setzen 1=read 2=write
+		; c=Laufwerkscode
+		;   aufgebaut wie Statusregister
+		; 7    6    5    4    3    2    1    0
+		; sso  mot  min  dens d    d    d    d
+		; sso  = seitenauswahl 1=seite 1
+		; mot  = motor on code std=0
+		; min  = 1 bei Minilaufwerken
+		; dens = 1 bei Single Dense Aufzeichnung
+		; d=binaerer Laufwerkscode
+		;   normalerweise nur 1,2,4,8 moeglich
+		;   Kombinationen moeglich, wenn binaere
+		;   Dekodierung beim Laufwerk verwendet
+		;   wird
+	ld a,b
+	or a
+	jr nz, soft1  	; dann Steprate in Register D (0..3)
+	ld a,d   	;    (+80h =SSO verwenden und pruefen).
+	and 83h  	; Bit 7=SSO-Flag bei Zugriffen wichtig,
+	ld (steprate),a 	; die die zweite Seite verwenden.
+	xor a
+	ret
+
+soft1:
+	xor a
+	ld (fehza),a 	; Fehlerzahl 0
+	ld a,c
+	ld (ccode),a 	; Drive-Code
+	and 0fh 	; fuer Vergleich
+	ld c,a  	; wieder zurueck
+	ld a,(drvat)
+	cp 0ffh 	; ungueltig, dann setzen noetig
+	jr z,notdef
+	and 0fh 	; nur Laufwerksnummer relevant
+	cp c  	; Vergleich ob Laufwerkewechsel
+	jp z,nurseek 	; nur Seek noetig
+	push hl
+	push bc
+	ld hl,drvtab 	; Basisadresse
+	ld c,a
+	ld b,0  	; Alter Laufwerktrack merken
+	add hl,bc
+	in a,(flo1) 	; Tracknr
+	ld (hl),a 	; und dort ablegen
+	pop bc
+	pop hl
+notdef:		; Drive nur laden
+	push hl
+	push bc
+	ld a,(ccode) 	; neues Laufwerk
+	and 0fh 	; nur Laufwerkscode
+	ld c,a
+	ld b,0
+	ld hl,drvtab 	; Tabellenstart
+	add hl,bc 	; hl zeigt auf Laufwerkstrack
+	ld a,(hl)
+	out (flo1),a 	; und ins Register des FDs
+	pop bc
+	pop hl
+	ld a,(ccode)
+	ld (drvat),a 	; ist nun neues Laufwerk
+	push bc
+	ld bc,1000*3/12 	; ca 1ms warten
+	call delay 	;
+	ld a,(ccode) 	; Dann neues Laufwerk ansprechen
+	out (flo4),a 	;
+	ld bc,2917 	; ca 35ms .. 15ms
+	call delay 	; um head-load-Zeit zu beruecksichtigen 
+	pop bc  	; alte Codes zurueck
+	jr nur1 	; Immer auf ready pruefen, da
+		; head down sein kann und dennoch
+		; nicht ready
+
+
+nurseek:
+	in a,(flo4) 	; wenn head down dann kein dummyseek
+	and 20h
+	jr nz,nodum
+nur1:		; immer einsprung
+	ld a,(ccode)
+	ld c,a
+	call seekex 	; seek selekt dummy nur fuer readytest
+	in a,(flo) 	; test Status
+	and 80h 	; fuer Ready
+	jr nz,nur1 	; Wiederhole solange bis Laufwerk READY
+nodum:		; Einsprung head down ok
+	in a,(flo1) 	; nun pruefen of Tracks gleich sind
+	cp 0ffh 	; nicht definiert
+	jr z,try1 	; dann zuerst RESTORE
+	cp d  	; oder schon auf dem Track
+	jp z,sk11 	; ja dann nur lesen,schreiben
+	tryº  	; SEEK ausfuehren
+	ld a,(ccode)
+	ld c,a
+	call seekex 	; und Track anfahren Reg retten
+	and 10010000b 	; Fehlermaske
+	jr z,sk11 	; ja dann R/W moeglich
+try1:		; Laufwerk normieren und RSTORE
+	ld a,(ccode)
+	ld c,a
+	push hl
+	push de
+	push bc
+	call rstore
+	pop bc
+	pop de
+	pop hl
+	ld a,(fehza) 	; Fehler erhoehen
+	inc a
+	ld (fehza),a
+	cp 10  	; bei 10 Fatal-Fehler
+	jr c,try 	; sonst nochmals mit SEEK probieren
+error1:
+	ld a,0ffh
+	or a
+	scf  	; 0ffh, carry als Fehlerflag
+	ret  	; ABBRUCH FATAL
+
+noerr1:		; Ausgang wenn kein Fehler da
+	xor a
+	ret
+
+
+sk11:		; r/w ausfuehren
+	ld a,b
+	cp 2
+	jp z,wrtex 	; Schreibbefehl
+	ld a,(ccode)
+	ld c,a
+	push hl
+	push de
+	push bc
+	call rdflp 	; und Lesen
+	pop bc
+	pop de
+	pop hl
+	and 10011100b 	; Fehlermaske incl. Lost data
+	jr z,noerr1 	; ende
+	and 00010000b 	; bei record not found SEEK
+	jr nz,try1 	; mit vorherigem Restore
+	ld a,(fehza)
+	inc a
+	ld (fehza),a 	; CRC Fehler sonst
+	cp 5  	; kleiner als 5 dann nochmals probieren
+	jr c,sk11 	;
+	cp 10
+	jr c,try1 	; sonst rstore und seek
+	jr error1 	; sonst FATAL - Fehler
+
+wrtex:		; Schreiben
+	ld a,(ccode)
+	ld c,a
+	push hl
+	push de
+	push bc
+	call wrflp
+	pop bc
+	pop de
+	pop hl
+	and 11111100b
+	jr z,noerr1 	; alles ok
+	and 00010000b 	; record not found
+	jr nz,try1 	; gleich neuen Seek ausfuehren
+	ld a,(fehza)
+	inc a
+	ld (fehza),a 	;
+	cp 4  	; recht bald, da i.A. nur record not fnd
+	jr c,try1 	; daher nur 4 Versuche
+	jr error1 	; FATAL FEHLER
+
+seekex:		; Seek ausfuehren
+	push hl
+	push de
+	push bc
+	call seek
+	pop bc
+	pop de
+	pop hl
+	ret
+
+
+		; *** ENDE der Floppy-Routinen ***
+
+
+		;***********************************
+		;* Ram        *    
+		;***********************************
+
+
+		; Buffer Bereich fuer Floppy-Routinen
+
+steprate:	defb 0    	; Merker fuer die Steprate + SSO-Option
+ssoflag:	defb 0    	; zusaetzlich, dominant, fuer MINI
+sp0:	defw 0    	; Stackmerker fuer BDOS
+		; =2, dann mit sso, sonst 0
+locint:	defb 0,0,0 	; Merker fuer alten Inhalt Intvektor
+fehza:	defb 0    	; Fehlerzaehler fuer retry
+ccode:	defb 0    	; Drive-Code
+drvat:	defb 0ffh  	; letztes Laufwerk
+drvtab:	defb 0ffh,0ffh,0ffh,0ffh 	; 16 moegliche Laufwerke
+	defb 0ffh,0ffh,0ffh,0ffh
+	defb 0ffh,0ffh,0ffh,0ffh
+	defb 0ffh,0ffh,0ffh,0ffh
+	defs 100   	; lokaler Stack 
+tstack:	defb 0
+		;
+		; ************* ENDE FLO2-Routinen ***************
+		;
+		;**************WINCHESTER*********************
+		;**********************************
+		;* Winchester Adapter Programm    *
+		;* Version 1.0  830629 R D Klein  *
+		;* XEBEC-Controller     *
+		;**********************************
+		; vers ro352 in Tabelle   --
+
+	hdbase equ 7ch 	;
+
+	hddata equ hdbase
+	hdstat equ hdbase+1
+	hdrst equ hdbase+1
+	hdsel equ  hdbase+2
+
+	hdreq equ 1 	;request bit position
+	hdbsy equ 2 	;busy bit 
+	hdmsg equ 4 	;msg bit
+	hdc$d equ 8 	;c/d bit
+	hdi$o equ 10h 	;i/o bit
+
+	errmsk equ 2 	;error maske
+
+	comfhst equ 8 	;commdand from host
+	datfhst equ 0 	;data from host
+	datthst equ 10h 	;data to host
+	errthst equ 18h 	;error status to host
+	comrdy equ 1ch 	;command completed
+
+	drvrdyc equ 0 	;test for ready
+	formatc equ 4 	;format code
+	readc equ 8 	;read code
+	writec equ 0ah 	;write code
+	sensec equ 3 	;status sense 
+	initlc equ 0ch 	;init disk size
+	seekc equ 0bh 	;seek command
+	recalc equ 1 	;recalibrate
+	ramdiag equ 0e0h 	;diagnostik ram
+
+
+wiini::		;controller laden
+		;parameter einstellen
+		;nur wenn angesprochen
+		;aufruf der routine von sys aus
+
+	ld a,0
+	out (hdrst),a  	;reset xebec controller
+
+	ld a,initlc  	;parameter tabelle
+	call taskout
+	ld b,8
+	ld hl,drvtbl  	;characteristika
+deflop:
+	call reqwait
+	ld a,(hl)
+	out (hddata),a
+	inc hl
+	dec b
+	jr nz,deflop
+	call getstat
+	ld a,recalc
+	call taskout  	;recal drive durchfuehren
+	call getstat  	;
+	ret   	;0= ok
+
+		;
+drvtbl:		;fuer RO 352
+	defb 1   	;msb cylinders
+	defb 50   	;lsb cylinders 306=50+256
+	defb 4   	;heads
+	defb 0   	;msb reduced write cyl 128
+	defb 128  	;lsb
+	defb 0   	;msb write precom cyl
+	defb 128  	;lsb
+	defb 11   	;ecc length
+		;
+
+
+hdwrite::		;sektor schreiben de=sectoradr
+	ld a,writec
+	call taskout
+	ld b,0   	;256 bytes
+	ld hl,hstbuf
+	ld c,hddata  	;quelle
+	call reqwait
+	cp datfhst  	;sonst fehler
+	jr nz,hderror
+	otir   	;ausgabe
+	call getstat  	;ende status
+	or a
+	ret z   	;ok s.o
+	jr hderror  	;fehler
+
+hdread::		;de =sector
+	ld a,readc
+	call taskout
+	ld b,0
+	ld hl,hstbuf
+	ld c,hddata
+	call reqwait
+	cp datthst  	;data -> host
+	jr nz,hderror
+	inir   	;lesen
+	call getstat  	;test
+	cp 18h
+	jr z,noerr  	; corr Error
+		;
+	or a
+	ret z
+		;
+hderror:
+	ld a,1
+	or a
+	scf
+	ret   	;fehler
+		;
+
+noerr:
+	xor a
+	ret
+
+
+taskout:
+	ld hl,task  	;adresse
+	ld (hl),a  	;befehl
+	inc hl
+	ld (hl),0  	;msb
+	inc hl
+	ld (hl),d  	;middle
+	inc hl
+	ld (hl),e  	;lsb sector
+	inc hl
+	ld (hl),1  	;einen sektor
+	inc hl
+	ld (hl),0  	;3ms steprate
+	ld hl,task
+	ld b,6
+	call selcntlr  	;select controller
+tskolp:
+	call reqwait
+	cp comfhst
+	jp nz,hderror  	;fehler 
+	ld a,(hl)
+	inc hl
+	out (hddata),a
+	djnz tskolp
+	xor a
+	ret   	;ok fertig
+
+reqwait:
+	in a,(hdstat)
+	ld e,a
+	bit 0,a  	;request aktive
+	jr z,reqwait 	;nein
+	ld a,e
+	and 01ch 	;msg c/d i/o als check
+	ret
+
+		;
+getstat:
+	call reqwait
+	cp errthst
+	jp nz,hderror
+	in a,(hddata) 	;status
+	ld d,a
+	call reqwait
+	cp comrdy
+	jp nz,hderror
+	in a,(hddata)
+	ld a,d
+	and errmsk
+	ret  	;fehlermaske
+
+selcntlr:
+	ld a,1
+	out (hddata),a
+	out (hdsel),a 	;selekt controller 1
+sel1:
+	in a,(hdstat)
+	and hdbsy
+	jp z,sel1
+	ret
+
+		;
+
+
+hdsys::		;b=1 read b=2 write
+		;hl = ziel,quell-adresse
+		;de indirekte adresse trk,sektor
+		;bei 7.5mb hier nur 0..ffff a 128 bytes
+	ld a,(de) 	;lsb
+	ld c,a
+	inc de
+	ld a,(de) 	;msb sektor a 128
+	ld e,c  	;lsb
+	ld d,a  	;msb de=sektoradresse a 128
+		;
+	ld (imdma),hl 	;retten
+	ld (sectrk),de 	;adresse
+	ld a,b
+	ld (imbef),a 	;befehl
+	ld a,(imwr) 	;=0ffh dann neustart
+	cp 0ffh  	;
+	jr nz,hd1 	;weiter sonst
+	push hl
+	push de
+	push bc
+	call wiini 	;init controller recalibrate
+	pop bc
+	pop de
+	pop hl
+	ld a,0
+	ld (imwr),a 	;nicht geschrieben
+	jr hd2  	;weiter nach checkout
+hd1:
+	ld hl,(sectrk)
+	ld de,(oldsec) 	;bit 0 irrelevant
+	res 0,e
+	res 0,l  	;da bufferhaelfte angibt
+	xor a
+	sbc hl,de
+	ld a,h
+	or l  	;=0 dann schon da
+	jp z,hd3 	;nicht mehr laden
+hd2:		;ohne check sektor nicht da
+		;ggf zurueckschreiben alten
+	ld a,(imwr) 	;=1 dann beschriebener sector da
+	cp 1
+	jr nz,hd21 	;weiter nur laden ok
+	ld de,(oldsec) 	;alter sector zurueck
+	srl d  	;div 2
+	rr e  	;
+	call hdwrite 	;zurueck damit
+	jp nz,errimi
+	xor a
+	ld (imwr),a 	;clear
+hd21:		;neuen sector holen
+	ld de,(sectrk)
+	ld (oldsec),de 	;neuer sector nun
+	srl d
+	rr e  	;div 2
+	call hdread 	;und lesen 256 bytes
+	jp nz,errimi 	;fehler
+hd3:		;sector nun da
+	ld a,(imbef)
+	cp 1
+	jr z,rdbef
+	cp 2
+	jr z,wrbef
+	xor a
+	ret  	;fehlerhafter befehl
+
+
+rdbef:
+	ld hl,hstbuf 	;quelle
+	ld de,(sectrk) 	;bit 0
+	bit 0,e  	;=0
+	jr z,rd11
+	ld bc,128
+	add hl,bc 	;displacement quelle
+rd11:
+	ld de,(imdma)
+	ld bc,128 	;anzahl bytes
+	ldir  	;nach dmaadr
+	xor a
+	ret
+
+
+
+wrbef:
+		;
+	ld a,1
+	ld (imwr),a 	;written flag setzen
+	ld hl,hstbuf 	;ziel
+	ld de,(sectrk)
+	bit 0,e
+	jr z,wr11
+	ld bc,128
+	add hl,bc
+wr11:
+	ex de,hl 	;de = zieladresse
+	ld hl,(imdma) 	;quelle
+	ld bc,128
+	ldir
+	xor a
+	ret  	;fertig
+
+
+
+errimi:
+	ret  	;<> 0 fehler
+
+
+
+task:	defs 6  	;task block
+
+oldsec:	defw 0  	;frueherer sector a 128
+
+imwr:	defb 0ffh 	;wichtig init auf ff,wiini etc
+hstbuf::	defs 256 	;sector buffer
+
+imbef:	defb 0  	;befehl =1 read =2 write
+sectrk:	defw 0  	;sectoradresse a 128
+imdma:	defw 0  	;adresse ziel,quelle
+floc0:	defb 0  	;0=FLO2, 1=FLO1
+		;*********************************************
+
+		;
+	FREEMEM EQU $ 	;dynamischer Platz fuer Buffer etc.
+
+		;********************************************
+		;* Bereich kann geloescht werden unter CP/M *
+		;* um Platz fuer Puffer etc zu bieten       *
+		;********************************************
+		;
+		;
+MSG:
+	DEFB 0DH,0AH
+	DEFB 7 	; BELL
+	DEFM " MC COMPUTER"
+	DEFM " V 7.2 Winchester ro/basf"
+	DEFM " RDK/JS 1985 "
+	DEFM 0DH,0AH,0
+	MSGL EQU $-MSG
+
+BEGIN1:		;nur einmal verwendet
+		;    ------ INIT ------
+	LD C,SIOASTS
+	LD B,8
+	LD HL,TABSIO
+	OTIR
+	LD C,SIOBSTS
+	LD B,8
+	LD HL,TABSIB
+	OTIR
+	JR SKSKL
+TABSIO:
+	DEFB 1,0
+	DEFB 3,11100001B 	; -CTS UND -DCD ENABLE rev 3.4 term1
+	DEFB 4,01001100B
+	DEFB 5,11101010B 	;dtr rts +12V bedeutet ready rev 3.4
+		;
+TABSIB:		;-CTS UND -DCD ENABLE
+	DEFB 1,0
+	DEFB 3,11100001B
+	DEFB 4,01001100B
+	DEFB 5,11101010B 	;dtr rts +12V bedeutet ready rev 3.4
+		;
+SKSKL:
+
+		; pio nicht mehr noetig mit 3.2
+		;
+	LD A,(7000H) 	;Bank-Select umschalten
+		;
+
+
+	XOR A  	;alles auf Console schalten
+	LD (IOBYT),A
+
+		;    ------ END INIT -------
+
+	LD SP,AHEAD-4
+	JP MEMSIZ+1
+	DEFW AHEAD
+AHEAD:
+	LD SP,HL
+	EX DE,HL
+	LD BC,ENDX-EXIT
+	LD HL,EXIT
+	LDIR
+	EX DE,HL
+	LD BC,-5FH
+	ADD HL,BC
+	PUSH HL
+	LD HL,0
+	LD B,10 	;REGISTER
+STKIT:
+	PUSH HL
+	DJNZ STKIT
+HELLO:
+	LD C,1AH
+	CALL CO
+	LD B,MSGL
+	CALL TOM1
+		; Haupteingabeschleife
+START:
+	LD DE,START
+	PUSH  DE
+	CALL CRLF
+	LD C,'>'
+	CALL CO
+		; ------    U . S . W .
+STAR0:
+	CALL TI
+	AND 7FH
+	JR Z,STAR0
+	SUB 'A'
+	RET M
+	CP 'Z'-'A'+1
+	RET NC
+	ADD A,A
+	LD HL,TBL
+	ADD A,L
+	LD L,A
+	LD A,H
+	ADC A,0
+	LD H,A
+	LD A,(HL)
+	INC HL
+	LD H,(HL)
+	LD L,A
+	LD C,2
+	JP (HL)  	;EXEC
+
+		; Befehlstabelle
+		; enthaelt alle Monitorbefehle
+
+TBL:
+	DEFW ASSIGN
+	DEFW BYE
+	DEFW COMP
+	DEFW DISP
+	DEFW EOF
+	DEFW FILL
+	DEFW GOTO
+	DEFW HEXN
+	DEFW BOOT1
+	DEFW TEST
+	DEFW KEXEC
+	DEFW LOAD
+	DEFW MOVE
+	DEFW NULL
+	DEFW OEXEC
+	DEFW PUTA
+	DEFW QUERY
+	DEFW READ
+	DEFW SUBS
+	DEFW TYPE
+	DEFW UNLO
+	DEFW VERIFY
+	DEFW WRITE
+	DEFW XAM
+	DEFW WHERE
+	DEFW SIZE
+
+		;
+		; BOOT FLOPPY HARD/SOFT/MINI
+FLPMSG:
+	DEFB 0DH,0AH
+	DEFM "FLO2-Boot = 1, Winchester = 2, FLO1-Boot = 3 : " 
+	FLPL EQU $-FLPMSG
+		;
+BOOT1:
+	CALL INIFLP 	;vektoren etc definieren
+	LD HL,FLPMSG 	;FALLS DA
+	LD B,FLPL 	;Meldung ausgeben
+	CALL TOM 	;dann Antwort abwarten
+	CALL CI
+	AND 7FH  	;ohne paritaet
+	LD C,A
+	CALL CO
+	CP "I"  	;I-Vektor fuer Benutzerbefehl
+	JP Z,IEXEC
+	cp "2"
+	jr z,wiex 	; Winchester Boot
+;1 	if a='3' 	; boot mit FLO1
+	CP '3' 
+	JP NZ,.L6
+	ld a,1
+	ld (floc0),a 	; 1 = FLO1 
+;1 	elseif a='1' 	; boot mit FLO2
+	JP .L7
+.L6:
+	CP '1' 
+	JP NZ,.L8
+	xor a
+	ld (floc0),a 	; 0 = FLO2
+;1 	else
+	JP .L9
+.L8:
+	jp error
+;1 	endif
+.L9:
+.L7:
+		;
+bootx:
+		; automatisch Format bestimmen, REV 1.1
+	ld c,00000001b 	; immer von Laufwerk A  Seite 0 booten
+	call getflop 	; Formatierung bestimmen
+	jp c,error 	; bei Fehler zurueck ins Menue
+	ld hl,80h 	; bei einfacher Dichte nach 80h
+	bit 4,c  	; =0, dann dd, sonst sd
+	jr nz,exec1 	; sd
+	ld hl,0fc00h 	; sonst 1K Block ggf. dorthin.
+exec1:
+	push hl 	; rev (1.5) 1.1
+	ld b,1  	; lesen
+	ld d,0  	; track 0
+	ld e,1  	; sektor 1
+	call floppy
+	pop hl  	; Sprungziel zurueck
+	jp nz,error
+	jp (hl) 	; Starten sonst
+		;
+		;
+widat:
+	defb 0,0,0,0 	; Track=0 Sektor=0
+
+wiex:
+	ld hl,80h 	; Boot 128 Bytes auf Adresse 0
+	ld de,widat
+	ld b,1  	; lesen
+	call hdsys 	; start
+	jp nz,error 	; Fehler beim Boot
+	jp 80h  	; und ausfuehren
+
+
+		; IOBYTE ASSIGNE
+		; 000000XX CONSOLE
+		; 0000XX00 READER
+		; 00XX0000 PUNCH
+		; XX000000 LISTER
+
+		; 00= TELETYPE CONS
+
+ASSIGN:		;ZUWEISUNG
+	CALL TI
+	LD HL,LTBL
+	LD BC,400H
+	LD DE,5
+AREP0:
+	CP (HL)
+	JR Z,AREP1
+	ADD HL,DE
+	INC C
+	DJNZ AREP0
+	JR LXERR
+AREP1:
+	LD E,C
+AREP22:
+	CALL TI
+	CP "="
+	JR NZ,AREP22
+	CALL TI
+	LD BC,400H
+AREP33:
+	INC HL
+	CP (HL)
+	JR Z,LXA4
+	INC C
+	DJNZ AREP33
+LXERR:
+	JP ERROR
+LXA4:
+	LD A,3
+	INC E
+LXA5:
+	DEC E
+	JR Z,LXA6
+	SLA  C
+	SLA  C
+	RLA
+	RLA
+	JR LXA5
+LXA6:
+	CPL
+	LD D,A
+LXA7:
+	CALL PCHK
+	JR NC,LXA7
+	LD A,(IOBYT)
+	AND D
+	OR C
+	LD C,A
+	JP IOSET
+		;
+		; BYE COMMAND
+
+BYE:
+	CALL CRLF
+LXBY:
+	CALL KI  	;In HEX Dump 1E 
+	CP 0EH  	;CRTL N ist 0eh
+	JR NZ,LXBY 	;gaendert gegen MC-Vers
+	POP DE
+	JP HELLO
+
+		;
+		;
+		; PUT ASCII INTO MEM
+		; Damit ist es moeglich Texte direkt in den Speicher
+		; einzugeben
+
+PUTA:
+	CALL EXPR1
+	CALL CRLF
+	POP HL
+AREP11:
+	CALL KI
+	CP 4  	;beenden der Eingabe CTRL-D
+	JP Z,LFADR
+	CP "_"  	;rueckwaerts schreiten
+	JR Z,AREP34
+	LD (HL),A
+	LD C,A
+	INC HL
+AREP23:
+	CALL CO
+	JR AREP11
+AREP34:
+	DEC HL
+	LD C,(HL)
+	JR AREP23
+		;
+		; COMPARE BIN
+		; Vergleich eines Speicherbereichs
+		; mit dem Reader
+
+COMP:
+	CALL EXLF
+LXC:
+	CALL RIFF
+	CP (HL)
+	CALL NZ,CERR
+	CALL HILOX
+	JR LXC
+
+		; M AUSGABE
+
+CERR:
+	LD B,A
+	CALL HLSP
+	LD A,(HL)
+	CALL LBYTE
+	CALL BLK
+	LD A,B
+	CALL LBYTE
+	JP CRLF
+
+		; DISPLAY
+		; Ausgabe eines Speicherbereichs
+
+DISP:
+	CALL EXLF
+LXD0:
+	CALL LFADR
+LXD1:
+	CALL BLK
+	LD A,(HL)
+	CALL LBYTE
+	CALL HILOX
+	LD A,L
+	AND 0FH
+	JR NZ,LXD1
+	JR LXD0
+		;
+		; EOF AUSGABE
+		; fuer Punch , Intel-Hex Ende ausgeben
+
+EOF:
+	CALL EXPR1
+	CALL PEOL
+	LD C,':'
+	CALL POO
+	XOR A
+	CALL PBYTE
+	POP HL
+	CALL PADR
+	LD HL,0
+	CALL PADR
+	JP NULL
+
+		; FILL
+		; Einen Speicherbereich mit einem
+		; Wert fuellen
+
+FILL:
+	CALL EXPR3
+LXF:
+	LD (HL),C
+	CALL HILO
+	JR NC,LXF
+	POP DE
+	JP START
+
+		;
+
+		; EXEC OTHER PRGS
+		; Start eines Anwenderprogramms
+		; mit Break-Points
+
+GOTO:
+	CALL PCHK
+	JR C,LXG3
+	JR Z,LXG0
+	CALL EXF
+	POP DE
+	LD HL,PLOC
+	ADD HL,SP
+	LD (HL),D
+	DEC HL
+	LD (HL),E
+	LD A,B
+	CP 0DH
+	JR Z,LXG3
+LXG0:
+	LD D,2
+	LD HL,TLOC
+	ADD HL,SP
+LXG1:
+	PUSH HL
+	CALL EXPR1
+	LD E,B
+	POP BC
+	POP HL
+	LD A,B
+	OR C
+	JR Z,LXG2
+	LD (HL),C
+	INC HL
+	LD (HL),B
+	INC HL
+	LD A,(BC)
+	LD (HL),A
+	INC HL
+	LD A,0FFH
+	LD (BC),A
+LXG2:
+	LD A,E
+	CP 0DH
+	JR Z,LXG2A
+	DEC D
+	JR NZ,LXG1
+LXG2A:
+	LD A,0C3H 	;Rueckkehr mit RST7 vorbereiten
+	LD (RST7),A
+	LD HL,TRAP
+	LD (RST7+1),HL
+LXG3:
+	CALL CRLF
+	POP DE
+	LD HL,22
+	ADD HL,SP
+	JP (HL)  	;und Programm starten
+
+
+		;
+		;
+		; TEST
+		; Schnelltest fuer den Speicher
+		; FAST Complement Test
+		;
+TEST:
+	CALL EXLF
+LXT11:
+	LD A,(HL)
+	LD B,A
+	CPL
+	LD (HL),A
+	XOR (HL)
+	JR Z,LXT2
+	PUSH DE
+	LD D,B
+	LD E,A
+	CALL HLSP
+	CALL BITS
+	CALL CRLF
+	LD B,D
+	POP DE
+LXT2:
+	LD (HL),B
+	CALL HILOX
+	JR LXT11
+		;
+		; LDE
+
+		; Transport eines Speicherbereichs
+		; in einen anderen
+
+MOVE:
+	CALL EXPR3
+LXM:
+	LD A,(HL)
+	LD (BC),A
+	INC BC
+	CALL HILOX
+	JR LXM
+
+
+		; READ ROUTINE
+		; einlesen von Intel-Hex oder TDL-Daten
+
+		;
+READ:
+	CALL EXPR1
+	LD A,B
+	SUB 0DH
+	LD B,A
+	LD C,A
+	POP DE
+	JR Z,LXR00
+	CALL EXPR1
+	POP BC
+LXR00:
+	EX DE,HL
+	EXX
+	CALL CRLF
+LOD0:
+	CALL RIX
+	SUB ':'
+	LD B,A
+	AND 0FEH
+	JR NZ,LOD0
+	LD D,A
+	CALL SBYTE
+	LD E,A
+	CALL SBYTE
+	PUSH AF
+	CALL SBYTE
+	EXX
+	POP DE
+	LD E,A
+	PUSH BC
+	PUSH DE
+	PUSH HL
+	ADD HL,DE
+	EX (SP),HL
+	POP IX
+	EXX
+	POP HL
+	CALL SBYTE
+	DEC A
+	LD A,B
+	POP BC
+	JR NZ,AREPA
+	ADD HL,BC
+	ADD IX,BC
+AREPA:
+	INC E
+	DEC E
+	JR Z,DONE
+	DEC A
+	JR Z,LODR
+LXL11:
+	CALL SBYTE
+	CALL STORE
+	JR NZ,LXL11
+LOD4:
+	CALL SBYTE
+	JR Z,LOD0
+ERR2:
+	PUSH IX
+	POP HL
+	CALL LADR
+	JP ERROR
+DONE:
+	LD A,H
+	OR  L
+	RET Z
+	EX DE,HL
+	LD HL,PLOC
+	ADD HL,SP
+	LD (HL),D
+	DEC HL
+	LD (HL),E
+	RET
+LODR:
+	LD L,1
+LXL12:
+	CALL LOD03
+	JR C,LXL33
+LXL5:
+	CALL STORE
+	JR NZ,LXL12
+	JR LOD4
+LXL33:
+	LD C,A
+	CALL LOD03
+	LD B,A
+	EXX
+	PUSH BC
+	EXX 
+	EX (SP),HL
+	ADD HL,BC
+	LD A,L
+	CALL STORE
+	LD A,H
+	POP HL
+	JR LXL5
+LOD03:
+	DEC L
+	JR NZ,LXL01
+	CALL SBYTE
+	DEC E
+	LD H,A
+	LD L,8
+LXL01:
+	CALL SBYTE
+	SLA H
+	RET
+
+SBYTE:
+	PUSH BC
+	CALL RIBBLE
+	RLCA
+	RLCA
+	RLCA
+	RLCA
+	LD C,A
+	CALL RIBBLE
+	OR C
+	LD C,A
+	ADD A,D
+	LD D,A
+	LD  A,C
+	POP BC
+	RET
+
+STORE:
+	LD (IX+0),A
+	CP (IX+0)
+	JR NZ,ERR2
+	INC IX
+	DEC E
+	RET
+
+
+		; SUBST
+		; Interaktive Eingabe von Hex-Werten
+
+SUBS:
+	CALL EXPR1
+	POP HL
+LXS0:
+	LD A,(HL)
+	CALL LBYTE
+	CALL COPCK
+	RET C
+	JR Z,LXS1
+	CP '_'
+	JR Z,LXS2
+	PUSH HL
+	CALL EXF
+	POP DE
+	POP HL
+	LD (HL),E
+	LD A,B
+	CP 0DH
+	RET Z
+LXS1:
+	INC HL
+LXS3:
+	LD A,L
+	AND 7
+	CALL Z,LFADR
+	JR LXS0
+LXS2:
+	DEC HL
+	JR LXS3
+
+		;
+		;
+		;  TYPE
+		; Ausgabe von Speicherbereichen in lesbarer
+		; Form
+		;
+
+TYPE:
+	CALL EXLF
+LXT0:
+	CALL LFADR
+	LD B,32+32
+LXT1:
+	LD A,(HL)
+	AND 7FH
+	CP ' '
+	JR NC,LXT3
+LXT22:
+	LD A,'.'
+LXT3:
+	CP 7CH
+	JR NC,LXT22
+	LD C,A
+	CALL CO
+	CALL HILOX
+	DJNZ LXT1
+	JR LXT0
+
+		;
+
+		;
+
+		; SEARCH
+		; Suchen von Werten im Speicher
+
+		;
+WHERE:
+	LD D,0
+LXW00:
+	CALL EXPR1
+	POP HL
+	LD H,L
+	PUSH HL
+	INC  SP
+	INC D
+	LD A,B
+	SUB 0DH
+	JR NZ,LXW00
+	LD B,A
+	LD C,A
+	LD H,A
+	LD L,D
+	DEC L
+	ADD HL,SP
+	PUSH HL
+	PUSH BC
+FINDC:
+	PUSH BC
+	CALL CRLF
+	POP BC
+FIND:
+	POP HL
+	POP IX
+	LD E,D
+	LD A,(IX+0)
+	CPIR
+	JP PO,DONE2
+	PUSH IX
+	PUSH HL
+FOUND:
+	DEC E
+	JR Z,TELL
+	LD A,(IX-1)
+	CP (HL)
+	JR NZ,FIND
+	INC HL
+	DEC IX
+	JR FOUND
+TELL:
+	POP HL
+	PUSH HL
+	DEC HL
+	PUSH BC
+	CALL LADR
+	POP BC
+	JR FINDC
+DONE2:
+	INC SP
+	DEC E
+	JR NZ,DONE2
+	RET
+		;
+		;
+WRITE:
+	CALL EXLF
+LXW0:
+	CALL PEOL
+	LD BC,':'
+	CALL POO
+	PUSH DE
+	PUSH HL
+LXW1:
+	INC B
+	CALL HILO
+	JR C,LXW4
+	LD A,24
+	SUB B
+	JR NZ,LXW1
+	POP HL
+	CALL LXW2
+	POP DE
+	JR LXW0
+LXW2:
+	LD D,A
+	LD A,B
+	CALL PBYTE
+	CALL PADR
+	XOR  A
+	CALL PBYTE
+LXW3:
+	LD A,(HL)
+	CALL PBYTE
+	INC HL
+	DJNZ LXW3
+	XOR A
+	SUB D
+	JP PBYTE
+LXW4:
+	POP HL
+	POP DE
+	XOR  A
+	JR LXW2
+		;
+		;
+		; XAM  USER REG
+		;
+XAM:
+	CALL TI
+	LD HL,ACTBL
+	CP 0DH
+	JR Z,LXX6
+	CP "'"
+	JR NZ,LXX0
+	LD HL,PRMTB
+	CALL TI
+	CP 0DH
+	JR Z,LXX6
+LXX0:
+	CP (HL)
+	JR Z,LXX1
+	BIT 7,(HL)
+	JP NZ,ERROR
+	INC HL
+	INC HL
+	JR LXX0
+LXX1:
+	CALL BLK
+LXX2:
+	INC HL
+	LD A,(HL)
+	LD B,A
+	AND 3FH
+	EX DE,HL
+	LD L,A
+	LD H,0
+	ADD HL,SP
+	EX DE,HL
+	INC HL
+	LD A,(DE)
+	CALL LBYTE
+	BIT 7,B
+	JR Z,LXX3
+	DEC DE
+	LD A,(DE)
+	CALL LBYTE
+LXX3:
+	CALL COPCK
+	RET C
+	JR Z,LXX5
+	PUSH HL
+	PUSH BC
+	CALL EXF
+	POP HL
+	POP AF
+	PUSH BC
+	PUSH AF
+	LD A,L
+	LD (DE),A
+	POP BC
+	BIT 7,B
+	JR Z,LXX4
+	INC DE
+	LD A,H
+	LD (DE),A
+LXX4:
+	POP BC
+	POP HL
+	LD A,B
+	CP 0DH
+	RET Z
+LXX5:
+	BIT 7,(HL)
+	RET NZ
+	JR LXX2
+LXX6:
+	CALL CRLF
+LXX7:
+	CALL BLK
+	LD A,(HL)
+	INC HL
+	OR A
+	RET M
+	LD C,A
+	CALL CO
+	LD C,"="
+	CALL CO
+	LD A,(HL)
+	LD B,A
+	AND 3FH
+	INC HL
+	EX DE,HL
+	LD L,A
+	LD H,0
+	ADD HL,SP
+	EX DE,HL
+	BIT 6,B
+	JR NZ,LXX9
+	LD A,(DE)
+	CALL LBYTE
+	BIT 7,B
+	JR Z,LXX7
+	DEC DE
+	LD A,(DE)
+LXX8:
+	CALL LBYTE
+	JR LXX7
+LXX9:
+	PUSH HL
+	LD A,(DE)
+	LD H,A
+	DEC DE
+	LD A,(DE)
+	LD L,A
+	LD A,(HL)
+	POP HL
+	JR LXX8
+		;
+		; MESSAGE OUTPUT ROUTINE
+
+TOM1:
+	LD HL,MSG
+
+TOM:
+	LD C,(HL)
+	INC HL
+	CALL CO
+	DJNZ TOM
+	CALL CSTS
+	OR A
+	RET Z
+		;
+		;IF CTRL C ABORT
+
+CCHK:
+	CALL KI
+	CP 3
+	RET NZ
+		;
+
+		;
+		; ERROR
+		;
+ERROR:
+	CALL MEMSIZ
+	LD DE,-22
+	ADD HL,DE
+	LD SP,HL
+	LD C,7
+	CALL CO
+	LD C,'*'
+	CALL CO
+	JP START
+
+		;
+		; READER INPUT
+		; ABORT ON CARRY
+		; COMPARE WITH D
+RIFF:
+	CALL RI
+	JR C,ERROR
+	CP D
+	RET
+		;
+		;
+		; SEARCH MEM
+
+SIZE:
+	CALL MEMSIZ
+	LD BC,ENDX-EXIT
+	ADD HL,BC
+		;
+		;
+LFADR:
+	CALL CRLF
+		;
+HLSP:
+	CALL LADR
+		;
+BLK:
+	LD C,' '
+	JP CO
+
+		;
+		;
+		;
+
+PEOL:
+	LD C,0DH
+	CALL POO
+	LD C,0AH
+	JP POO
+		;
+		;
+		; UNLOAD ROUTINE
+		; Ausgabe eines Speicherbereichs binaer
+
+
+UNLO:
+	CALL EXLF
+	CALL LEAD
+	CALL MARK
+LXO:
+	LD C,(HL)
+	CALL POO
+	CALL HILO
+	JR NC,LXO
+	CALL MARK
+		; GOTO NULL
+		; NULL PUNCH
+		;
+NULL:
+	CALL LEAD
+		;
+	RET
+		;
+
+CONV:
+	AND 0FH
+	ADD A,90H
+	DAA 
+	ADC A,40H
+	DAA
+	LD C,A 	;HEX TO ASC
+	RET
+		;
+EXLF:
+	CALL EXPR
+	POP DE
+	POP HL
+		;
+		;
+CRLF:
+	PUSH HL
+	LD B,2
+	CALL TOM1
+	POP HL
+	RET
+		;
+
+		; Eingabe von Hex Wertes von der Console
+		;
+		;
+EXPR3:
+	INC C
+	CALL EXPR
+	CALL CRLF
+	POP BC
+	POP DE
+	POP HL
+	RET
+		;
+
+		;
+EXPR1:
+	LD C,1
+		;
+		;
+EXPR:
+	LD HL,0
+EX0:
+	CALL TI
+EX1:
+	LD B,A
+	CALL NIBBLE
+	JR C,LXEX2
+	ADD HL,HL
+	ADD HL,HL
+	ADD HL,HL
+	ADD HL,HL
+	OR L
+	LD L,A
+	JR EX0
+LXEX2:
+	EX (SP),HL
+	PUSH HL
+	LD A,B
+	CALL QCHK
+	JR NC,LXEX3
+	DEC  C
+	RET Z
+LXEX3:
+	JP NZ,ERROR
+	DEC C
+	JR NZ,EXPR
+	RET
+EXF:
+	LD C,1
+	LD HL,0
+	JP EX1
+		;
+		;
+HILOX:
+	CALL HILO
+	RET NC
+	POP DE
+	RET
+		;
+HILO:
+	INC HL
+	LD A,H
+	OR L
+	SCF
+	RET Z
+	LD A,E
+	SUB L
+	LD  A,D
+	SBC A,H
+	RET
+		;
+		;
+		; HEX MATH
+		;
+HEXN:
+	CALL EXLF
+	PUSH HL
+	ADD HL,DE
+	CALL HLSP
+	POP HL
+	OR   A
+	SBC HL,DE
+LADR:
+	LD A,H
+	CALL LBYTE
+	LD A,L
+LBYTE:
+	PUSH AF
+	RRCA
+	RRCA
+	RRCA
+	RRCA
+	CALL LXR22
+	POP AF
+LXR22:
+	CALL CONV
+	JP CO
+		;
+		;
+MARK:
+	LD BC,8FFH
+	JR LEO
+		;
+		;
+LEAD:
+	LD BC,4800H
+LEO:
+	CALL POO
+	DJNZ  LEO
+	RET
+		;
+
+
+		;
+RIBBLE:
+	CALL RIX
+NIBBLE:
+	SUB '0'
+	RET C
+	CP 'G'-'0'
+	CCF
+	RET C
+	CP 10
+	CCF
+	RET NC
+	SUB 'A'-'9'-1
+	CP 0AH
+	RET
+		;
+		;
+PADR:
+	LD A,H
+	CALL PBYTE
+	LD A,L
+		;
+PBYTE:
+	PUSH AF
+	RRCA
+	RRCA
+	RRCA
+	RRCA
+	CALL CONV
+	CALL POO
+	POP AF
+	PUSH AF
+	CALL CONV
+	CALL POO
+	POP AF
+	ADD A,D
+	LD D,A
+	RET
+		;
+		;
+COPCK:
+	LD C,'-'
+	CALL CO
+PCHK:
+	CALL TI
+QCHK:
+	CP ' '
+	RET Z
+	CP ','
+	RET Z
+	CP 0DH
+	SCF
+	RET Z
+	CCF
+	RET
+		;
+		;
+		;
+RIX:
+	CALL RIFF
+	AND 7FH
+	RET
+		;
+		; laden von Binaerdaten 
+		; startkennung ist eine Gruppe von 0FFh
+		; Werten
+		;
+LOAD:
+	CALL EXPR1
+	POP HL
+	CALL CRLF
+	LD D,0FFH
+LXL0:
+	LD B,4
+LXLL1:
+	CALL RIFF
+	JR NZ,LXL0
+	DJNZ LXLL1
+LXL2:
+	CALL RIFF
+	JR Z,LXL2
+	LD (HL),A
+	LD A,7
+		;+++ OUT TTY +++
+LXL3:
+	INC HL
+	CALL RIFF
+	JR Z,LXEL
+	LD (HL),A
+	JR LXL3
+LXEL:
+	LD E,1
+LXEL0:
+	CALL RIFF
+	JR NZ,LXEL1
+	INC E
+	LD A,7 	;MAX +++
+	CP E
+	JR NZ,LXEL0
+	JP LADR
+LXEL1:
+	LD (HL),D
+	INC HL
+	DEC  E
+	JR NZ,LXEL1
+	LD (HL),A
+	JR  LXL3
+		;
+		;
+		; Eingang nach einem Break-Point
+		;
+RESTART:
+
+	PUSH HL
+	PUSH DE
+	PUSH BC
+	PUSH AF
+	CALL MEMSIZ
+	EX DE,HL
+	LD HL,10
+	ADD HL,SP
+	LD B,4
+	EX DE,HL
+LXR0:
+	DEC HL
+	LD (HL),D
+	DEC HL
+	LD (HL),E
+	POP DE
+	DJNZ LXR0
+	POP BC
+	DEC BC
+	LD SP,HL
+	LD HL,TLOCX
+	ADD HL,SP
+	LD A,(HL)
+	SUB C
+	INC HL
+	JR NZ,LXR1
+	LD A,(HL)
+	SUB B
+	JR Z,LXR3
+LXR1:
+	INC HL
+	INC HL
+	LD  A,(HL)
+	SUB C
+	JR NZ,LXR2
+	INC HL
+	LD  A,(HL)
+	SUB B
+	JR Z,LXR3
+LXR2:
+	INC BC
+LXR3:
+	LD HL,LLOCX
+	ADD HL,SP
+	LD (HL),E
+	INC HL
+	LD (HL),D
+	INC HL
+	INC HL
+	LD (HL),C
+	INC HL
+	LD (HL),B
+	PUSH BC
+	LD C,'@'
+	CALL CO
+	POP HL
+	CALL LADR
+	LD HL,TLOCX
+	ADD HL,SP
+	LD BC,200H
+LXR4:
+	LD E,(HL)
+	LD (HL),C
+	INC HL
+	LD D,(HL)
+	LD (HL),C
+	INC HL
+	LD A,E
+	OR D
+	JR Z,LXR5
+	LD A,(HL)
+	LD (DE),A
+LXR5:
+	INC HL
+	DJNZ LXR4
+	EX AF,AF'
+	EXX
+	PUSH HL
+	PUSH DE
+	PUSH BC
+	PUSH AF
+	PUSH IX
+	PUSH IY
+	LD A,I
+	LD B,A
+	LD A,R
+	LD C,A
+	PUSH BC
+	JP START
+		;
+		;
+		;
+KI:
+	CALL CI
+	AND 7FH
+	RET
+		;
+		;
+TI:
+	CALL KI
+	RET Z
+	INC A
+	RET M
+	DEC A
+	CP 0DH
+	RET Z
+	CP 'N'
+	RET Z
+	CP 'n'
+	JR Z,LXT
+	PUSH BC
+	LD C,A
+	CALL CO
+	LD A,C
+	POP BC
+	CP 'A'-1
+	RET C
+	CP 'z'+1
+	RET NC
+LXT:
+	AND 05FH
+	RET
+
+		;
+		; Ein-und Ausgabe auf Ports
+		;
+		;
+QUERY:
+	CALL TI
+	CP 'O'
+	JR Z,QUO
+	CP 'I'
+	JP NZ,ERROR
+	CALL EXPR1
+	POP BC
+	IN E,(C)
+BITS:
+	LD B,8
+	CALL BLK
+LXQ2:
+	SLA E
+	LD A,'0' SHR 1
+	ADC A,A
+	LD C,A
+	CALL CO
+	DJNZ LXQ2
+	RET
+QUO:
+	CALL EXPR
+	POP DE
+	POP BC
+	OUT (C),E
+	RET
+		;
+		; Vergleich von Speicherbereichen
+		;
+		; VERIFY
+VERIFY:
+	CALL EXPR3
+VERI0:
+	LD A,(BC)
+	CP (HL)
+	JR Z,LXBBN
+	PUSH BC
+	CALL CERR
+	POP BC
+LXBBN:
+	INC BC
+	CALL HILOX
+	JR VERI0
+		;
+		; IO LOOKUP TABLE
+LTBL:
+	DEFB 'C'
+	DEFB 'T'
+	DEFB 'V'
+	DEFB 'B'
+	DEFB 'U'
+
+	DEFB 'R'
+	DEFB 'T'
+	DEFB 'P'
+	DEFB 'C'
+	DEFB 'U'
+
+	DEFB 'P'
+	DEFB 'T'
+	DEFB 'P'
+	DEFB 'C'
+	DEFB 'U'
+
+	DEFB 'L'
+	DEFB 'T'
+	DEFB 'V'
+	DEFB 'L'
+	DEFB 'U'
+
+EXIT:
+	POP BC
+	LD A,C
+	LD R,A
+	LD A,B
+	LD I,A
+	POP IY
+	POP IX
+	POP AF
+	POP BC
+	POP DE
+	POP HL
+	EX AF,AF'
+	EXX
+	POP DE
+	POP BC
+	POP AF
+	POP HL
+	LD SP,HL
+	NOP
+	LD HL,0
+	JP 0
+
+	DEFW 0
+	DEFB 0
+	DEFW 0
+	DEFB 0  	;TRAP AREA
+
+ENDX:
+	ALOC EQU 15H
+	BLOC EQU 13H
+	CLOC EQU 12H
+	DLOC EQU 11H
+	ELOC EQU 10H
+	FLOC EQU 14H
+	HLOC EQU 31H
+	LLOC EQU 30H
+	PLOC EQU 34H
+	SLOC EQU 17H
+	TLOC EQU 35H
+	TLOCX EQU 25H
+	LLOCX EQU 20H
+
+	APLOC EQU 9
+	BPLOC EQU 0BH
+	CPLOC EQU 0AH
+	DPLOC EQU 0DH
+	EPLOC EQU 0CH
+	FPLOC EQU 8
+	HPLOC EQU 0FH
+	LPLOC EQU 0EH
+	XLOC EQU 7
+	YLOC EQU 5
+	RLOC EQU 2
+	ILOC EQU 3
+
+
+		; TABELLE
+ACTBL:
+	DEFB 'A',ALOC OR 0
+	DEFB 'B',BLOC OR 0
+	DEFB 'C',CLOC OR 0
+	DEFB 'D',DLOC OR 0
+	DEFB 'E',ELOC OR 0
+	DEFB 'F',FLOC OR 0
+	DEFB 'H',HLOC OR 0
+	DEFB 'L',LLOC OR 0
+	DEFB 'M',HLOC OR 0C0H
+	DEFB 'P',PLOC OR 080H
+	DEFB 'S',SLOC OR 080H
+	DEFB 'I',ILOC OR 0
+
+	DEFB 0C1H
+
+PRMTB:
+	DEFB 'A',APLOC OR 0
+	DEFB 'B',BPLOC OR 0
+	DEFB 'C',CPLOC OR 0
+	DEFB 'D',DPLOC OR 0
+	DEFB 'E',EPLOC OR 0
+	DEFB 'F',FPLOC OR 0
+	DEFB 'H',HPLOC OR 0
+	DEFB 'L',LPLOC OR 0
+	DEFB 'M',HPLOC OR 0C0H
+	DEFB 'X',XLOC  OR 080H
+	DEFB 'Y',YLOC  OR 080H
+	DEFB 'R',RLOC  OR 0
+	DEFB 0C1H
+		;
+		;
+		;
+LASTMON:	DEFB 0 	;LAST STORAGE
+
+	.DEPHASE
+		; 
+		;
+	END 
+
+
+
+
+
+
+
+
