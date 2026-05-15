@@ -1,0 +1,2123 @@
+;---------------------------------------------------------------
+;Monitor fuer MC-Computer Platine SYS-1
+;Assembliert mit Z80ASM von SLR Systems wegen der langen
+;Label die mit einigen anderen Assemblern nicht moeglich sind.
+;
+;Erstellt 04/2026 von U. Haumann
+;Enthaelt Floppy Routinen aus RDK Monitor 1.1, sowie Teile aus 
+;dem Monitor von Donn Stewart fuer den "CPU-Ville" Z80 Computer.
+;Single Density boot wird uebersprungen, kann aber einfach
+;auskommentiet oder gelöscht werden wenn original gewuenscht.
+;Flo1 und Flo2 waehlber auf Hardware Basis Adresse 0C0h.
+;Der Mointor erwartet 64KB Ram Memory. Er darf selbst nicht
+;groesser als 4KB werden, es sein denn man schiebt die MON_ADR
+;und CCP weiter nach unten. Der CPM Bereich verkleinert sich dann.
+;Der Monitor kopiert sich nach Reset an das Speicherende
+;auf den Wert in MON_ADR und gibt den unteren RAM Bereich frei.
+;Dies wird auf der SYS1 mit einem Lesebefehl auf
+;Adresse 7000h erreicht. Das Eprom ist dann ausgeblendet.
+;Somit steht der Speicher durchgaengig ab 0000h bis zu MON_ADR
+;zur Verfuehgung.
+;Das CPM BIOS fuer den MC-Computer ueberschreibt den Monitorbereich
+;ab FC00h. Alle relevanten Teile für den Betrieb des Rechners 
+;muessen vor FC00h plaziert werden.
+;
+;---------------------------------------------------------------
+			.Z80
+
+			ORG	0000h		;Beginn iM ROM AUF ADRESSE 0
+;
+		Mon_ADR	EQU 0F000H	;Monitor Zieladresse
+		CCP		EQU 0D400H	;CP/M CCP Anfang
+;
+;Routine um den ROM Inhalt nach "Mon_ADR" zu schieben
+;
+BEGINN:
+	LD SP,0FFFFH 		;DUMMY-LOAD 
+	LD A,0C9H 			;ABLAGE RET-BEFEHL
+	LD (Mon_ADR),A 		;AUF ZIELADRESSE
+	CALL Mon_ADR 		;FESTSTELLEN
+ANF:					;DER EIGENEN ADRESSE,
+	DEC SP  			;UM START VON BELIEBIGER
+	DEC SP  			;STELLE AUS ZU ERMOEGLICHEN
+	POP DE  			;FUER TESTS SEHR GUT
+	LD HL,HAUPTP-ANF
+	ADD HL,DE
+	LD DE,Mon_ADR 		;TRANSPORT ALLER ZELLEN
+	LD BC,0FFFH 		;4K TRANSFER
+	LDIR  			
+	JP Mon_ADR 		;und los gehts
+HAUPTP:				;DISTANZ-MERKER
+;
+		.PHASE Mon_ADR 	;Monitor auf Zieladresse einstellen
+;
+; --- START DES EIGENTLICHEN MONITORS ---
+;
+	CR 		EQU 0DH
+	LF 		EQU 0AH
+	BELL		EQU 07H
+	RUB 		EQU 0FFH
+	ESC		EQU 1BH
+;
+	RST7		EQU 38H	; ANFANG VERSCHIEBBAR
+					; der Vektor RST7 wird fuer Breakpoints gebraucht
+;
+;Adressen des Seriell Port MC Computer SIO/PIO Karte
+;
+	SIOADAT	EQU 0F0H
+	SIOASTS	EQU 0F1H
+	SIOBDAT	EQU 0F2H
+	SIOBSTS	EQU 0F3H
+	RXRDY		EQU 001h			;RX Ready Bit
+	TXRDY		EQU 004h			;TX Ready Bit
+;
+;Adressen IDE Port CF-80 Karte
+;
+	IDEDATA	EQU 018h			;IDE Daten Register
+	SECCND	EQU 01ah			;Sector Count Register
+	LBA7		EQU 01bh			;LBA Bits 0-7
+	LBA15		EQU 01ch			;LBA Bits 8-15
+	LBA23		EQU 01dh			;LBA Bits 16-23
+	IDEHEAD	EQU 01eh			;IDE Drive Head Register
+	IDESTAT	EQU 01fh			;IDE Command/Status Register
+;
+; Basisadresse Floppy-Controller FLO2
+;
+	flo 		equ 0c0h 		
+	flo0 		equ 0c0h   	
+	flo1 		equ 0c1h
+	flo2		equ 0c2h
+	flo3		equ 0c3h
+	flo4		equ 0c4h 			; Port fuer Zusatzstatus etc.
+
+;
+;Die Unterprogramme der seriellen Ein/Ausgabe brauchen Speicher im RAM
+;
+		Ser_ADR	equ	CCP-0100H		;Basis Adresse Seriell Puffer
+								;liegt direkt unterhalb CCP
+current_location	equ	Ser_ADR+00H	;word variable in RAM
+line_count			equ	Ser_ADR+02H	;byte variable in RAM
+byte_count			equ	Ser_ADR+03H	;byte variable in RAM
+value_pointer		equ	Ser_ADR+04H	;word variable in RAM
+current_value		equ	Ser_ADR+06H	;word variable in RAM
+buffer			equ	Ser_ADR+08H	;buffer up to CCP
+;
+;* VEKTOR TABELLE *
+; CSTS 0FFH IN A, FALLS ZEICHEN DA
+; IOCHK IN A AKTUELLE IO-KONFIGURATION
+; IOSET VERAENDERN, IO IN C-REG
+; MEMCK IN B HIGH IN A LOW MEMORY
+; TRAP/BREAKPOINT ENTRY
+;
+; --- Sprungtabellen am ROM Start
+;feste Einsprungadressen fuer andere Programme
+;
+	JP BEGIN			;Kaltstart Monitor
+	JP CI				;Consol Input Routine
+	JP RI
+	JP CO				;Consol Output Routine
+	JP POO
+	JP LO
+	JP CSTS
+	JP IOBYTE
+	JP IOSET
+	JP MEMCK
+TRAP:	
+	JP RESTA1			;Restart Vector
+	JP FLOP  	 		;neue Floppy-Schnittstelle rev 1.0
+	JP MAXI  			;FLOPPY EXEC VEKTOR SOFT (alt)
+	JP MINI  			;FLOPPY EXEC VEKTOR MINI (alt)	
+	JP IDE_read		;IDE Sektor lesen
+	JP IDE_write		;IDE Sektor schreiben
+	JP mon_cold_start	;Monitor Kalt Start, Hardware init
+	JP mon_warm_start	;Monitor Warm Start
+	JP write_string		;gibt mit 0 terminierten String aus
+;
+	DEFW TABSTART 		;TABELLEN-START, USER-BEREICH
+					;SPRUNGTABELLE, IMMER
+					;INDIREKT VERWENDEN
+	DEFW LASTMON 		;ADRESSE LETZTE BELEGTE ZELLE
+					;DES MONITORS DANACH PATCH FREI
+	DEFW FREEMEM 		;Lade-Adresse hinter IO-Gebiet
+
+RESTA1:
+	JP RESTA 			;kann kurzgeschlossen werden
+					;nach freemem Ueberschreibung
+;
+BEGIN:
+	JP BEGIN1 			;kurzschliessen ggf.
+					;ende fixed gebiet
+;
+;**************************************
+;* IO Routinen
+;**************************************
+;
+; --- Consol Input ROUTINE ---
+CI:
+	LD A,(IOBYT)		;Abfrage des IO Byte
+	AND 3 			;CONSOLMASKE
+	JR NZ,CI1 			;Wenn nicht Standart Console
+;
+TTYIN:
+	in 	a,(SIOASTS)		;get status
+	and 	RXRDY				;check RxRDY bit
+	jp 	z,TTYIN			;not ready, loop
+	in 	a,(SIOADAT)		;get char
+	ret
+;
+CI1:
+	JP USERCI  		;Dort Sprung zur moeglicher Benutzer
+					;Console
+;
+; --- Consol Output ROUTINE --- 
+CO:
+	LD A,(IOBYT)		;Abfrage des IO Byte
+	AND 3	
+	JR NZ,CO1			;Wenn nicht Standard Console
+;					
+TTYOUT:				;bei Aufruf mus auszugebendes Zeichen
+					;in Register C sein
+	IN A,(SIOASTS)
+	and	TXRDY				;check TxRDY bit
+	JR Z,TTYOUT
+	LD A,C			
+	OUT (SIOADAT),A
+	RET
+CO1:
+	JP USERCO 			;DORT SPRUNG MOEGLICH
+;
+; --- RI ROUTINE ---
+RI:
+	LD A,(IOBYT)
+	AND 00001100B
+	JP Z,CI  			;AR=T
+	CP 00000100B 
+	JP NZ,USERRI
+LXLPI:				;AR=P
+	IN A,(SIOBSTS)
+	AND 1
+	JR Z,LXLPI
+	IN A,(SIOBDAT)
+	RET
+;
+POO:		; --- MAIN POO ROUTINE ---
+		;HIER ABFRAGE IOBYT MOEGLICH
+
+	LD A,(IOBYT)
+	AND 00110000B
+	JP Z,CO  			;AP=T
+	CP 00010000B
+	JP NZ,USERPOO
+LXLPO:				;AP=P
+	IN A,(SIOBSTS)
+	AND 4
+	JR Z,LXLPO
+	LD A,C
+	OUT (SIOBDAT),A
+	RET
+;
+LO:
+	LD A,(IOBYT)
+	AND 0C0H
+	JP Z,TTYOUT 		;AL=T
+	CP 10000000B 		
+	JP NZ,USERLO
+					;AL=L
+LO1:
+	IN A,(SIOBSTS)
+	AND 4
+	JR Z,LO1
+	LD A,C
+	OUT (SIOBDAT),A
+	RET
+
+CSTS:		
+	LD A,(IOBYT)
+	AND 3
+	JR NZ,CS0
+TTYCSTS:
+	IN A,(SIOASTS)
+	AND 1
+	RET Z
+	LD A,0FFH
+	OR A
+	RET
+		;
+CS0:
+	JP USERCSTS 		;USER BEREICH
+
+; Das IOBYTE dient der Umschaltung von
+; physikalischem nach logischem Geraet
+; Es hat die gleiche Bedeutung
+; wie im CP/M-Bios 
+;
+IOBYTE:
+	LD A,(IOBYT)
+	RET
+; IOSET
+; kann z.B. im Bios gesetzt werden
+IOSET:
+	LD A,C
+	LD (IOBYT),A
+	RET
+;
+MEMCK:	;prueft den Speicherbereich und gibt
+		;die hoechste verfuegbare Zelle an
+;
+	PUSH HL
+	CALL MEMSIZ
+	LD A,L
+	SUB 3CH
+	JR NC,LXBZ
+	DEC H
+LXBZ:
+	LD B,H
+	POP HL
+	RET
+
+MEMSIZ:	; --- Unterprogramm fuer Speicherendebestimmung ---
+	PUSH BC
+	LD HL,-1
+LXM0:
+	INC H
+	LD A,(HL)
+	CPL
+	LD (HL),A
+	CP (HL)
+	CPL
+	LD (HL),A
+	JR NZ,LXM0
+LXM1:
+	INC H
+	LD A,H
+	CP 0F0H  		;ALL RAM
+	JR Z,LXM2 		;READY 0F000H
+	LD A,(HL) 		;max 0f000h, da dort Monitor startet
+	CPL
+	LD (HL),A
+	CP (HL)
+	CPL
+	LD (HL),A
+	JR Z,LXM1
+LXM2:
+	DEC H
+	LD BC,EXIT-ENDX
+	ADD HL,BC
+	POP BC
+	RET
+;
+TABSTART:			;TABELLE SPRUNG-VEKTOREN
+				;hier Sprung zu eigener Verarbeitung moeglich
+				;erstmal alles auf Standard umgeleitet
+USERCI:	JP TTYIN	
+USERRI:	JP TTYIN
+USERCO:	JP TTYOUT
+USERPOO:	JP TTYOUT
+USERLO:	JP TTYOUT
+USERCSTS:	JP TTYCSTS
+		;
+IOBYT:	DEFB 0  	;IOBYTE-SPEICHER 
+OEXEC:	DEFS 3
+IEXEC:	DEFS 3
+KEXEC:	DEFS 3
+;
+;
+		;**************FLOPPY FLO2********************
+
+				; Autobestimmung des Formats
+getfl:			; in C ist danach der gueltige
+				; Laufwerkscode, Vorgabe ist
+				; in C die Laufwerksnummer
+				; und ggf. Seite.
+				;
+	di  			; ohne Interrupts
+				; testet mini,sd =11
+				;        mini,dd =10
+				;        maxi,sd =01
+				;        maxi,dd =00
+	ld a,0d0h
+	out (flo0),a 		; Stop Controller
+	in a,(flo0) 		; Ints loeschen
+	ld a,c
+	and 8fh 			; nur Drivecode ok
+	ld c,a
+	call wawa
+	ld a,c
+	or 00110000b		;mini sd vorgeben		
+	ld c,a
+	call get1fl
+	ret nc  			; kein Fehler, no carry
+	ld a,c
+	and 10101111b
+	ld c,a
+	call get1fl
+	ret nc
+	ld a,c
+	and 10001111b
+	or  00010000b
+	ld c,a
+	call get1fl
+	ret nc
+	ld a,c
+	and 10001111b
+	ld c,a
+	call get1fl
+	ret  				; carry, dann Fehler
+
+
+get1fl:
+	ld a,(floc0)
+				;1 	if a=1  		;FLO1 
+	CP 1  
+	JP NZ,.L1
+	ld a,c
+	xor 10h 			;wenn Flo1 dann invertieren Dichtebit
+				;1 	else  	;FLO2
+	JP .L2
+.L1:
+	ld a,c
+				;1 	endif    
+.L2:
+
+	out (flo4),a 		; Drive-Code probieren
+	ld a,0fh 			; RSTORE-Befehl mit Verify verwenden
+	out (flo0),a 		; und ausgeben
+get2fl:
+	in a,(flo4)
+	and 40h 			; Bit 6 pruefen
+	jr z,get2fl 		; bis INT da.
+	in a,(flo0) 		; und dann status lesen, int loeschen
+	and  10011000b 		; krit. Bit testen 
+	scf  				; falls Fehler, dann setzen
+	ret nz  			; carry=Fehler
+	xor a
+	ret  				; sonst ok nocarry (c=Code)
+
+
+		;*************************************************
+		;* Floppy Interface Paket Rev 1.0   841031       *
+		;* (C) 1984 Muenchen, Rolf-Dieter Klein          *
+		;*************************************************
+
+					; Routinen fuer MC-Kompatibilitaet
+					; wie floppy, jedoch Drive-Codierung anders
+					; nur fuer bestehende BIOS-Routinen gedacht
+					; 
+					; bei Maxi wird die Seite 1 mit Seitenpruefung auf 0
+					; angesprochen, bei Mini mit Seitenpruefung auf 1.
+					; nur fuer SD
+
+maxi:					; c=0,1,2,3
+					; 0,2 gekoppelt  1,3 gekoppelt
+	call setcod
+	jp flop 			; sso-flag auf 0 setzen, jedoch stepflag
+					; gueltig wenn bit 7 gesetzt.
+
+setcod:
+	ld a,c  			; SD MAXI
+	and 3  			; muss Bereich 0..3 sein
+	cp 0  			; 0 seite 0
+	jr nz,max1
+	ld c,00010001b 		; LW 1
+	ret
+max1:
+	cp 1
+	jr nz,max2
+	ld c,00010010b 		; LW 2 seite 0
+	ret
+max2:
+	cp 2
+	jr nz,max3
+	ld c,10010001b 		; LW 1 seite 1
+	ret
+max3:
+	ld c,10010010b 		; LW 2 seite 1
+	ret
+
+
+set2cod:
+	and 3  			;0,1,2,3 erlaubt
+	cp 0
+	jr nz,min1
+	ld c,00000001b 		; LW 1 seite 0
+	ret
+min1:
+	cp 1
+	jr nz,min2
+	ld c,10000001b 		; LW 1 seite 1
+	ret
+min2:
+	cp 2
+	jr nz,min3
+	ld c,00000010b 		; LW 2 seite 0
+	ret
+
+min3:
+	ld c,10000010b 		; LW 2 seite 1 
+	ret
+;
+mini:					;  rest unzul.
+					; 10,11 12,13 gekoppelt, d0,d1,d2,d3
+					; bit 6 =Dichtecode 1=Double dense
+	ld a,c
+	and 7fh 			; bit 7 interessiert nicht
+	ld c,a
+	push af
+	call set2cod 		; codierung 2
+	pop af
+	and 40h 			; dd,sd 
+				;1 	if z  	; =0 sd
+	JP NZ,.L3
+	ld a,c
+	or 00110000b 		; SD MINI
+	ld c,a
+				;1 	else
+	JP .L4
+.L3:
+	ld a,c
+	or 00100000b 		; DD MINI
+	ld c,a
+				;1 	endif
+.L4:
+	ld a,2  			; sso-flag setzen
+	jp flop1 			; ok ausfuehren
+
+		;*****************************************
+		;* Floppy-Unterprogramme fuer FLO2       *
+		;* verwendet 1797 als Controller         *
+		;* Version 1.0   840506                  *
+		;* Rolf-Dieter Klein (C) 1984 Muenchen   *
+		;*****************************************
+
+		; Die Routinen ermoeglichen sowohl den Anschluss
+		; von Mini-,Mikro- als auch von Maxi-Laufwerken
+		; Die Routinen muessen im RAM stehen 
+		; da auch Buffer am Ende stehen
+		; alle Buffer sind jedoch gesammelt
+
+		; FLO4    als Leseport
+		;
+		; 7 6 5 4 3 2 1 0
+		;
+		; DRQ   INTRQ   headld x      x x x x
+		; 0=request
+		;      0=request
+		;  1=head down
+		;
+
+
+		; FLO4    als Schreibport
+		;
+		; 7 6 5 4 3 2 1 0
+		;
+		; sso moton mini dense d c b a
+		;
+		; 1=Seite 1
+		; 0=Motor an
+		;  1=Minilaufwerk
+		;   1=Single Dense
+		;    -------------------------
+		;                                      1=Laufwerk an
+		;
+
+		; Bei einem Interrupt wird an diese Stelle gesprungen
+		; Der Interrupt erfolgt vom Floppy-Controller
+
+intex:				; Das INT-Program arbeitet nicht als Unterprogramm
+	pop af  			; alte Ret-Adresse vernichten
+	in a,(flo) 		; Status lesen und INT loeschen
+	ei  				; Interrupt wieder freigeben
+	reti  			; zurueck zum vorherigen Aufrufer
+
+iniflp:				; Floppy Routinen Init
+	ld a,2  			; 3= langsamste Steprate
+	ld (steprate),a 	; einstellen, kein SSO
+	ld a,0ffh
+	ld (drvat),a 		; Drive ungueltig
+	ret 
+
+	intvek equ 38h 		; Interruptziel
+
+flop:					; Haupteingang der Floppy-Routinen
+	xor a  			; sso-Flag auf 0 setzen
+flop1:				; a=sso flag, nur 2 zunlaessig
+	ld (ssoflag),a 		; ok setzen hier moeglich
+					; hl = Ziel oder Quelladresse
+					; E= Sektor D= Track
+					; C= Laufwerkscode+Dichtecode+Seite
+					; B= 0 dann Steprate setzen+SSO-Flag
+					;  = 1 dann lesen
+					;  = 2 dann schreiben
+cflo1:
+	push af  			;entscheiden FLO1 oder FLO2
+	ld a,(floc0)
+					;1 	if a=1  	;1 = flo1
+	CP 1  
+	JP NZ,.L5
+	ld a,c
+	and 10111111b 		;kein autowait 
+
+	xor 10h 			;invertieren Dichtebit fuer FLO1
+	ld c,a
+					;1 	endif
+.L5:
+	pop af
+	ld (sp0),sp 		; Stack umsetzen, da Tiefe ggf zu gross
+	ld sp,tstack 		; fuer BDOS
+
+	ld a,0d0h
+	out (flo),a 		; Floppy-Controller ruecksetzen
+	ld a,(intvek)
+	ld (locint),a
+	ld a,0c3h 			; JP - Befehl
+	ld (intvek),a
+	push hl 			; Ziel, Quelladresse
+	ld hl,(intvek+1)
+	ld (locint+1),hl
+	ld hl,intex 		; JP INTEX ablegen auf intvek
+	ld (intvek+1),hl
+	pop hl
+	in a,(flo)			; Status - Port
+	im 1  			; Mode 1 einstellen
+	ei  				; Interrupt freigeben
+	call softex
+	di  				; Sperren Int
+	push af 			; Status
+	ld a,(locint)
+	ld (intvek),a 		; zurueckspeichern
+	push hl
+	ld hl,(locint+1)
+	ld (intvek+1),hl
+	pop hl
+	pop af
+	ld sp,(sp0) 		; und wieder user-stack verwenden
+	ret
+
+		; Diverse Unterprogramme
+
+setup:				; testet ob der Kopf noch
+					; geladen ist und setzt die
+	ld b,0  			; Flag fuer SSO-Bit
+	ld a,(ccode) 		; wenn Bit 7 gesetzt, dann abfragen
+	and 80h
+	jr z,set2up 		; Seite 0, immer mit SSO=0
+	ld a,(steprate) 	; jetzt pruefen ob flags da
+	and 80h 			;<>0, dann SSO setzen, wenn seite 1
+	jr z,set1up 		;=0, dann code 0, oder SSOFLAG
+	ld b,2  			;SSO setzen 
+	jr set2up
+set1up:				; pruefen ob SSO-Flag
+	ld a,(ssoflag) 		; ok, 2=Flag
+	and 2  			; SSO-Bit
+	ld b,a  			; 0,2 erlaubt 
+set2up:		
+					; entsprechenden Bits
+	in a,(flo4) 		; Status Port
+	and 20h 			; Head-Load Bit
+	jr nz,noset 		; =1 dann Kopf auf Diskette
+	ld a,b
+	or 4  			; sonst Bitmaske fuer headdown
+	ret
+noset:
+	ld a,b
+	ret  				; Code belassen.
+
+rdflp:				; einen Sektor lesen
+					; e=sektor nr
+	ld a,c
+	out (flo4),a 		; erst mal Dichtecode setzen und Seite
+	ld a,e
+	out (flo2),a 		; ins Sektorregister
+	ld c,flo3 			; Adresse Datenport dann nach c
+	call setup 			; Register A vorbereiten
+	add a,88h 			; Lese-Befehl, sidesel=0
+	out (flo),a 		; Befehl ausfuehren
+rd1:
+	in a,(flo4) 		; DRQ schon da ?
+	rlca  			; bit7 = drq bit6 = int
+	jp nc,rd1 			; bis drq=1 da ist
+	ini  				; dann Transport moeglich
+	jp rd1  			; und alles wiederholen bis INT
+
+
+wrflp:				; Floppy-Sektor schreiben
+	ld a,c
+	out (flo4),a 		; erst mal Seite anwaehlen und Dichte
+	ld a,e  			; Sektorregister setzen
+	out (flo2),a
+	ld c,flo3			; Adresse Datenport laden
+	call setup			; E-Code in A laden
+	add a,0a8h			; Befehl Schreibe-Sektor
+	out (flo),a 		; und Befehl ausfuehren
+wr1:
+	in a,(flo4)			; warten bis DRQ da
+	rlca
+	jp nc,wr1 			; dann Wert ausgeben
+	outi  			; mit Blockbefehl
+	jp wr1  			; verlassen nur durch INT
+
+wawa:					; Warteschleife fuer einige ms
+	push bc 			; pro Schleife ca 6ys bei 4MHz
+	ld bc,500 			; 500*6ys Dauer
+	call delay
+	pop bc
+	ret
+
+delay:
+	dec bc
+	ld a,b
+	or c
+	jp nz,delay
+	ret
+
+
+seek:					; Spur anfahren C=Drive D=Spur E=Sektor
+	call wawa 			; Sicherheitshalber warten
+	ld a,c
+	out (flo4),a 		; Drive-Code und Dichte sowie Seite
+	ld a,e
+	out (flo2),a 		; Sektor
+	ld a,d
+	out (flo3),a 		; Spur
+	ld b,1ch 			; Seek-Befehl
+	ld a,(steprate)
+	and 3  			; 0,1,2,3  zulaessig
+	or b  			; Seek Befehl zusammen mit Steprate
+	out (flo),a 		; als Befehl ausgeben
+	halt  			; warten bis INT
+
+rstore:				; Kopf auf Spur 0 stellen
+	call wawa
+	ld a,c  			; Laufwerkscode (drive)
+	out (flo4),a 		; mit Dichtecode etc. ausgeben
+	ld b,8  			; nur Head-load, kein verify
+	ld a,(steprate)
+	and 3  			; 0,1,2,3 zulaessig
+	or b  			; als Befehl kombiniert
+	out (flo),a 		; und ausfuehren
+	halt  			; bis INT dort warten
+
+
+softex:		; Floppy-Kernroutinen
+
+					; hl=adresse, d=track e=sektor
+					; b=Befehl 0=Steprate setzen 1=read 2=write
+					; c=Laufwerkscode
+					;   aufgebaut wie Statusregister
+					; 7    6    5    4    3    2    1    0
+					; sso  mot  min  dens d    d    d    d
+					; sso  = seitenauswahl 1=seite 1
+					; mot  = motor on code std=0
+					; min  = 1 bei Minilaufwerken
+					; dens = 1 bei Single Dense Aufzeichnung
+					; d=binaerer Laufwerkscode
+					;   normalerweise nur 1,2,4,8 moeglich
+					;   Kombinationen moeglich, wenn binaere
+					;   Dekodierung beim Laufwerk verwendet wird
+
+	ld a,b
+	or a
+	jr nz, soft1  		; dann Steprate in Register D (0..3)
+	ld a,d   			;(+80h =SSO verwenden und pruefen).
+	and 83h  			; Bit 7=SSO-Flag bei Zugriffen wichtig,
+	ld (steprate),a		; die die zweite Seite verwenden.
+	xor a
+	ret
+
+soft1:
+	xor a
+	ld (fehza),a 		; Fehlerzahl 0
+	ld a,c
+	ld (ccode),a 		; Drive-Code
+	and 0fh 			; fuer Vergleich
+	ld c,a  			; wieder zurueck
+	ld a,(drvat)
+	cp 0ffh 			; ungueltig, dann setzen noetig
+	jr z,notdef
+	and 0fh 			; nur Laufwerksnummer relevant
+	cp c  			; Vergleich ob Laufwerkewechsel
+	jp z,nurseek 		; nur Seek noetig
+	push hl
+	push bc
+	ld hl,drvtab 		; Basisadresse
+	ld c,a
+	ld b,0  			; Alter Laufwerktrack merken
+	add hl,bc
+	in a,(flo1) 		; Tracknr
+	ld (hl),a 			; und dort ablegen
+	pop bc
+	pop hl
+notdef:				; Drive nur laden
+	push hl
+	push bc
+	ld a,(ccode) 		; neues Laufwerk
+	and 0fh 			; nur Laufwerkscode
+	ld c,a
+	ld b,0
+	ld hl,drvtab 		; Tabellenstart
+	add hl,bc 			; hl zeigt auf Laufwerkstrack
+	ld a,(hl)
+	out (flo1),a 		; und ins Register des FDs
+	pop bc
+	pop hl
+	ld a,(ccode)
+	ld (drvat),a 		; ist nun neues Laufwerk
+	push bc
+	ld bc,1000*3/12		; ca 1ms warten
+	call delay
+	ld a,(ccode) 		; Dann neues Laufwerk ansprechen
+	out (flo4),a
+	ld bc,2917			; ca 35ms .. 15ms
+	call delay			; um head-load-Zeit zu beruecksichtigen 
+	pop bc  			; alte Codes zurueck
+	jr nur1 			; Immer auf ready pruefen, da
+					; head down sein kann und dennoch
+					; nicht ready
+
+nurseek:
+	in a,(flo4) 		; wenn head down dann kein dummyseek
+	and 20h
+	jr nz,nodum
+nur1:					; immer einsprung
+	ld a,(ccode)
+	ld c,a
+	call seekex 		; seek selekt dummy nur fuer readytest
+	in a,(flo)			; test Status
+	and 80h 			; fuer Ready
+	jr nz,nur1			; Wiederhole solange bis Laufwerk READY
+nodum:				; Einsprung head down ok
+	in a,(flo1) 		; nun pruefen of Tracks gleich sind
+	cp 0ffh 			; nicht definiert
+	jr z,try1 			; dann zuerst RESTORE
+	cp d  			; oder schon auf dem Track
+	jp z,sk11 			; ja dann nur lesen,schreiben
+	tryº  			; SEEK ausfuehren
+	ld a,(ccode)
+	ld c,a
+	call seekex 		; und Track anfahren Reg retten
+	and 10010000b 		; Fehlermaske
+	jr z,sk11 			; ja dann R/W moeglich
+try1:					; Laufwerk normieren und RSTORE
+	ld a,(ccode)
+	ld c,a
+	push hl
+	push de
+	push bc
+	call rstore
+	pop bc
+	pop de
+	pop hl
+	ld a,(fehza) 		; Fehler erhoehen
+	inc a
+	ld (fehza),a
+	cp 10  			; bei 10 Fatal-Fehler
+	jr c,try 			; sonst nochmals mit SEEK probieren
+error1:
+	ld a,0ffh
+	or a
+	scf  				; 0ffh, carry als Fehlerflag
+	ret  				; ABBRUCH FATAL
+
+noerr1:				; Ausgang wenn kein Fehler da
+	xor a
+	ret
+
+
+sk11:					; r/w ausfuehren
+	ld a,b
+	cp 2
+	jp z,wrtex			; Schreibbefehl
+	ld a,(ccode)
+	ld c,a
+	push hl
+	push de
+	push bc
+	call rdflp			; und Lesen
+	pop bc
+	pop de
+	pop hl
+	and 10011100b 		; Fehlermaske incl. Lost data
+	jr z,noerr1 		; ende
+	and 00010000b 		; bei record not found SEEK
+	jr nz,try1			; mit vorherigem Restore
+	ld a,(fehza)
+	inc a
+	ld (fehza),a 		; CRC Fehler sonst
+	cp 5  			; kleiner als 5 dann nochmals probieren
+	jr c,sk11
+	cp 10
+	jr c,try1 			; sonst rstore und seek
+	jr error1 			; sonst FATAL - Fehler
+
+wrtex:				; Schreiben
+	ld a,(ccode)
+	ld c,a
+	push hl
+	push de
+	push bc
+	call wrflp
+	pop bc
+	pop de
+	pop hl
+	and 11111100b
+	jr z,noerr1 		; alles ok
+	and 00010000b 		; record not found
+	jr nz,try1			; gleich neuen Seek ausfuehren
+	ld a,(fehza)
+	inc a
+	ld (fehza),a 
+	cp 4  			; recht bald, da i.A. nur record not fnd
+	jr c,try1 			; daher nur 4 Versuche
+	jr error1 			; FATAL FEHLER
+
+seekex:				; Seek ausfuehren
+	push hl
+	push de
+	push bc
+	call seek
+	pop bc
+	pop de
+	pop hl
+	ret
+;
+;***********************************
+; Speicher Definitionen  
+;***********************************
+;
+		; Buffer Bereich fuer Floppy-Routinen
+
+steprate:	defb 0    		; Merker fuer die Steprate + SSO-Option
+ssoflag:	defb 0    		; zusaetzlich, dominant, fuer MINI
+sp0:		defw 0    		; Stackmerker fuer BDOS
+					; =2, dann mit sso, sonst 0
+locint:	defb 0,0,0 	; Merker fuer alten Inhalt Intvektor
+fehza:	defb 0    		; Fehlerzaehler fuer retry
+ccode:	defb 0    		; Drive-Code
+drvat:	defb 0ffh  	; letztes Laufwerk
+drvtab:	defb 0ffh,0ffh,0ffh,0ffh 	; 16 moegliche Laufwerke
+		defb 0ffh,0ffh,0ffh,0ffh
+		defb 0ffh,0ffh,0ffh,0ffh
+		defb 0ffh,0ffh,0ffh,0ffh
+		defs 100   			; lokaler Stack 
+tstack:	defb 0
+;
+floc0:	defb 0  	;0=FLO2, 1=FLO1
+
+;************* ENDE FLO2-Routinen ************
+;
+;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+;Hier beginnen die Unterprogramme des Monitor
+;++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+;
+;Puts a single char (byte value) on serial output
+;Call with char to send in A register. Uses B register
+;
+write_char:	ld	c,a				;store char
+			jp	TTYOUT
+;
+;Subroutine to write a zero-terminated string to serial output
+;Pass address of string in HL register
+;No error checking
+write_string:
+			in 	a,(SIOASTS)		;read status
+			and 	TXRDY				;check TxRDY bit
+			jp 	z,write_string		;loop if not set
+			ld 	a,(hl)			;get char from string
+			and 	a				;check if 0
+			ret 	z				;alles ausgegeben, dann zurueck
+			out 	(SIOADAT),a		;no, write char to output
+			inc 	hl				;next char in string
+			jp 	write_string		;start over
+;
+;Binary loader. Receive a binary file, place in memory.
+;Address of load passed in HL, length of load (= file length) in BC
+bload:		in 	a,(SIOASTS)		;get status
+			and 	RXRDY				;check RxRDY bit
+			jp 	z,bload			;not ready, loop
+			in	a,(SIOADAT)
+			ld	(hl),a
+			inc	hl
+			dec	bc				;byte counter
+			ld	a,b			;need to test BC this way because
+			or	c			;dec rp instruction does not change flags
+			jp	nz,bload
+			ret
+;
+;Binary dump to port. Send a stream of binary data from memory to serial output
+;Address of dump passed in HL, length of dump in BC
+bdump:		in 	a,(SIOASTS)		;get status
+			and 	TXRDY				;check TxRDY bit
+			jp 	z,bdump			;not ready, loop
+			ld	a,(hl)
+			out	(SIOADAT),a
+			inc	hl
+			dec	bc
+			ld	a,b			;need to test this way because
+			or	c			;dec rp instruction does not change flags
+			jp	nz,bdump
+			ret
+;
+;Subroutine to get a string from serial input, place in buffer.
+;Buffer address passed in HL reg.
+;Uses A,BC,DE,HL registers (including calls to other subroutines).
+;Line entry ends by hitting return key. Return char not included in string (replaced by zero).
+;Backspace editing OK. No error checking.
+;
+get_line:		ld	c,000h		;line position
+			ld	a,h			;put original buffer address in de
+			ld	d,a			;after this don't need to preserve hl
+			ld	a,l			;subroutines called don't use de
+			ld	e,a
+get_line_next_char:	in 	a,(SIOASTS)		;get status
+			and 	RXRDY			;check RxRDY bit
+			jp 	z,get_line_next_char	;not ready, loop
+			in 	a,(SIOADAT)	;get char
+			cp	00dh			;check if return
+			ret	z			;yes, normal exit
+			cp	07fh			;check if backspace (VT102 keys)
+			jp	z,get_line_backspace	;yes, jump to backspace routine
+			cp	008h			;check if backspace (ANSI keys)
+			jp	z,get_line_backspace	;yes, jump to backspace
+			call	write_char		;put char on screen
+			ld	(de),a		;store char in buffer
+			inc	de			;point to next space in buffer
+			inc	c			;inc counter
+			ld	a,000h
+			ld	(de),a		;leaves a zero-terminated string in buffer
+			jp	get_line_next_char
+get_line_backspace:	ld	a,c		;check current position in line
+			cp	000h			;at beginning of line?
+			jp	z,get_line_next_char	;yes, ignore backspace, get next char
+			dec	de			;no, erase char from buffer
+			dec	c			;back up one
+			ld	a,000h		;put a zero in buffer where the last char was
+			ld	(de),a
+			ld	hl,erase_char_string	;ANSI sequence to delete one char from line
+			call	write_string		;transmits sequence to backspace and erase char
+			jp	get_line_next_char
+;
+;Creates a two-char hex string from the byte value passed in register A
+;Location to place string passed in HL
+;String is zero-terminated, stored in 3 locations starting at HL
+;Also uses registers b,d, and e
+;
+byte_to_hex_string:	ld	b,a		;store original byte
+			srl	a			;shift right 4 times, putting
+			srl	a			;high nybble in low-nybble spot
+			srl	a			;and zeros in high-nybble spot
+			srl	a
+			ld	d,000h		;prepare for 16-bit addition
+			ld	e,a			;de contains offset
+			push	hl			;temporarily store string target address
+			ld	hl,hex_char_table	;use char table to get high-nybble character
+			add	hl,de			;add offset to start of table
+			ld	a,(hl)		;get char
+			pop	hl			;get string target address
+			ld	(hl),a		;store first char of string
+			inc	hl			;point to next string target address
+			ld	a,b			;get original byte back from reg b
+			and	00fh			;mask off high-nybble
+			ld	e,a			;d still has 000h, now de has offset
+			push	hl			;temp store string target address
+			ld	hl,hex_char_table	;start of table
+			add	hl,de			;add offset
+			ld	a,(hl)		;get char
+			pop	hl			;get string target address
+			ld	(hl),a		;store second char of string
+			inc	hl			;point to third location
+			ld	a,000h		;zero to terminate string
+			ld	(hl),a		;store the zero
+			ret				;done
+;
+;Converts a single ASCII hex char to a nybble value
+;Pass char in reg A. Letter numerals must be upper case.
+;Return nybble value in low-order reg A with zeros in high-order nybble if no error.
+;Return 0ffh in reg A if error (char not a valid hex numeral).
+;Also uses b, c, and hl registers.
+hex_char_to_nybble:	ld	hl,hex_char_table
+			ld	b,00fh			;no. of valid characters in table - 1.
+			ld	c,000h			;will be nybble value
+hex_to_nybble_loop:	cp	(hl)			;character match here?
+			jp	z,hex_to_nybble_ok	;match found, exit
+			dec	b				;no match, check if at end of table
+			jp	m,hex_to_nybble_err	;table limit exceded, exit with error
+			inc	c				;still inside table, continue search
+			inc	hl
+			jp	hex_to_nybble_loop
+hex_to_nybble_ok:	ld	a,c			;put nybble value in a
+			ret
+hex_to_nybble_err:	ld	a,0ffh		;error value
+			ret
+;
+;Converts a hex character pair to a byte value
+;Called with location of high-order char in HL
+;If no error carry flag clear, returns with byte value in register A, and
+;HL pointing to next mem location after char pair.
+;If error (non-hex char) carry flag set, HL pointing to invalid char
+hex_to_byte:		ld	a,(hl)		;location of character pair
+			push	hl				;store hl (hex_char_to_nybble uses it)
+			call	hex_char_to_nybble
+			pop	hl				;returns with nybble value in a reg, or 0ffh if error
+			cp	0ffh				;non-hex character?
+			jp	z,hex_to_byte_err	;yes, exit with error
+			sla	a				;no, move low order nybble to high side
+			sla	a
+			sla	a
+			sla	a
+			ld	d,a				;store high-nybble
+			inc	hl				;get next character of the pair
+			ld	a,(hl)
+			push	hl				;store hl
+			call	hex_char_to_nybble
+			pop	hl
+			cp	0ffh				;non-hex character?
+			jp	z,hex_to_byte_err	;yes, exit with error
+			or	d				;no, combine with high-nybble
+			inc	hl				;point to next memory location after char pair
+			scf
+			ccf					;no-error exit (carry = 0)
+			ret
+hex_to_byte_err:	scf				;error, carry flag set
+			ret
+hex_char_table:		defm	"0123456789ABCDEF"	;ASCII hex table
+;
+;Subroutine to get a two-byte address from serial input.
+;Returns with address value in HL
+;Uses locations in RAM for buffer and variables
+address_entry:	ld	hl,buffer			;location for entered string
+			call	get_line			;returns with address string in buffer
+			ld	hl,buffer			;location of stored address entry string
+			call	hex_to_byte		;will get high-order byte first
+			jp	c, address_entry_error	;if error, jump
+			ld	(current_location+1),a	;store high-order byte, little-endian
+			ld	hl,buffer+2		;point to low-order hex char pair
+			call	hex_to_byte		;get low-order byte
+			jp	c, address_entry_error	;jump if error
+			ld	(current_location),a	;store low-order byte in lower memory
+			ld	hl,(current_location)	;put memory address in hl
+			ret
+address_entry_error:	ld	hl,address_error_msg
+			call	write_string
+			jp	address_entry
+;
+;Subroutine to get a decimal string, return a word value
+;Calls decimal_string_to_word subroutine
+decimal_entry:		ld	hl,buffer
+			call	get_line			;returns with DE pointing to terminating zero
+			ld	hl,buffer
+			call	decimal_string_to_word
+			ret	nc				;no error, return with word in hl
+			ld	hl,decimal_error_msg	;error, try again
+			call	write_string
+			jp	decimal_entry
+;
+;Subroutine to convert a decimal string to a word value
+;Call with address of string in HL, pointer to end of string in DE
+;Carry flag set if error (non-decimal char)
+;Carry flag clear, word value in HL if no error.
+decimal_string_to_word:	ld	b,d
+			ld	c,e				;use BC as string pointer
+			ld	(current_location),hl	;store addr. of start of buffer in RAM word variable
+			ld	hl,000h			;starting value zero
+			ld	(current_value),hl
+			ld	hl,decimal_place_value	;pointer to values
+			ld	(value_pointer),hl
+decimal_next_char:	dec	bc			;next char in string (moving right to left)
+			ld	hl,(current_location)	;check if at end of decimal string
+			scf					;get ready to subtract de from buffer addr.
+			ccf					;set carry to zero (clear)
+			sbc	hl,bc				;keep going if bc > or = hl (buffer address)
+			jp	c,decimal_continue	;borrow means bc > hl
+			jp	z,decimal_continue	;z means bc = hl
+			ld	hl,(current_value)	;return if de < buffer address (no borrow)
+			scf					;get value back from RAM variable
+			ccf
+			ret					;return with carry clear, value in hl
+decimal_continue:	ld	a,(bc)			;next char in string (right to left)
+			sub	030h				;ASCII value of zero char
+			jp	m,decimal_error		;error if char value less than 030h
+			cp	00ah				;error if byte value > or = 10 decimal
+			jp	p,decimal_error		;a reg now has value of decimal numeral
+			ld	hl,(value_pointer)	;get value to add an put in de
+			ld	e,(hl)			;little-endian (low byte in low memory)
+			inc	hl
+			ld	d,(hl)
+			inc	hl				;hl now points to next value
+			ld	(value_pointer),hl
+			ld	hl,(current_value)	;get back current value
+decimal_add:		dec	a			;add loop to increase total value
+			jp	m,decimal_add_done	;end of multiplication
+			add	hl,de
+			jp	decimal_add
+decimal_add_done:	ld	(current_value),hl
+			jp	decimal_next_char
+decimal_error:		scf
+			ret
+			jp	decimal_add
+decimal_place_value:	defw	1,10,100,1000,10000
+;
+;Memory dump
+;Displays a 256-byte block of memory in 16-byte rows.
+;Called with address of start of block in HL
+memory_dump:		
+			ld	(current_location),hl	;store address of block to be displayed
+			ld	a,000h
+			ld	(byte_count),a		;initialize byte count
+			ld	(line_count),a		;initialize line count
+			jp	dump_new_line
+dump_next_byte:	
+			ld	hl,(current_location)	;get byte address from storage,
+			ld	a,(hl)			;get byte to be converted to string
+			inc	hl				;increment address and
+			ld	(current_location),hl	;store back
+			ld	hl,buffer			;location to store string
+			call	byte_to_hex_string	;convert
+			ld	hl,buffer			;display string
+			call	write_string
+			ld	a,(byte_count)		;next byte
+			inc	a
+			jp	z,dump_done		;stop when 256 bytes displayed
+			ld	(byte_count),a		;not finished yet, store
+			ld	a,(line_count)		;end of line (16 characters)?
+			cp	00fh				;yes, start new line
+			jp	z,dump_new_line
+			inc	a				;no, increment line count
+			ld	(line_count),a
+			ld	a,020h			;print space
+			call	write_char
+			jp	dump_next_byte		;continue
+dump_new_line:	
+			ld	a,000h		;reset line count to zero
+			ld	(line_count),a			
+			call	write_newline
+			ld	hl,(current_location)	;location of start of line
+			ld	a,h				;high byte of address
+			ld	hl, buffer
+			call	byte_to_hex_string	;convert
+			ld	hl,buffer
+			call	write_string		;write high byte
+			ld	hl,(current_location)
+			ld	a,l				;low byte of address
+			ld	hl, buffer
+			call	byte_to_hex_string	;convert
+			ld	hl,buffer
+			call	write_string		;write low byte
+			ld	a,020h			;space
+			call	write_char
+			jp	dump_next_byte		;now write 16 bytes
+dump_done:		ld	a,000h
+			ld	hl,buffer
+			ld	(hl),a			;clear buffer of last string
+			call	write_newline
+			ret
+;
+;Memory load
+;Loads RAM memory with bytes entered as hex characters
+;Called with address to start loading in HL
+;Displays entered data in 16-byte rows.
+;
+memory_load:	ld	(current_location),hl
+			ld	hl,data_entry_msg
+			call	write_string
+			jp	load_new_line
+load_next_char:		call	TTYIN
+			cp	00dh				;return?
+			jp	z,load_done		;yes, quit
+			ld	(buffer),a
+			call	TTYIN
+			cp	00dh				;return?
+			jp	z,load_done		;yes, quit
+			ld	(buffer+1),a
+			ld	hl,buffer
+			call	hex_to_byte
+			jp	c,load_data_entry_error	;non-hex character
+			ld	hl,(current_location)	;get byte address from storage,
+			ld	(hl),a			;store byte
+			inc	hl				;increment address and
+			ld	(current_location),hl	;store back
+			ld	a,(buffer)
+			call	write_char
+			ld	a,(buffer+1)
+			call	write_char
+			ld	a,(line_count)		;end of line (16 characters)?
+			cp	00fh				;yes, start new line
+			jp	z,load_new_line
+			inc	a				;no, increment line count
+			ld	(line_count),a
+			ld	a,020h			;print space
+			call	write_char
+			jp	load_next_char		;continue
+load_new_line:	
+			ld	a,000h			;reset line count to zero
+			ld	(line_count),a
+			call	write_newline
+			jp	load_next_char		;continue
+load_data_entry_error:
+			call	write_newline
+			ld	hl,data_error_msg
+			call	write_string
+			ret
+load_done:		call	write_newline
+			ret
+;
+;Subroutine to start a new line
+write_newline:	ld	a,00dh			;ASCII carriage return character
+			call	write_char
+			ld	a,00ah			;new line (line feed) character
+			call	write_char
+			ret
+;
+;Subroutine to read one IDE/ATA Disk sector (256 bytes)
+;Address to place data passed in HL
+;LBA bits 0 to 7 passed in C, bits 8 to 15 passed in B
+;LBA bits 16 to 23 passed in E
+;
+ide_read:
+rd_status_loop_1:	in	a,(IDESTAT)	;check status
+			and	80h				;check BSY bit
+			jp	nz,rd_status_loop_1	;loop until not busy
+rd_status_loop_2:	in	a,(IDESTAT)	;check	status
+			and	40h				;check DRDY bit
+			jp	z,rd_status_loop_2	;loop until ready
+			ld	a,01h				;number of sectors = 1
+			out	(SECCND),a			;sector count register
+			ld	a,c
+			out	(LBA7),a			;lba bits 0 - 7
+			ld	a,b
+			out	(LBA15),a			;lba bits 8 - 15
+			ld	a,e
+			out	(LBA23),a			;lba bits 16 - 23
+			ld	a,11100000b		;LBA mode, select drive 0
+			out	(IDEHEAD),a			;drive/head register
+			ld	a,20h				;Read sector command
+			out	(IDESTAT),a
+rd_wait_for_DRQ_set:	in	a,(IDESTAT)	;read status
+			and	08h				;DRQ bit
+			jp	z,rd_wait_for_DRQ_set	;loop until bit set
+rd_wait_for_BSY_clear:	in	a,(IDESTAT)
+			and	80h
+			jp	nz,rd_wait_for_BSY_clear
+			in	a,(IDESTAT)		;clear INTRQ
+read_loop:		in	a,(IDEDATA)		;get data
+			ld	(hl),a
+			inc	hl
+			in	a,(IDESTAT)		;check status
+			and	08h				;DRQ bit
+			jp	nz,read_loop		;loop until cleared
+			ret
+;
+;Subroutine to write one IDE/ATA Disk sector (256 bytes)
+;Address of data to write to disk passed in HL
+;LBA bits 0 to 7 passed in C, bits 8 to 15 passed in B
+;LBA bits 16 to 23 passed in E
+;
+ide_write:
+wr_status_loop_1:	
+			in	a,(IDESTAT)		;check status
+			and	80h				;check BSY bit
+			jp	nz,wr_status_loop_1	;loop until not busy
+wr_status_loop_2:
+			in	a,(IDESTAT)		;check status
+			and	40h				;check DRDY bit
+			jp	z,wr_status_loop_2	;loop until ready
+			ld	a,01h				;number of sectors = 1
+			out	(SECCND),a			;sector count register
+			ld	a,c
+			out	(LBA7),a			;lba bits 0 - 7
+			ld	a,b
+			out	(LBA15),a			;lba bits 8 - 15
+			ld	a,e
+			out	(LBA23),a			;lba bits 16 - 23
+			ld	a,11100000b		;LBA mode, select drive 0
+			out	(IDEHEAD),a		;drive/head register
+			ld	a,30h				;Write sector command
+			out	(IDESTAT),a
+wr_wait_for_DRQ_set:
+			in	a,(IDESTAT)		;read status
+			and	08h				;DRQ bit
+			jp	z,wr_wait_for_DRQ_set	;loop until bit set			
+write_loop:	
+			ld	a,(hl)
+			out	(IDEDATA),a		;write data
+			inc	hl
+			in	a,(IDESTAT)		;read status
+			and	08h				;check DRQ bit
+			jp	nz,write_loop		;write until bit cleared
+wr_wait_for_BSY_clear:
+			in	a,(IDESTAT)
+			and	80h
+			jp	nz,wr_wait_for_BSY_clear
+			in	a,(IDESTAT)		;clear INTRQ
+			ret
+;
+
+;-------------------------------------------------------------------------
+FREEMEM EQU $ 	;dynamischer Platz fuer Buffer etc.
+
+;********************************************
+;* Bereich kann geloescht werden unter CP/M *
+;* um Platz fuer Puffer etc zu bieten       *
+;********************************************
+;
+FLPMSG:					;Floppy Boot Text
+	DEFB CR,LF,
+	DEFM "FLO2-Boot = 1, CF-Karte= 2, FLO1-Boot = 3 : ",0
+;
+mon_welcome:	
+			defm	ESC,"[2J",ESC,"[H",BELL,
+			defm	"----------------------------------------",CR,LF,
+			defm	"    MC-Computer ROM Monitor Ver. 1.0    ",CR,LF,
+			defm	"----------------------------------------",CR,LF,
+			defm	"Memory frei 0H bis EFFFh, 60KB",CR,LF,
+			defm	"Monitor belegt F000h bis FFFFh",CR,LF,0
+;
+BEGIN1:	;hier findet die Kaltstart Hardware Initialisierung statt
+;
+;Initialisierung der Seriellen Schnittstelle
+	LD C,SIOASTS
+	LD B,8
+	LD HL,TABSIO
+	OTIR
+	LD C,SIOBSTS
+	LD B,8
+	LD HL,TABSIB
+	OTIR
+	JR SKSKL
+TABSIO:
+	DEFB 1,0
+	DEFB 3,11100001B		; -CTS UND -DCD ENABLE rev 3.4 term1
+	DEFB 4,01000100B		; *16 Teiler 8Bit 1Stop no parity
+	DEFB 5,11101010B		;dtr rts +12V bedeutet ready
+;
+TABSIB:
+	DEFB 1,0
+	DEFB 3,11100001B		; -CTS UND -DCD ENABLE
+	DEFB 4,01000100B		; *16 Teiler 8Bit 1Stop no parity
+	DEFB 5,11101010B		;dtr rts +12V bedeutet ready
+;
+SKSKL:	;Ende Init Serielle Schnittstelle
+;
+mon_cold_start:				;ab hier ist die Hardware lauffähig und die
+						;Software wird aufgesetzt
+;
+	LD A,(7000H)			;ROM abschalten, unteren Speicher freigeben
+	XOR A					;Akku leeren
+	LD (IOBYT),A			;alles auf Console schalten
+;
+	LD SP,AHEAD-4			;Stackpointer setzen
+	JP MEMSIZ+1
+	DEFW AHEAD
+AHEAD:
+	LD SP,HL
+	EX DE,HL
+	LD BC,ENDX-EXIT
+	LD HL,EXIT
+	LDIR
+	EX DE,HL
+	LD BC,-5FH
+	ADD HL,BC
+	PUSH HL
+	LD HL,0
+	LD B,10 				;REGISTER
+STKIT:
+	PUSH HL
+	DJNZ STKIT
+;
+call write_newline
+			ld	hl,mon_welcome		;MONITOR Welcome ausgeben
+			call	write_string
+			call write_newline
+			jp	help_jump			;Help Message ausgeben
+			call write_newline
+;
+mon_warm_start:						;Warm Start Einsprung die Initialisierungen
+								;sind berreits gemacht
+			call	write_newline
+			ld	hl,prompt_message	;Prompt ausgeben
+			call	write_string	
+			ld	a,03eh			;">" Symbol laden
+			call	write_char			;Ausgeben
+			ld	hl,buffer
+			call	get_line			;Eingabe abwarten (command)
+			call	write_newline
+			call	parse				;zum Kommando Interpreter springen
+								;kommt mit der Sprungadresse in HL zurueck
+			jp	(hl)
+;
+;Kommando Interpreter
+;Parses an input line stored in buffer for available commands as described in parse table.
+;Returns with address of jump to action for the command in HL
+;
+parse:		ld	bc,parse_table		;bc is pointer to parse_table
+parse_start:	ld	a,(bc)			;get pointer to match string from parse table
+			ld	e,a
+			inc	bc
+			ld	a,(bc)			
+			ld	d,a				;de will is pointer to strings for matching
+			ld	a,(de)			;get first char from match string
+			or	000h				;zero?
+			jp	z,parser_exit		;yes, exit no_match
+			ld	hl,buffer			;no, parse input string 
+match_loop:	cp	(hl)				;compare buffer char with match string char
+			jp	nz,no_match		;no match, go to next match string
+			or	000h				;end of strings (zero)?
+			jp	z,parser_exit		;yes, matching string found
+			inc	de				;match so far, point to next char in match string
+			ld	a,(de)			;get next character from match string
+			inc	hl				;and point to next char in input string
+			jp	match_loop			;check for match
+no_match:		inc	bc				;skip over jump target to
+			inc	bc
+			inc	bc				;get address of next matching string
+			jp	parse_start
+parser_exit:	inc	bc				;skip to address of jump for match
+			ld	a,(bc)
+			ld	l,a
+			inc	bc
+			ld	a,(bc)
+			ld	h,a				;returns with jump address in hl
+			ret
+;
+; --- BOOT Menue FLOPPY 1=FLO2, 2=CF-IDE, 3=FLO1 ---
+;
+BOOT1:
+	CALL INIFLP		;vektoren etc definieren
+	ld	hl,FLPMSG		;Bootmessage ausgeben
+	call	write_string
+	CALL CI			;Zeichen einlesen
+	AND 7FH  			;ohne paritaet
+	CALL write_char		;eingelesenes Zeichen ausgeben
+	ld a,c			;Zeichen wieder holen
+	cp "2"
+	jp z,boot_jump		; 2= CF Karten Boot
+	CP '3' 			; 3= boot mit FLO1
+	JP NZ,.L6
+	ld a,1
+	ld (floc0),a 		; floc0 laden mit 1 = FLO1 
+	JP bootx			; jump zur Floppy Routine
+.L6:
+	CP '1' 			; boot mit FLO2
+	JP NZ,.L8
+	xor a
+	ld (floc0),a 		; floc0 laden mit 0 = FLO2
+	JP bootx
+.L8:
+	jp error
+
+bootx:
+;---------- Floppy Boot --------------------------------------------------	
+;**************** Ueberspringt autom. Format Erkennung bei boot **********
+;			fuer original l schen oder auskommentieren
+;			2026 geaendert wg. Boot von DD Disketten
+	ld c,00100001b 		; immer von Laufwerk A Mini Floppy Seite 0, DD booten
+	ld hl,80h			; einfache Dichte Sprungziel lie t nur 128 Byte
+	jp exec1			; Erkennung ueberspringen
+;**************************************************************************
+					; automatisch Format bestimmen, REV 1.1
+;
+;	ld c,00000001b 		; immer von Laufwerk A  Seite 0 booten
+;	call getfl			; Formatierung bestimmen
+;	jp c,error			; bei Fehler zurueck ins Menue	
+;	ld hl,80h 			; bei einfacher Dichte nach 80h
+;	bit 4,c  			; =0, dann dd, sonst sd
+;	jr nz,exec1 		; sd
+;	ld hl,0fc00h 		; sonst 1K Block ggf. dorthin.
+exec1:
+	push hl 			; rev (1.5) 1.1
+	ld b,1  			; lesen
+	ld d,0  			; track 0
+	ld e,1  			; sektor 1
+	call flop
+	pop hl  			; Sprungziel zurueck
+	jp nz,error
+	jp (hl) 			; Starten sonst
+	jp error
+;
+; --- IOBYTE ASSIGNE ---
+; 000000XX CONSOLE
+; 0000XX00 READER
+; 00XX0000 PUNCH
+; XX000000 LISTER
+; 00= TELETYPE CONS
+;
+ASSIGN:		;ZUWEISUNG
+	CALL TI
+	LD HL,LTBL
+	LD BC,400H
+	LD DE,5
+AREP0:
+	CP (HL)
+	JR Z,AREP1
+	ADD HL,DE
+	INC C
+	DJNZ AREP0
+	JR LXERR
+AREP1:
+	LD E,C
+AREP22:
+	CALL TI
+	CP "="
+	JR NZ,AREP22
+	CALL TI
+	LD BC,400H
+AREP33:
+	INC HL
+	CP (HL)
+	JR Z,LXA4
+	INC C
+	DJNZ AREP33
+LXERR:
+	JP ERROR
+LXA4:
+	LD A,3
+	INC E
+LXA5:
+	DEC E
+	JR Z,LXA6
+	SLA  C
+	SLA  C
+	RLA
+	RLA
+	JR LXA5
+LXA6:
+	CPL
+	LD D,A
+LXA7:
+	CALL PCHK
+	JR NC,LXA7
+	LD A,(IOBYT)
+	AND D
+	OR C
+	LD C,A
+	JP IOSET
+
+;Ab hier kommen die Aufrufe der gewaehlten Kommandos (string match)
+;
+;Memory dump program
+;Input 4-digit hexadecimal address, calls memory_dump subroutine
+;
+dump_jump:		ld	hl,dump_message		;Display greeting
+			call	write_string
+			ld	hl,address_entry_msg	;get ready to get address
+			call	write_string
+			call	address_entry		;returns with address in HL
+			call	write_newline
+			call	memory_dump
+			jp	mon_warm_start
+;
+;Hex loader, displays formatted input
+;
+load_jump:		ld	hl,load_message		;Display greeting
+			call	write_string		;get address to load
+			ld	hl,address_entry_msg	;get ready to get address
+			call	write_string
+			call	address_entry
+			call	write_newline
+			call	memory_load
+			jp	mon_warm_start
+;
+;Jump and run do the same thing: get an address and jump to it
+;
+run_jump:		ld	hl,run_message		;Display greeting
+			call	write_string
+			ld	hl,address_entry_msg	;get ready to get address
+			call	write_string
+			call	address_entry
+			jp	(hl)
+;
+;Help and ? do the same thing, display the available commands
+;
+help_jump:		ld	hl,help_message
+			call	write_string
+			ld	hl,help_message1
+			call	write_string
+			ld	hl,help_message2
+			call	write_string
+;
+help_done:		jp	mon_warm_start
+;
+;Binary file load. Need both address to load and length of file
+;
+bload_jump:	ld	hl,bload_message
+			call	write_string
+			ld	hl,address_entry_msg
+			call	write_string
+			call	address_entry
+			call	write_newline
+			push	hl
+			ld	hl,length_entry_string
+			call	write_string
+			call	decimal_entry
+			ld	b,h
+			ld	c,l
+			ld	hl,bload_ready_message
+			call	write_string
+			pop	hl
+			call	bload
+			jp	mon_warm_start
+;
+;Binary memory dump. Need address of start of dump and no. bytes
+;
+bdump_jump:	ld	hl,bdump_message
+			call	write_string
+			ld	hl,address_entry_msg
+			call	write_string
+			call	address_entry
+			call	write_newline
+			push	hl
+			ld	hl,dump_entry_string
+			call	write_string
+			call	decimal_entry
+			ld	b,h
+			ld	c,l
+			ld	hl,bdump_ready_message
+			call	write_string
+			call	TTYIN
+			pop	hl
+			call	bdump
+			jp	mon_warm_start
+;
+;Disk read. Need memory address to place data, LBA of sector to read
+;
+iderd_jump:	ld	hl,iderd_message
+			call	write_string
+			ld	hl,address_entry_msg
+			call	write_string
+			call	address_entry
+			call	write_newline
+			push	hl
+			ld	hl,LBA_entry_string
+			call	write_string
+			call	decimal_entry
+			ld	b,h
+			ld	c,l
+			ld	e,00h
+			pop	hl
+			call	ide_read
+			jp	mon_warm_start
+;
+;Disk write
+;
+idewr_jump:	ld	hl,idewr_message
+			call	write_string
+			ld	hl,address_entry_msg
+			call	write_string
+			call	address_entry
+			call	write_newline
+			push	hl
+			ld	hl,LBA_entry_string
+			call	write_string
+			call	decimal_entry
+			ld	b,h
+			ld	c,l
+			ld	e,00h
+			pop	hl
+			call	ide_write
+			jp	mon_warm_start
+;
+;Bootmenue
+;
+boot_jump:		ld	hl,08000h		;laedt Bootloader von IDE/ATA Disk
+							;in die ROM Adresse 08000h
+			ld	bc,0000h
+			ld	e,00h
+			call	ide_read
+			jp	08000h			;springt zur Ausfuehrung nach 08000h
+
+			
+;
+;Prints message for no match to entered command
+;
+no_match_jump:	ld	hl,no_match_message
+			call	write_string
+			ld	hl, buffer
+			call	write_string
+			jp	mon_warm_start
+;
+;
+;
+;
+;----------------------------------------------------------------------------
+;               Unterprogramme
+;----------------------------------------------------------------------------
+;
+;---------- Message output Routine ----------
+;
+;Error Handling
+ERROR:
+	CALL MEMSIZ
+	LD DE,-22
+	ADD HL,DE
+	LD SP,HL
+	LD C,7
+	CALL CO
+	LD C,'?'
+	CALL CO
+	JP mon_warm_start
+;
+; READER INPUT
+; ABORT ON CARRY
+; COMPARE WITH D
+RIFF:
+	CALL RI
+	JR C,ERROR
+	CP D
+	RET
+
+	AND 0FH
+	ADD A,90H
+	DAA 
+	ADC A,40H
+	DAA
+	LD C,A 	;HEX TO ASC
+	RET
+;
+KI:
+	CALL CI
+	AND 7FH
+	RET
+;
+TI:
+	CALL KI
+	RET Z
+	INC A
+	RET M
+	DEC A
+	CP 0DH
+	RET Z
+	CP 'N'
+	RET Z
+	CP 'n'
+	JR Z,LXT
+	PUSH BC
+	LD C,A
+	CALL CO
+	LD A,C
+	POP BC
+	CP 'A'-1
+	RET C
+	CP 'z'+1
+	RET NC
+LXT:
+	AND 05FH
+	RET
+;
+; Eingang nach einem Break-Point
+;
+RESTA:
+
+	PUSH HL
+	PUSH DE
+	PUSH BC
+	PUSH AF
+	CALL MEMSIZ
+	EX DE,HL
+	LD HL,10
+	ADD HL,SP
+	LD B,4
+	EX DE,HL
+LXR0:
+	DEC HL
+	LD (HL),D
+	DEC HL
+	LD (HL),E
+	POP DE
+	DJNZ LXR0
+	POP BC
+	DEC BC
+	LD SP,HL
+	LD HL,TLOCX
+	ADD HL,SP
+	LD A,(HL)
+	SUB C
+	INC HL
+	JR NZ,LXR1
+	LD A,(HL)
+	SUB B
+	JR Z,LXR3
+LXR1:
+	INC HL
+	INC HL
+	LD  A,(HL)
+	SUB C
+	JR NZ,LXR2
+	INC HL
+	LD  A,(HL)
+	SUB B
+	JR Z,LXR3
+LXR2:
+	INC BC
+LXR3:
+	LD HL,LLOCX
+	ADD HL,SP
+	LD (HL),E
+	INC HL
+	LD (HL),D
+	INC HL
+	INC HL
+	LD (HL),C
+	INC HL
+	LD (HL),B
+	PUSH BC
+	LD C,'@'
+	CALL CO
+	POP HL
+	CALL LADR
+	LD HL,TLOCX
+	ADD HL,SP
+	LD BC,200H
+LXR4:
+	LD E,(HL)
+	LD (HL),C
+	INC HL
+	LD D,(HL)
+	LD (HL),C
+	INC HL
+	LD A,E
+	OR D
+	JR Z,LXR5
+	LD A,(HL)
+	LD (DE),A
+LXR5:
+	INC HL
+	DJNZ LXR4
+	EX AF,AF'
+	EXX
+	PUSH HL
+	PUSH DE
+	PUSH BC
+	PUSH AF
+	PUSH IX
+	PUSH IY
+	LD A,I
+	LD B,A
+	LD A,R
+	LD C,A
+	PUSH BC
+	JP mon_cold_start
+;
+COPCK:
+	LD C,'-'
+	CALL CO
+PCHK:
+	CALL TI
+QCHK:
+	CP ' '
+	RET Z
+	CP ','
+	RET Z
+	CP 0DH
+	SCF
+	RET Z
+	CCF
+	RET
+;
+LADR:
+	LD A,H
+	CALL LBYTE
+	LD A,L
+LBYTE:
+	PUSH AF
+	RRCA
+	RRCA
+	RRCA
+	RRCA
+	CALL LXR22
+	POP AF
+LXR22:
+	CALL CONV
+	JP CO
+MARK:
+	LD BC,8FFH
+	JR LEO
+LEAD:
+	LD BC,4800H
+LEO:
+	CALL POO
+	DJNZ  LEO
+	RET
+;
+CONV:
+	AND 0FH
+	ADD A,90H
+	DAA 
+	ADC A,40H
+	DAA
+	LD C,A 	;HEX TO ASC
+	RET
+;
+;-------------------- Monitor data structures -------------------------------
+;
+;Messages
+;
+no_match_message:	defm	"? ",0
+help_message:		defm	"Commands:",CR,LF,0
+help_Message1:		defm "dump",cr,lf,"load"cr,lf,"run",cr,lf,"bload",cr,lf,0
+help_Message2:		defm 	"bdump",cr,lf,"iderd",cr,lf,"idewr",cr,lf,"boot",cr,lf,"?",0
+;
+dump_message:		defm	"Displays a 256-byte block of memory",CR,LF,0
+load_message:		defm	"Enter hex bytes starting at memory location",CR,LF,0
+run_message:		defm	"Execute program at address entered",CR,LF,0
+bload_message:		defm	"Loads binary file in memory at address entered",CR,LF,0
+bload_ready_message:	defm	CR,LF,"Ready to receive, start transfer",0
+bdump_message:		defm	"Dumps binary data from memory to serial port",CR,LF,0
+bdump_ready_message:	defm	CR,LF,"Ready to send, hit any key to start",0
+iderd_message:		defm	"Reads one sector from disk to memory",CR,LF,0
+idewr_message:		defm	"Writes one sector from memory to disk",CR,LF,0
+prompt_message:		defm	"MON ",0
+;
+;Strings for matching Parse Table
+;
+dump_string:		defm	"dump",0
+load_string:		defm	"load",0
+run_string:		defm	"run",0
+bload_string:		defm	"bload",0
+bdump_string:		defm	"bdump",0
+iderd_string:		defm	"iderd",0
+idewr_string:		defm	"idewr",0
+boot_string:		defm	"boot",0
+question_string:	defm	"?",0
+no_match_string:	defm	0,0
+;
+;Table for matching strings to jumps
+;
+parse_table:	defw	dump_string,dump_jump,load_string,load_jump
+			defw	run_string,run_jump
+			defw	bload_string,bload_jump,bdump_string,bdump_jump
+			defw	iderd_string,iderd_jump,idewr_string,idewr_jump
+			defw	boot_string,boot1
+			defw	question_string,help_jump
+			defw	no_match_string,no_match_jump	
+
+;----------------------------------------------------------------------------------
+;Strings used in subroutines
+;
+length_entry_string:	defm	"Enter length of file to load (decimal): ",0
+dump_entry_string:	defm	"Enter no. of bytes to dump (decimal): ",0
+LBA_entry_string:	defm	"Enter LBA (decimal, 0 to 65535): ",0
+erase_char_string:	defm	008h,01bh,"[K",000h	;ANSI sequence for backspace, erase to end of line
+address_entry_msg:	defm	"Enter 4-digit hex address (use upper-case A through F): ",0
+address_error_msg:	defm	CR,LF,"Error: invalid hex character, try again: ",0
+data_entry_msg:		defm	"Enter hex bytes, hit return when finished",CR,LF,0
+data_error_msg:		defm	"Error: invalid hex byte",CR,LF,0
+decimal_error_msg:	defm	CR,LF,"Error: invalid decimal number, try again: ",0
+;--------------------------------------------------------------------------------------
+; IO LOOKUP TABLE
+LTBL:
+	DEFB 'C'
+	DEFB 'T'
+	DEFB 'V'
+	DEFB 'B'
+	DEFB 'U'
+
+	DEFB 'R'
+	DEFB 'T'
+	DEFB 'P'
+	DEFB 'C'
+	DEFB 'U'
+
+	DEFB 'P'
+	DEFB 'T'
+	DEFB 'P'
+	DEFB 'C'
+	DEFB 'U'
+
+	DEFB 'L'
+	DEFB 'T'
+	DEFB 'V'
+	DEFB 'L'
+	DEFB 'U'
+
+EXIT:
+	POP BC
+	LD A,C
+	LD R,A
+	LD A,B
+	LD I,A
+	POP IY
+	POP IX
+	POP AF
+	POP BC
+	POP DE
+	POP HL
+	EX AF,AF'
+	EXX
+	POP DE
+	POP BC
+	POP AF
+	POP HL
+	LD SP,HL
+	NOP
+	LD HL,0
+	JP 0
+
+	DEFW 0
+	DEFB 0
+	DEFW 0
+	DEFB 0  	;TRAP AREA
+
+ENDX:
+	ALOC EQU 15H
+	BLOC EQU 13H
+	CLOC EQU 12H
+	DLOC EQU 11H
+	ELOC EQU 10H
+	FLOC EQU 14H
+	HLOC EQU 31H
+	LLOC EQU 30H
+	PLOC EQU 34H
+	SLOC EQU 17H
+	TLOC EQU 35H
+	TLOCX EQU 25H
+	LLOCX EQU 20H
+
+	APLOC EQU 9
+	BPLOC EQU 0BH
+	CPLOC EQU 0AH
+	DPLOC EQU 0DH
+	EPLOC EQU 0CH
+	FPLOC EQU 8
+	HPLOC EQU 0FH
+	LPLOC EQU 0EH
+	XLOC EQU 7
+	YLOC EQU 5
+	RLOC EQU 2
+	ILOC EQU 3
+
+
+		; TABELLE
+ACTBL:
+	DEFB 'A',ALOC OR 0
+	DEFB 'B',BLOC OR 0
+	DEFB 'C',CLOC OR 0
+	DEFB 'D',DLOC OR 0
+	DEFB 'E',ELOC OR 0
+	DEFB 'F',FLOC OR 0
+	DEFB 'H',HLOC OR 0
+	DEFB 'L',LLOC OR 0
+	DEFB 'M',HLOC OR 0C0H
+	DEFB 'P',PLOC OR 080H
+	DEFB 'S',SLOC OR 080H
+	DEFB 'I',ILOC OR 0
+
+	DEFB 0C1H
+
+PRMTB:
+	DEFB 'A',APLOC OR 0
+	DEFB 'B',BPLOC OR 0
+	DEFB 'C',CPLOC OR 0
+	DEFB 'D',DPLOC OR 0
+	DEFB 'E',EPLOC OR 0
+	DEFB 'F',FPLOC OR 0
+	DEFB 'H',HPLOC OR 0
+	DEFB 'L',LPLOC OR 0
+	DEFB 'M',HPLOC OR 0C0H
+	DEFB 'X',XLOC  OR 080H
+	DEFB 'Y',YLOC  OR 080H
+	DEFB 'R',RLOC  OR 0
+	DEFB 0C1H
+;
+LASTMON:	DEFB 0 	;LAST STORAGE
+;
+	.DEPHASE
+	END
