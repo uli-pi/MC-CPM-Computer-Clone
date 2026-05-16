@@ -1,0 +1,5 @@
+﻿Hier entsteht ein MC CP/M Computer kompatibler Rechner.
+Das Design sollte weitgehend mit Chips aus der Zeit aufgebaut werden, also kommen keine SMD Bauteile zum Einsatz. Die CPU Platine wurde mit einem heute sehr preiswerten Static RAM ausgestattet und ein 2764 (8KB) Monitor Eprom vorgesehen. Die von der CPU aus gesehene ROM Speichergröße lässt sich per Jumper einstellen auf 4KB oder 8KB. Damit lässt sich das originale Monitor Eprom (2732 /4KB) aus der MC-Computer Zeitschrift einsetzen oder aber ein 8KB Eprom 2764. Bei einem 2764 Eprom kann zwischen "unteren" 4KB und "oberen" 4KB per Jumper umgeschaltet werden oder aber auch das gesamte ROM durchgängig für ein Monitor Program nutzen.
+
+Die Systemkarte SYS-80s ist voll kompatibel zur originalen MC-Computer SYS-1. Sie kann 1:1 ausgetauscht werden.
+Zusätzlich bringt die SYS-80 Karte eine Serielle Schnittstelle mit. Damit hat man einen Terminal Anschluß direkt auf der CPU Karte. Eine OUT Karte ist dann nicht mehr notwendig, sofern man keine anderen Schnittstellen benötigt. Man kann aber dennoch die MC CP/M Computer OUT-Karte paralell im System nutzen.
