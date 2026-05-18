@@ -2526,10 +2526,6 @@ Text GLabel 14000 4450 0    50   BiDi ~ 0
 D6v
 Text GLabel 14000 4550 0    50   BiDi ~ 0
 D7v
-Text GLabel 14000 4850 0    50   Input ~ 0
-RDv
-Text GLabel 14000 4750 0    50   Input ~ 0
-WRv
 Text GLabel 14000 5000 0    50   Input ~ 0
 UART-CS
 Text GLabel 14000 5100 0    50   Input ~ 0
@@ -2608,7 +2604,7 @@ L Device:Crystal Y2
 U 1 1 69DA07A2
 P 10450 3050
 F 0 "Y2" V 10250 2900 50  0000 C CNN
-F 1 "2,4576Mhz" V 10150 2950 50  0000 C CNN
+F 1 "4,915Mhz" V 10150 2950 50  0000 C CNN
 F 2 "Crystal:Crystal_HC18-U_Vertical" H 10450 3050 50  0001 C CNN
 F 3 "~" H 10450 3050 50  0001 C CNN
 	1    10450 3050
@@ -2756,8 +2752,8 @@ $Comp
 L Interface_UART:8251 U17
 U 1 1 6A201DA0
 P 14700 4650
-F 0 "U17" H 14900 5900 50  0000 C CNN
-F 1 "8251" H 15150 5900 50  0000 C CNN
+F 0 "U17" H 15050 6000 50  0000 C CNN
+F 1 "NEC D71051C" H 15100 5900 50  0000 C CNN
 F 2 "Package_DIP:DIP-28_W15.24mm" H 14700 4650 50  0001 C CIN
 F 3 "" H 14700 4650 50  0001 C CNN
 	1    14700 4650
@@ -2905,7 +2901,11 @@ Connection ~ 15750 5050
 Wire Wire Line
 	15750 5050 15800 5050
 Text Notes 14850 3600 0    50   ~ 0
-alternativ NEC D71051C\nbis 8 Mhz Takt
+alternativ UART 8251\nbis 4 Mhz Takt
 Text Notes 9850 2650 0    50   ~ 0
 Y2 alternativ 4,915Mhz\ndann doppelte Baudrate
+Text GLabel 14000 4850 0    50   Output ~ 0
+-RDv
+Text GLabel 14000 4750 0    50   Output ~ 0
+-WRv
 $EndSCHEMATC
