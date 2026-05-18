@@ -2906,6 +2906,4 @@ Wire Wire Line
 	15750 5050 15800 5050
 Text Notes 14850 3600 0    50   ~ 0
 alternativ NEC D71051C\nbis 8 Mhz Takt
-Text Notes 9850 2650 0    50   ~ 0
-Y2 alternativ 4,915Mhz\ndann doppelte Baudrate
 $EndSCHEMATC

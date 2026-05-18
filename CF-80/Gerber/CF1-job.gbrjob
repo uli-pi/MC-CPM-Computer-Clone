@@ -7,15 +7,15 @@
       "Application": "Pcbnew",
       "Version":     "(5.1.12)-1"
     },
-    "CreationDate":  "2026-05-18T10:42:30+02:00"
+    "CreationDate":  "2026-04-12T11:16:25+02:00"
   },
   "GeneralSpecs":
   {
     "ProjectId":
     {
-      "Name": "SYS-80S",
-      "GUID": "5359532d-3830-4532-9e6b-696361645f70",
-      "Revision": "1.2"
+      "Name": "CF1",
+      "GUID": "4346312e-6b69-4636-9164-5f7063625858",
+      "Revision": "rev?"
     },
     "Size":
     {
@@ -40,47 +40,47 @@
   "FilesAttributes":
   [
     {
-      "Path":  "SYS-80S-F_Cu.gbr",
+      "Path":  "CF1-F_Cu.gbr",
       "FileFunction":  "Copper,L1,Top",
       "FilePolarity":  "Positive"
     },
     {
-      "Path":  "SYS-80S-B_Cu.gbr",
+      "Path":  "CF1-B_Cu.gbr",
       "FileFunction":  "Copper,L2,Bot",
       "FilePolarity":  "Positive"
     },
     {
-      "Path":  "SYS-80S-F_Paste.gbr",
+      "Path":  "CF1-F_Paste.gbr",
       "FileFunction":  "SolderPaste,Top",
       "FilePolarity":  "Positive"
     },
     {
-      "Path":  "SYS-80S-B_Paste.gbr",
+      "Path":  "CF1-B_Paste.gbr",
       "FileFunction":  "SolderPaste,Bot",
       "FilePolarity":  "Positive"
     },
     {
-      "Path":  "SYS-80S-F_SilkS.gbr",
+      "Path":  "CF1-F_SilkS.gbr",
       "FileFunction":  "Legend,Top",
       "FilePolarity":  "Positive"
     },
     {
-      "Path":  "SYS-80S-B_SilkS.gbr",
+      "Path":  "CF1-B_SilkS.gbr",
       "FileFunction":  "Legend,Bot",
       "FilePolarity":  "Positive"
     },
     {
-      "Path":  "SYS-80S-F_Mask.gbr",
+      "Path":  "CF1-F_Mask.gbr",
       "FileFunction":  "SolderMask,Top",
       "FilePolarity":  "Negative"
     },
     {
-      "Path":  "SYS-80S-B_Mask.gbr",
+      "Path":  "CF1-B_Mask.gbr",
       "FileFunction":  "SolderMask,Bot",
       "FilePolarity":  "Negative"
     },
     {
-      "Path":  "SYS-80S-Edge_Cuts.gbr",
+      "Path":  "CF1-Edge_Cuts.gbr",
       "FileFunction":  "Profile",
       "FilePolarity":  "Positive"
     }
