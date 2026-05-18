@@ -9,4 +9,4 @@ Die CF Karte ermöglicht den Anschluß eines IDE Kompatiblen Gerätes. Es lassen
 
 Ein minimales CP/M 2.2 System kann mit einer SYS-80 und einer CF-80 Karte aufgebaut werden. Man hat einen volwertigen Rechner mit einem 60KB CP/M. Oder sie nehmen eine SYS-80 mit einer FLO-80 Karte. Das ergibt einen CP/M Rechner mit richtigen Floppy Laufwerken. Anschluß von 3,5", 5,25" oder 8" ist möglich, auch gemischt je nach Bios.
 
-Mit einer OUT-80 Karte bekommt man zusätzlich 2 serielle und 2 paralelle Schnittstellen.
+Mit einer OUT-80 Karte bekommt man zusätzlich 2 serielle und 2 parallele Schnittstellen.
