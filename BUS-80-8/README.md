@@ -6,5 +6,7 @@ Backplane mit 8 Slots zur direkten Montage in Baugruppenträger oder in das unte
 
 JLCPCB-geprüfte Gerber-Files im Verzeichnise /gerber
 
+Passendes Gehäuse bei Reichelt Elektronik: https://www.reichelt.de/de/de/shop/produkt/systemgehaeuse-50437
+
 Erstellt mit KiCAD 9.07 / Detlef Gerhardt
 
