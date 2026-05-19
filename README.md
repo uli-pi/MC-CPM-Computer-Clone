@@ -7,6 +7,6 @@ Es werden nachfolgend die Baugruppen CPU Karte (SYS-80s), OUT Karte (OUT-80), Fl
 
 Die CF Karte ermöglicht den Anschluß eines IDE Kompatiblen Gerätes. Es lassen sich Festplatten, oder auch mit Adapter eine CF Karte ansteuern. Mit dem CF Karten Bios werden 4 Floppy Disk mit jeweils 2MB Kapazität nachgebildet.
 
-Ein minimales CP/M 2.2 System kann mit einer SYS-80s und einer CF-80 Karte aufgebaut werden. Man hat einen vollwertigen Rechner mit einem 60KB CP/M. Oder sie nehmen eine SYS-80 mit einer FLO-80 Karte. Das ergibt einen CP/M Rechner mit richtigen Floppy Laufwerken. Anschluß von 3,5", 5,25" oder 8" ist möglich, auch gemischt je nach Bios.
+Ein minimales CP/M 2.2 System kann mit einer SYS-80s und einer CF-80 Karte aufgebaut werden. Man hat einen vollwertigen Rechner mit einem 60KB CP/M. Oder sie nehmen eine SYS-80s mit einer FLO-80 Karte. Das ergibt einen CP/M Rechner mit richtigen Floppy Laufwerken. Anschluß von 3,5", 5,25" oder 8" ist möglich, auch gemischt je nach Bios.
 
 Mit einer OUT-80 Karte bekommt man zusätzlich 2 serielle und 2 parallele Schnittstellen.
