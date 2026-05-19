@@ -4,8 +4,6 @@ Backplane mit 8 Slots zur direkten Montage in Baugruppenträger oder in das unte
 
 <img width="1023" height="775" alt="BUS-80-8" src="https://github.com/user-attachments/assets/3f961cfa-3c2f-40a4-9159-27c26ea87a85" />
 
-Ungeprüfte Gerber-Files im Verzeichnise /gerber
-
 Passendes Gehäuse bei Reichelt Elektronik: https://www.reichelt.de/de/de/shop/produkt/systemgehaeuse-50437
 
 Erstellt mit KiCAD 9.07 / Detlef Gerhardt
