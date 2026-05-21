@@ -14,9 +14,9 @@ Adressen IDE Port CF-80 Karte
 
 	IDEDATA	EQU 0x8h			;IDE Daten Register
 	SECCND	EQU 0xah			;Sector Count Register
-	LBA7		EQU 0xbh			;LBA Bits 0-7
-	LBA15		EQU 0xch			;LBA Bits 8-15
-	LBA23		EQU 0xdh			;LBA Bits 16-23
+	LBA7	EQU 0xbh			;LBA Bits 0-7
+	LBA15	EQU 0xch			;LBA Bits 8-15
+	LBA23	EQU 0xdh			;LBA Bits 16-23
 	IDEHEAD	EQU 0xeh			;IDE Drive Head Register
 	IDESTAT	EQU 0xfh			;IDE Command/Status Register
 
