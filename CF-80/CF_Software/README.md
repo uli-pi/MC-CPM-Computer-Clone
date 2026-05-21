@@ -38,9 +38,9 @@ Die Speicheraufteilung des MC-Systems ist wie folgt:
 
 F000 Hex ab dieser Adresse beginnt der Monitorbereich bis FFFF Hex
 
-EA00 HEX ist die LAdeadresse des BIOS
+EA00 HEX ist die Ladeadresse des BIOS
 
-D400 HEX ist die Ldeadresse des CCP/BDOS
+D400 HEX ist die Ladeadresse des CCP/BDOS
 	 
 Daraus geht hervor wohin wir die Binärfiles laden müssen.
  
@@ -119,4 +119,4 @@ Auf der CP/M Seite rufen wir GETPC Filename.ext  der Datei die wir übertragen w
 Auf dem PC im Programm TerraTerm sind es die Kommandos DATEI, TRANSFER, XMODEM, SEND und Datei auswählen. Wir brauchen uns über Länge und Speicherplatz nicht mehr zu kümmern. Das machen die Programme untereinander aus.
 
 Zurückspielen von CP/M auf PC geht dann mit PCPUT.com das wir ja jetzt mit GETPC  einfach auf unseren CP/M Rechner holen können.
-GETPC.com und PUTPC.com sind einfach Kopien von PCGET.com und PCPUT.com die auf die Hardware der SYS80s Karte angepasst wurden. Ich habe diese umbenannt damit man nicht mit den Varianten für das originale System mit OUT Karte durcheinander kommt. Da die Programme direkt über die Hardware kommunizieren müssen sie immer an die verwendete Hardware angepasst werden.
+GETPC.com und PUTPC.com sind einfach Kopien von PCGET.com und PCPUT.com die auf die Hardware der SYS80s Karte angepasst wurden. Ich habe diese umbenannt damit man nicht mit den Varianten für das originale System mit OUT Karte durcheinander kommt. Da die Programme direkt über die Hardware kommunizieren, müssen sie immer an die verwendete Hardware angepasst werden.
