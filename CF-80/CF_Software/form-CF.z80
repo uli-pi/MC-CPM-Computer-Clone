@@ -1,0 +1,99 @@
+;Formats four CP/M disks on IDE Interface
+;
+;Writes E5h to 64 sectors on tracks 1 to 255 of each disk (track 0 for system).
+;Uses calls to cbios, in memory at EA00h
+;
+seldsk		equ	0EA1Bh		;pass disk no. in c
+setdma		equ	0EA24h		;pass address in bc
+settrk		equ	0EA1Eh		;pass track in reg C
+setsec		equ	0EA21h		;pass sector in reg c
+write			equ	0EA2Ah		;write one CP/M sector to disk
+prmsg			equ	0F036h		;subroutine to write message im Monitor
+conout		equ	0F009h		;print a character im Monitor
+mon_warm_start	equ	0F033h
+;
+		org	08000h
+;
+		ld	sp,stack
+		ld	hl,format_string
+		call	prmsg			;Start Message ausgeben
+		ld	hl,dir_sector	;address of data to write
+		ld	(address),hl
+		ld	a,00h			;starten mit Disk 0
+		ld	(disk),a
+disk_loop:	ld	c,a			;CP/M disk 0 ist Disk A
+		call	seldsk
+		ld	a,1			;starting track (offset = 1)
+		ld	(track),a
+track_loop:	ld a,0		;starting sector 0
+		ld	(sector),a
+		ld	a,(track)
+		ld	c,a			;CP/M track
+		call	settrk
+sector_loop:	ld a,(sector)
+		ld	c,a			;CP/M sector
+		call	setsec
+		ld	bc,(address)	;memory location
+		call	setdma
+		call	write
+		ld	a,(sector)
+		cp	63
+		jp	z,next_track
+		inc	a
+		ld	(sector),a
+		jp	sector_loop
+next_track:	ld	a,(track)
+		cp	255
+		jp	z,next_disk
+		inc	a
+		ld	(track),a
+		ld	a,2eh			;Punkt ausgeben
+		ld	c,a
+		call	conout
+		ld	a,(char_count)
+		inc	a
+		cp	80
+		jp	z,skip_1
+		ld	(char_count),a
+		jp	track_loop
+skip_1:	ld	a,0
+		ld	(char_count),a
+		ld	a,0dh			;CR ausgeben
+		ld	c,a
+		call	conout
+		ld	a,0ah			;LF ausgeben
+		ld	c,a
+		call	conout
+		jp	track_loop
+next_disk:
+		xor	a
+		ld	(char_count),a
+		ld	a,(disk)		;naechste virtuelle Diskette
+		inc	a
+		cp	4			;fertig ?
+		jp	z,done		;wenn 4 erreicht fertig
+		ld	(disk),a
+		push hl
+		ld	hl,disk_string	;next Disk ausgeben
+		call	prmsg
+		pop  hl
+		jp	disk_loop
+done:		ld	hl,end_string	;fertig Meldung
+		call	prmsg
+		jp	mon_warm_start
+;
+format_string:	defm	0dh,0ah,0ah,"Formatiere 4 virtuelle Disk",0dh,0ah,"Disk 1",0dh,0ah,0
+end_string:	defm	0dh,0ah,'Formatierung beendet',0dh,0dh,0ah,0
+disk_string:	defm	0dh,0ah,'next Disk',0dh,0ah,0
+;
+disk:			defs	1
+sector:		defs	2
+track:		defs	2
+address:		defs	2
+char_count:	defs	2
+dir_sector:	ds	128,0E5h	;byte for empty directory
+			ds	0FFh		;stack space
+stack:
+		end
+	
+

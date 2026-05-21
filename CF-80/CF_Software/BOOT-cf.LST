@@ -1,0 +1,43 @@
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   1
+BOOT-CF Z80
+
+    1                   ;schreibt Bootloader auf die CF-Karte
+    2                   ;benuzt calls zum Monitor im oberen RAM F000h
+    3                   ;Writes track 0, sectors 0 
+    4                   ;Subroutine to write one IDE/ATA Disk sector (256 bytes)
+    5                   ;Address of data to write to disk passed in HL
+    6                   ;LBA bits 0 to 7 passed in C, bits 8 to 15 passed in B
+    7                   ;LBA bits 16 to 23 passed in E
+    8                   ;
+    9         0100      			org	0100h		;Programm wird auf 100h abgelegt
+   10                   ;
+   11         8000      loader_adr		equ	08000h	;hier befindet sich der 
+   12                   						;Bootloader
+   13         000D      			CR 	EQU 0DH
+   14         000A      			LF 	EQU 0AH
+   15                   ;Monitor Einspruenge:
+   16         F02D      disk_write		equ	0F02Dh	;CF Schreibroutine
+   17         F033      mon_warm_start	equ	0F033h	;Monitor Einsprung
+   18         F036      print_msg		equ	0F036h	;Textstring ausgeben
+   19                   ;
+   20                   	
+   21 0100  21 8000     start:	ld	hl,loader_adr
+   22 0103  0E 00       		ld	c,00h
+   23 0105  06 00       		ld	b,00h
+   24 0107  1E 00       		ld	e,00h
+   25 0109  CD F02D     		call	disk_write
+   26 010C  21 0115     		ld	hl,msg
+   27 010F  CD F036     		call	print_msg
+   28 0112  C3 F033     done:		jp	mon_warm_start	;zurueck zum Monitor
+   29                   ;
+   30 0115  0D 0A       msg:		DEFB CR,LF
+   31 0117  20 2D 2D 2D 		DEFM " -------------------------",CR,LF
+   32 0133  20 20 20 52 		DEFM "   Ready - Loader on Disk ",CR,LF
+   33 014F  20 2D 2D 2D 		DEFM	" -------------------------",CR,LF,LF
+   34                   ;
+   35                   		end
+ 0 Error(s) Detected.
+ 108 Absolute Bytes. 9 Symbols Detected.
+r Einspruenge:
+   16         F02D      disk_write		equ	0F02Dh	;CF Schreibroutine
+   17         F033   

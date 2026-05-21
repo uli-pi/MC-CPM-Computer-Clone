@@ -1,0 +1,480 @@
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   1
+CBIOS-CFZ80
+
+    1                   ;	CP/M CBIOS
+    2                   ;	June 2019 by Donn Stewart
+    3                   ;	Modified from skeletal cbios for first level of CP/M 2.0 alteration
+    4                   ;	64-sector tracks, numbering starting at zero (sectors 0 to 63)
+    5                   ;	Block size 2048
+    6                   ;	Disk size 2 mb, DSM 1023, yields 256 tracks (0 to 255)
+    7                   ;	4 disks
+    8                   ;	Made more efficient use of disk by OR-ing CP/M disk, track, sector values
+    9                   ;	to create logical block address (LBA) for IDE disk
+   10                   ;	Angepasst an MC-CPM Computer 3/2026 andere Speicherbelegung
+   11                   ;	Schnittstellenparameter angepasst
+   12                   ;
+   13         D400      ccp:		equ	0D400h	;base of ccp
+   14         DC06      bdos:		equ	0DC06h	;bdos entry
+   15         EA00      bios:		equ	0EA00h	;base of bios
+   16         0004      cdisk:	equ	0004h		;address of current disk number 0=a,... l5=p
+   17         0003      iobyte:	equ	0003h		;intel i/o byte
+   18         0004      disks:	equ	04h		;number of disks in the system
+   19         001B      ESC		equ	01Bh		;ESC Taste
+   20                   ;
+   21                   ;Adressen des UART auf SYS-80 CPU Karte
+   22                   ;+++++++to be designed
+   23                   ;
+   24                   ;Hardware Adressen IDE Port 
+   25                   ;
+   26         0018      IDEDATA	EQU 18h		;IDE Daten Register
+   27         001A      SECCND	EQU 1ah		;Sector Count Register
+   28         001B      LBA7		EQU 1bh		;LBA Bits 0-7
+   29         001C      LBA15		EQU 1ch		;LBA Bits 8-15
+   30         001D      LBA23		EQU 1dh		;LBA Bits 16-23
+   31         001E      IDEHEAD	EQU 1eh		;IDE Drive Head Register
+   32         001F      IDESTAT	EQU 1fh		;IDE Command/Status Register	
+   33                   ;
+   34         EA00      	org	bios		;origin of this program
+   35         002C      nsects:	equ	($-ccp)/128	;warm start sector count
+   36                   ;
+   37                   ;	jump vector for individual subroutines
+   38                   ;
+   39 EA00  C3 EAAB     	JP	boot			;cold start
+   40 EA03  C3 EABB     wboote:	JP	wboot		;warm start
+   41 EA06  C3 EB2D     	JP	const			;console status
+   42 EA09  C3 EB31     	JP	conin			;console character in
+   43 EA0C  C3 F009     	JP	conout		;console character out
+   44 EA0F  C3 EB37     	JP	list			;list character out
+   45 EA12  C3 EB3B     	JP	punch			;punch character out
+   46 EA15  C3 EB3D     	JP	reader		;reader character out
+   47 EA18  C3 EB42     	JP	home			;move head to home position
+   48 EA1B  C3 EB48     	JP	seldsk		;select disk
+   49 EA1E  C3 EB61     	JP	settrk		;set track number
+   50 EA21  C3 EB66     	JP	setsec		;set sector number
+   51 EA24  C3 EB72     	JP	setdma		;set dma address
+   52 EA27  C3 EB84     	JP	read			;read disk
+   53 EA2A  C3 EBE6     	JP	write			;write disk
+   54 EA2D  C3 EB39     	JP	listst		;return list status
+   55 EA30  C3 EB6B     	JP	sectran		;sector translate
+   56                   ;
+   57                   ;	Data tables for disks
+   58                   ;	Four disks, 26 sectors/track, disk size = number of 1024 byte blocks
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   2
+CBIOS-CFZ80
+
+   59                   ;	Number of directory entries (32-bytes each) set to 127 per 500 blocks
+   60                   ;	Allocation map bits = number of blocks needed to contain directory entries
+   61                   ;	No translations -- translation maps commented out
+   62                   ;
+   63                   ;	disk Parameter header for disk 00
+   64 EA33  0000  0000  dpbase:	defw	0000h, 0000h
+   65 EA37  0000  0000  	defw	0000h, 0000h
+   66 EA3B  EC4D  EA73  	defw	dirbf, dpblk
+   67 EA3F  EECD  ECCD  	defw	chk00, all00
+   68                   ;	disk parameter header for disk 01
+   69 EA43  0000  0000  	defw	0000h, 0000h
+   70 EA47  0000  0000  	defw	0000h, 0000h
+   71 EA4B  EC4D  EA73  	defw	dirbf, dpblk
+   72 EA4F  EECE  ED4D  	defw	chk01, all01
+   73                   ;	disk parameter header for disk 02
+   74 EA53  0000  0000  	defw	0000h, 0000h
+   75 EA57  0000  0000  	defw	0000h, 0000h
+   76 EA5B  EC4D  EA73  	defw	dirbf, dpblk
+   77 EA5F  EECF  EDCD  	defw	chk02, all02
+   78                   ;	disk parameter header for disk 03
+   79 EA63  0000  0000  	defw	0000h, 0000h
+   80 EA67  0000  0000  	defw	0000h, 0000h
+   81 EA6B  EC4D  EA73  	defw	dirbf, dpblk
+   82 EA6F  EED0  EE4D  	defw	chk03, all03
+   83                   ;
+   84                   ;	sector translate vector
+   85                   ;Since no translation will comment out
+   86                   ;trans:	defm	 1,  7, 13, 19	;sectors  1,  2,  3,  4
+   87                   ;	defm	25,  5, 11, 17	;sectors  5,  6,  7,  6
+   88                   ;	defm	23,  3,  9, 15	;sectors  9, 10, 11, 12
+   89                   ;	defm	21,  2,  8, 14	;sectors 13, 14, 15, 16
+   90                   ;	defm	20, 26,  6, 12	;sectors 17, 18, 19, 20
+   91                   ;	defm	18, 24,  4, 10	;sectors 21, 22, 23, 24
+   92                   ;	defm	16, 22		;sectors 25, 26
+   93                   ;
+   94 EA73              dpblk:	;disk parameter block for all disks.
+   95 EA73  0040        	defw	64		;sectors per track
+   96 EA75  04          	defm	4		;block shift factor
+   97 EA76  0F          	defm	15		;block mask - with block shift, sets block size to 1024
+   98 EA77  00          	defm	0		;null mask
+   99 EA78  03FF        	defw	1023		;disk size-1 = number of blocks in a disk - 1
+  100 EA7A  0100        	defw	256		;directory max = no. directory entries/disk, arbitrary
+  101 EA7C  F0          	defm	240		;alloc 0 -- need 4 bits (blocks) for 256 directory entries -- 
+  102 EA7D  00          	defm	0		;alloc 1 -- no. bits = (directory max x 32)/block size	
+  103 EA7E  0000        	defw	0		;check size -- no checking, so zero
+  104 EA80  0001        	defw	1		;track offset -- first track for system
+  105                   ;
+  106                   ;	end of fixed tables
+  107                   ;
+  108                   ;	Greeting message for cold boot
+  109 EA82              greet:
+  110 EA82  1B 5B 32 4A 	defm	ESC,"[2J",ESC,"[H",0Ah,
+  111 EA8A  43 50 2F 4D 	defm	"CP/M 2.2 for MC-Computer 60K  "
+  112 EAA8  0D 0A 00    	defm	0dh, 0ah, 0	
+  113                   
+  114                   ;	individual subroutines to perform each function
+  115 EAAB              boot:	;entry point from CP/M loader
+  116                   	;CP/M loader has loaded BDOS, CCP and CBIOS
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   3
+CBIOS-CFZ80
+
+  117                   	;print greeting and perform parameter initialization
+  118                   	;
+  119 EAAB  21 EA82     	ld	hl,greet	;address of greeting message
+  120 EAAE  CD EB78     	call	prmsg		;print message subroutine
+  121 EAB1  AF          	XOR	a		;zero in the accum
+  122 EAB2  32 0003     	LD	(iobyte),A	;clear the iobyte
+  123 EAB5  32 0004     	LD	(cdisk),A	;select disk zero
+  124 EAB8  C3 EB04     	JP	gocpm		;initialize and go to cp/m
+  125                   ;
+  126 EABB              wboot:	;laedt BDOS and CCP nach, weil CP/M Programme Teile 
+  127                   		;davon ueberschreiben koennen, CBIOS ist noch da
+  128                   ;
+  129 EABB  31 0080     	LD	sp, 080h	;normal 80h kann auch auf FFH gelegt werden
+  130 EABE  0E 00       	LD 	c, 0		;select disk 0
+  131 EAC0  CD EB48     	call	seldsk
+  132 EAC3  CD EB42     	call	home		;go to track 00
+  133 EAC6  06 2C       	LD 	b, nsects	;b counts * of sectors to load
+  134 EAC8  0E 00       	LD 	c, 0		;c has the current track number
+  135 EACA  16 01       	LD 	d, 1		;d has the next sector to read
+  136                   ;	note that we begin by reading track 0, sector 1 since sector 0
+  137                   ;	contains the cold start loader, which is skipped in a warm start
+  138 EACC  21 D400     	LD	HL, ccp	;base of cp/m (initial load point)
+  139 EACF              load1:	;load	one more sector
+  140 EACF  C5          	PUSH	BC		;save sector count, current track
+  141 EAD0  D5          	PUSH	DE		;save next sector to read
+  142 EAD1  E5          	PUSH	HL		;save dma address
+  143 EAD2  4A          	LD 	c, d		;get sector address to register C
+  144 EAD3  CD EB66     	call	setsec	;set sector address from register C
+  145 EAD6  C1          	pop	BC		;recall dma address to b, C
+  146 EAD7  C5          	PUSH	BC		;replace on stack for later recall
+  147 EAD8  CD EB72     	call	setdma	;set dma address from b, C
+  148                   				;drive set to 0, track set, sector set, dma address set
+  149 EADB  CD EB84     	call	read
+  150 EADE  FE 00       	CP	00h		;any errors?
+  151 EAE0  C2 EABB     	JP	NZ,wboot	;retry the entire boot if an error occurs
+  152                   				;no error, move to next sector
+  153 EAE3  E1          	pop	HL		;recall dma address
+  154 EAE4  11 0080     	LD	DE, 128	;dma=dma+128
+  155 EAE7  19          	ADD	HL,DE		;new dma address is in h, l
+  156 EAE8  D1          	pop	DE		;recall sector address
+  157 EAE9  C1          	pop	BC		;recall number of sectors remaining, and current trk
+  158 EAEA  05          	DEC	b		;sectors=sectors-1
+  159 EAEB  CA EB04     	JP	Z,gocpm	;transfer to cp/m if all have been loaded
+  160                   				;more	sectors remain to load, check for track change
+  161 EAEE  14          	INC	d
+  162 EAEF  7A          	LD 	a,d		;sector=64?, if so, change tracks
+  163 EAF0  FE 40       	CP	64
+  164 EAF2  DA EACF     	JP	C,load1	;carry generated if sector <64
+  165                   				;end of current track, go to next track
+  166 EAF5  16 00       	LD 	d,0		;begin with first sector of next track
+  167 EAF7  0C          	INC	c		;track=track+1
+  168                   ;
+  169                   				;save	register state, and change tracks
+  170 EAF8  C5          	PUSH	BC
+  171 EAF9  D5          	PUSH	DE
+  172 EAFA  E5          	PUSH	HL
+  173 EAFB  CD EB61     	call	settrk	;track address set from register c
+  174 EAFE  E1          	pop	HL
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   4
+CBIOS-CFZ80
+
+  175 EAFF  D1          	pop	DE
+  176 EB00  C1          	pop	BC
+  177 EB01  C3 EACF     	JP	load1		;for another sector
+  178                   ;
+  179                   				;end of load operation, set parameters and go to cp/m
+  180 EB04              gocpm:
+  181 EB04  3E C3       	LD 	a, 0c3h		;c3 is a jmp instruction
+  182 EB06  32 0000     	LD	(0),A			;for jmp to wboot
+  183 EB09  21 EA03     	LD	HL, wboote		;wboot entry point
+  184 EB0C  22 0001     	LD	(1),HL		;set address field for jmp at 0
+  185                   ;
+  186 EB0F  32 0005     	LD	(5),A			;for jmp to bdos
+  187 EB12  21 DC06     	LD	HL, bdos		;bdos entry point
+  188 EB15  22 0006     	LD	(6),HL		;address field of Jump at 5 to bdos
+  189                   ;
+  190 EB18  01 0080     	LD	BC, 80h		;default dma address is 80h
+  191 EB1B  CD EB72     	call	setdma
+  192                   ;
+  193 EB1E  FB          	ei				;enable the interrupt system
+  194 EB1F  3A 0004     	LD	A,(cdisk)		;get current disk number
+  195 EB22  FE 04       	cp	disks			;see if valid disk number
+  196 EB24  DA EB29     	jp	c,diskok		;disk valid, go to ccp
+  197 EB27  3E 00       	ld	a,0			;invalid disk, change to disk 0
+  198 EB29  4F          diskok:	LD 	c, a		;send to the ccp
+  199 EB2A  C3 D400     	JP	ccp			;go to cp/m for further processing
+  200                   ;
+  201                   ;
+  202                   ;	simple i/o handlers (must be filled in by user)
+  203                   ;	in each case, the entry point is provided, with space reserved
+  204                   ;	to insert your own code
+  205                   ;
+  206 EB2D              CONST:				; Funktion im Monitor
+  207                   					; DIESE ROUTINE LIEFERT DEN STATUS DER
+  208 EB2D  C3 F012     		JP	0F012H	; EINGABETASTATUR. WURDE EIN ZEICHEN
+  209                   					; EINGEGEBEN, SO LIEFERT DIE ROUTINE 0FFH
+  210 EB30  C9          		ret
+  211                   ;
+  212 EB31  CD F003     CONIN:	CALL	0F003H	; Funktion liegt im Monitor
+  213                   					; DIE ROUTINE HOLT EIN ZEICHEN VON DER
+  214                   					; TASTATUR AB UND SETZT DAS HOECHSTE BIT
+  215                   					; (PARITY BIT) AUF NULL
+  216 EB34  E6 7F       		AND	7FH
+  217 EB36  C9          		RET
+  218                   ;
+  219         F009      CONOUT	EQU	0F009H	; Funktion liegt im Monitor
+  220                   					; ROUTINE ZUR AUSGABE EINES ZEICHENS IM
+  221                   					; C-REGISTER AN DIE KONSOLE. DAZU SPRUNG
+  222                   					; IN DEN MONITOR IM EPROM
+  223                   ;
+  224 EB37              list:		;list character from register c
+  225 EB37  79          	LD 	a, c	  		;character to register a
+  226 EB38  C9          	ret		  		;null subroutine
+  227                   ;
+  228 EB39              listst:	;return list status (0 if not ready, 1 if ready)
+  229 EB39  AF          	XOR	a	 		;0 is always ok to return
+  230 EB3A  C9          	ret
+  231                   ;
+  232 EB3B              punch:	;punch character from	register C
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   5
+CBIOS-CFZ80
+
+  233 EB3B  79          	LD 	a, c			;character to register a
+  234 EB3C  C9          	ret				;null subroutine
+  235                   ;
+  236                   ;
+  237 EB3D              reader:	;reader character into register a from reader device
+  238 EB3D  3E 1A       	LD     a, 1ah		;enter end of file for now (replace later)
+  239 EB3F  E6 7F       	AND    7fh			;remember to strip parity bit
+  240 EB41  C9          	ret
+  241                   ;
+  242                   ;
+  243                   ;	i/o drivers for the disk follow
+  244                   ;	for now, we will simply store the parameters away for use
+  245                   ;	in the read and write	subroutines
+  246                   ;
+  247 EB42              home:	;move to the track 00	position of current drive
+  248                   ;	translate this call into a settrk call with Parameter 00
+  249 EB42  0E 00       	LD     c, 0		;select track 0
+  250 EB44  CD EB61     	call   settrk
+  251 EB47  C9          	ret				;we will move to 00 on first read/write
+  252                   ;
+  253 EB48              seldsk:	;select disk given by register c
+  254 EB48  21 0000     	LD	HL, 0000h		;error return code
+  255 EB4B  79          	LD 	a, c
+  256 EB4C  32 EC4C     	LD	(diskno),A
+  257 EB4F  FE 04       	CP	disks			;must be between 0 and 3
+  258 EB51  D0          	RET	NC			;no carry if 4, 5,...
+  259                   ;	disk number is in the proper range
+  260                   ;	defs	10			;space for disk select, not needed for modern hard disk
+  261                   ;	compute proper disk Parameter header address
+  262 EB52  3A EC4C     	LD	A,(diskno)
+  263 EB55  6F          	LD 	l, a			;l=disk number 0, 1, 2, 3
+  264 EB56  26 00       	LD 	h, 0			;high order zero
+  265 EB58  29          	ADD	HL,HL			;*2
+  266 EB59  29          	ADD	HL,HL			;*4
+  267 EB5A  29          	ADD	HL,HL			;*8
+  268 EB5B  29          	ADD	HL,HL			;*16 (size of each header)
+  269 EB5C  11 EA33     	LD	DE, dpbase
+  270 EB5F  19          	ADD	HL,DE			;hl=,dpbase (diskno*16) Note typo here in original source.
+  271 EB60  C9          	ret
+  272                   ;
+  273 EB61              settrk:	;set track given by register c
+  274 EB61  79          	LD 	a, c
+  275 EB62  32 EC46     	LD	(track),A
+  276 EB65  C9          	ret
+  277                   ;
+  278 EB66              setsec:	;set sector given by register c
+  279 EB66  79          	LD 	a, c
+  280 EB67  32 EC48     	LD	(sector),A
+  281 EB6A  C9          	ret
+  282                   ;
+  283                   ;
+  284 EB6B              sectran:
+  285                   	;translate the sector given by bc using the
+  286                   	;translate table given by de
+  287 EB6B  EB          	EX	DE,HL			;hl=.trans
+  288 EB6C  09          	ADD	HL,BC			;hl=.trans (sector)
+  289 EB6D  C9          	ret				;debug no translation
+  290 EB6E  6E          	LD 	l, (hl)		;l=trans (sector)
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   6
+CBIOS-CFZ80
+
+  291 EB6F  26 00       	LD 	h, 0			;hl=trans (sector)
+  292 EB71  C9          	ret				;with value in hl
+  293                   ;
+  294 EB72              setdma:	;set	dma address given by registers b and c
+  295 EB72  69          	LD 	l, c			;low order address
+  296 EB73  60          	LD 	h, b			;high order address
+  297 EB74  22 EC4A     	LD	(dmaad),HL		;save the address
+  298 EB77  C9          	ret
+  299                   ;
+  300                   ;	Subroutine to print greeting message
+  301                   ;	Address of zero-terminated string passed in HL
+  302 EB78  3E 00       prmsg:	ld	a,0		;check if at end of string
+  303 EB7A  4E          	ld	c,(hl)
+  304 EB7B  B1          	or	c
+  305 EB7C  C8          	ret	z			;yes, return
+  306 EB7D  CD F009     	call	conout		;no, output character
+  307 EB80  23          	inc	hl
+  308 EB81  C3 EB78     	jp	prmsg
+  309                   ;
+  310                   ;
+  311 EB84              read:
+  312                   ;Read one CP/M sector from disk.
+  313                   ;Return a 00h in register a if the operation completes properly, and 01h if an error occurs during the read.
+  314                   ;Disk number in 'diskno'
+  315                   ;Track number in 'track'
+  316                   ;Sector number in 'sector'
+  317                   ;Dma address in 'dmaad' (0-65535)
+  318                   ;
+  319 EB84  21 EED1     			ld	hl,hstbuf			;buffer to place disk sector (256 bytes)
+  320 EB87  DB 1F       rd_status_loop_1:	in	a,(IDESTAT)	;check status
+  321 EB89  E6 80       			and	80h				;check BSY bit
+  322 EB8B  C2 EB87     			jp	nz,rd_status_loop_1	;loop until not busy
+  323 EB8E  DB 1F       rd_status_loop_2:	in	a,(IDESTAT)	;check status
+  324 EB90  E6 40       			and	40h				;check DRDY bit
+  325 EB92  CA EB8E     			jp	z,rd_status_loop_2	;loop until ready
+  326 EB95  3E 01       			ld	a,01h				;number of sectors = 1
+  327 EB97  D3 1A       			out	(SECCND),a			;sector count register
+  328 EB99  3A EC48     			ld	a,(sector)			;CP/M sector (0 to 63, 6 bits)
+  329 EB9C  CB 27       			sla	a				;make room for diskno (0 to 3, 2 bits)
+  330 EB9E  CB 27       			sla	a
+  331 EBA0  47          			ld	b,a
+  332 EBA1  3A EC4C     			ld	a,(diskno)			;CP/M disk (0 to 3)
+  333 EBA4  80          			add	b				;diskno and sector now in one byte
+  334 EBA5  D3 1B       			out	(LBA7),a			;lba bits 0 - 7
+  335 EBA7  3A EC46     			ld	a,(track)			;CP/M track (0 to 255, 8 bits)
+  336 EBAA  D3 1C       			out	(LBA15),a			;lba bits 8 - 15
+  337 EBAC  3E 00       			ld	a,0				;upper bits zero
+  338 EBAE  D3 1D       			out	(LBA23),a			;lba bits 16 - 23
+  339 EBB0  3E E0       			ld	a,11100000b		;LBA mode, select host drive 0
+  340 EBB2  D3 1E       			out	(IDEHEAD),a		;drive/head register
+  341 EBB4  3E 20       			ld	a,20h				;Read sector command
+  342 EBB6  D3 1F       			out	(IDESTAT),a
+  343 EBB8  DB 1F       rd_wait_for_DRQ_set:	in	a,(IDESTAT)	;read status
+  344 EBBA  E6 08       			and	08h				;DRQ bit
+  345 EBBC  CA EBB8     			jp	z,rd_wait_for_DRQ_set	;loop until bit set
+  346 EBBF  DB 1F       rd_wait_for_BSY_clear:	in	a,(IDESTAT)
+  347 EBC1  E6 80       			and	80h
+  348 EBC3  C2 EBBF     			jp	nz,rd_wait_for_BSY_clear
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   7
+CBIOS-CFZ80
+
+  349 EBC6  DB 1F       			in	a,(IDESTAT)		;clear INTRQ
+  350 EBC8  DB 18       read_loop:		in	a,(IDEDATA)		;get data
+  351 EBCA  77          			ld	(hl),a
+  352 EBCB  23          			inc	hl
+  353 EBCC  DB 1F       			in	a,(IDESTAT)		;check status
+  354 EBCE  E6 08       			and	08h				;DRQ bit
+  355 EBD0  C2 EBC8     			jp	nz,read_loop		;loop until clear
+  356 EBD3  2A EC4A     			ld	hl,(dmaad)			;memory location to place data read from disk
+  357 EBD6  11 EED1     			ld	de,hstbuf			;host buffer
+  358 EBD9  06 80       			ld	b,128				;size of CP/M sector
+  359 EBDB  1A          rd_sector_loop:		ld	a,(de)		;get byte from host buffer
+  360 EBDC  77          			ld	(hl),a			;put in memory
+  361 EBDD  23          			inc	hl
+  362 EBDE  13          			inc	de
+  363 EBDF  10 FA       			djnz	rd_sector_loop		;put 128 bytes into memory
+  364 EBE1  DB 1F       			in	a,(IDESTAT)		;get status
+  365 EBE3  E6 01       			and	01h				;error bit
+  366 EBE5  C9          			ret
+  367                   
+  368 EBE6              write:
+  369                   ;Write one CP/M sector to disk.
+  370                   ;Return a 00h in register a if the operation completes properly, and 0lh if an error occurs during the read or write
+  371                   ;Disk number in 'diskno'
+  372                   ;Track number in 'track'
+  373                   ;Sector number in 'sector'
+  374                   ;Dma address in 'dmaad' (0-65535)
+  375 EBE6  2A EC4A     			ld	hl,(dmaad)			;memory location of data to write
+  376 EBE9  11 EED1     			ld	de,hstbuf			;host buffer
+  377 EBEC  06 80       			ld	b,128				;size of CP/M sector
+  378 EBEE  7E          wr_sector_loop:		ld	a,(hl)		;get byte from memory
+  379 EBEF  12          			ld	(de),a			;put in host buffer
+  380 EBF0  23          			inc	hl
+  381 EBF1  13          			inc	de
+  382 EBF2  10 FA       			djnz	wr_sector_loop		;put 128 bytes in host buffer
+  383 EBF4  21 EED1     			ld	hl,hstbuf			;location of data to write to disk
+  384 EBF7  DB 1F       wr_status_loop_1:	in	a,(IDESTAT)	;check status
+  385 EBF9  E6 80       			and	80h				;check BSY bit
+  386 EBFB  C2 EBF7     			jp	nz,wr_status_loop_1	;loop until not busy
+  387 EBFE  DB 1F       wr_status_loop_2:	in	a,(IDESTAT)	;check	status
+  388 EC00  E6 40       			and	40h				;check DRDY bit
+  389 EC02  CA EBFE     			jp	z,wr_status_loop_2	;loop until ready
+  390 EC05  3E 01       			ld	a,01h				;number of sectors = 1
+  391 EC07  D3 1A       			out	(SECCND),a			;sector count register
+  392 EC09  3A EC48     			ld	a,(sector)			;CP/M sector (0 to 63, 6 bits)
+  393 EC0C  CB 27       			sla	a				;make room for diskno
+  394 EC0E  CB 27       			sla	a
+  395 EC10  47          			ld	b,a
+  396 EC11  3A EC4C     			ld	a,(diskno)			;CP/M disk (0 to 3, two bits)
+  397 EC14  80          			add	b				;diskno and sector in one byte
+  398 EC15  D3 1B       			out	(LBA7),a			;lba bits 0 - 7
+  399 EC17  3A EC46     			ld	a,(track)			;CP/M track (0 to 255, 8 bits)
+  400 EC1A  D3 1C       			out	(LBA15),a			;lba bits 8 - 15
+  401 EC1C  3E 00       			ld	a,0				;upper bits zero
+  402 EC1E  D3 1D       			out	(LBA23),a			;lba bits 16 - 23
+  403 EC20  3E E0       			ld	a,11100000b		;LBA mode, select drive 0
+  404 EC22  D3 1E       			out	(IDEHEAD),a		;drive/head register
+  405 EC24  3E 30       			ld	a,30h				;Write sector command
+  406 EC26  D3 1F       			out	(IDESTAT),a
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   8
+CBIOS-CFZ80
+
+  407 EC28  DB 1F       wr_wait_for_DRQ_set:	in	a,(IDESTAT)	;read status
+  408 EC2A  E6 08       			and	08h				;DRQ bit
+  409 EC2C  CA EC28     			jp	z,wr_wait_for_DRQ_set	;loop until bit set			
+  410 EC2F  7E          write_loop:		ld	a,(hl)
+  411 EC30  D3 18       			out	(IDEDATA),a		;write data
+  412 EC32  23          			inc	hl
+  413 EC33  DB 1F       			in	a,(IDESTAT)		;read status
+  414 EC35  E6 08       			and	08h				;check DRQ bit
+  415 EC37  C2 EC2F     			jp	nz,write_loop		;write until bit cleared
+  416 EC3A  DB 1F       wr_wait_for_BSY_clear:	in	a,(IDESTAT)
+  417 EC3C  E6 80       			and	80h
+  418 EC3E  C2 EC3A     			jp	nz,wr_wait_for_BSY_clear
+  419 EC41  DB 1F       			in	a,(IDESTAT)		;clear INTRQ
+  420 EC43  E6 01       			and	01h				;check for error
+  421 EC45  C9          			ret	
+  422                   ;
+  423                   ;	the remainder of the cbios is reserved uninitialized
+  424                   ;	data area, and does not need to be a Part of the
+  425                   ;	system	memory image (the space must be available,
+  426                   ;	however, between"begdat" and"enddat").
+  427                   ;
+  428 EC46    0002      track:	defs	2		;two bytes for expansion
+  429 EC48    0002      sector:	defs	2		;two bytes for expansion
+  430 EC4A    0002      dmaad:	defs	2		;direct memory address
+  431 EC4C    0001      diskno:	defs	1		;disk number 0-15
+  432                   ;
+  433                   ;	scratch ram area for bdos use
+  434         EC4D      begdat:	equ	$	 	;beginning of data area
+  435 EC4D    0080      dirbf:	defs	128	 	;scratch directory area
+  436                   ;Allocation scratch areas, size of each must be (DSM/8)+1
+  437 ECCD    0080      all00:	defs	128	 	;allocation vector 0
+  438 ED4D    0080      all01:	defs	128	 	;allocation vector 1
+  439 EDCD    0080      all02:	defs	128	 	;allocation vector 2
+  440 EE4D    0080      all03:	defs	128	 	;allocation vector 3
+  441                   ;Could probably remove these chk areas, but just made size small
+  442 EECD    0001      chk00:	defs	1		;check vector 0
+  443 EECE    0001      chk01:	defs	1		;check vector 1
+  444 EECF    0001      chk02:	defs	1	 	;check vector 2
+  445 EED0    0001      chk03:	defs	1	 	;check vector 3
+  446                   ;
+  447         EED1      enddat:	equ	$	 	;end of data area
+  448         0284      datsiz:	equ	$-begdat;	;size of data area
+  449 EED1    0100      hstbuf: 	ds	256		;buffer for host disk sector
+  450 EFD1              end_cbios:
+  451                   ;
+  452                   	end
+ 0 Error(s) Detected.
+ 1489 Absolute Bytes. 70 Symbols Detected.
+       ;Allocation scratch areas, size of each must be (DSM/8)+1
+  437 ECCD    0080      all00:	defs	1

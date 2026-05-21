@@ -1,0 +1,109 @@
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   1
+FORM-CF Z80
+
+    1                   ;Formats four CP/M disks on IDE Interface
+    2                   ;
+    3                   ;Writes E5h to 64 sectors on tracks 1 to 255 of each disk (track 0 for system).
+    4                   ;Uses calls to cbios, in memory at EA00h
+    5                   ;
+    6         EA1B      seldsk		equ	0EA1Bh		;pass disk no. in c
+    7         EA24      setdma		equ	0EA24h		;pass address in bc
+    8         EA1E      settrk		equ	0EA1Eh		;pass track in reg C
+    9         EA21      setsec		equ	0EA21h		;pass sector in reg c
+   10         EA2A      write			equ	0EA2Ah		;write one CP/M sector to disk
+   11         F036      prmsg			equ	0F036h		;subroutine to write message im Monitor
+   12         F009      conout		equ	0F009h		;print a character im Monitor
+   13         F033      mon_warm_start	equ	0F033h
+   14                   ;
+   15         8000      		org	08000h
+   16                   ;
+   17 8000  31 827B     		ld	sp,stack
+   18 8003  21 80A2     		ld	hl,format_string
+   19 8006  CD F036     		call	prmsg			;Start Message ausgeben
+   20 8009  21 80FC     		ld	hl,dir_sector	;address of data to write
+   21 800C  22 80F8     		ld	(address),hl
+   22 800F  3E 00       		ld	a,00h			;starten mit Disk 0
+   23 8011  32 80F3     		ld	(disk),a
+   24 8014  4F          disk_loop:	ld	c,a			;CP/M disk 0 ist Disk A
+   25 8015  CD EA1B     		call	seldsk
+   26 8018  3E 01       		ld	a,1			;starting track (offset = 1)
+   27 801A  32 80F6     		ld	(track),a
+   28 801D  3E 00       track_loop:	ld a,0		;starting sector 0
+   29 801F  32 80F4     		ld	(sector),a
+   30 8022  3A 80F6     		ld	a,(track)
+   31 8025  4F          		ld	c,a			;CP/M track
+   32 8026  CD EA1E     		call	settrk
+   33 8029  3A 80F4     sector_loop:	ld a,(sector)
+   34 802C  4F          		ld	c,a			;CP/M sector
+   35 802D  CD EA21     		call	setsec
+   36 8030  ED 4B 80F8  		ld	bc,(address)	;memory location
+   37 8034  CD EA24     		call	setdma
+   38 8037  CD EA2A     		call	write
+   39 803A  3A 80F4     		ld	a,(sector)
+   40 803D  FE 3F       		cp	63
+   41 803F  CA 8049     		jp	z,next_track
+   42 8042  3C          		inc	a
+   43 8043  32 80F4     		ld	(sector),a
+   44 8046  C3 8029     		jp	sector_loop
+   45 8049  3A 80F6     next_track:	ld	a,(track)
+   46 804C  FE FF       		cp	255
+   47 804E  CA 807E     		jp	z,next_disk
+   48 8051  3C          		inc	a
+   49 8052  32 80F6     		ld	(track),a
+   50 8055  3E 2E       		ld	a,2eh			;Punkt ausgeben
+   51 8057  4F          		ld	c,a
+   52 8058  CD F009     		call	conout
+   53 805B  3A 80FA     		ld	a,(char_count)
+   54 805E  3C          		inc	a
+   55 805F  FE 50       		cp	80
+   56 8061  CA 806A     		jp	z,skip_1
+   57 8064  32 80FA     		ld	(char_count),a
+   58 8067  C3 801D     		jp	track_loop
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   2
+FORM-CF Z80
+
+   59 806A  3E 00       skip_1:	ld	a,0
+   60 806C  32 80FA     		ld	(char_count),a
+   61 806F  3E 0D       		ld	a,0dh			;CR ausgeben
+   62 8071  4F          		ld	c,a
+   63 8072  CD F009     		call	conout
+   64 8075  3E 0A       		ld	a,0ah			;LF ausgeben
+   65 8077  4F          		ld	c,a
+   66 8078  CD F009     		call	conout
+   67 807B  C3 801D     		jp	track_loop
+   68 807E              next_disk:
+   69 807E  AF          		xor	a
+   70 807F  32 80FA     		ld	(char_count),a
+   71 8082  3A 80F3     		ld	a,(disk)		;naechste virtuelle Diskette
+   72 8085  3C          		inc	a
+   73 8086  FE 04       		cp	4			;fertig ?
+   74 8088  CA 8099     		jp	z,done		;wenn 4 erreicht fertig
+   75 808B  32 80F3     		ld	(disk),a
+   76 808E  E5          		push hl
+   77 808F  21 80E5     		ld	hl,disk_string	;next Disk ausgeben
+   78 8092  CD F036     		call	prmsg
+   79 8095  E1          		pop  hl
+   80 8096  C3 8014     		jp	disk_loop
+   81 8099  21 80CB     done:		ld	hl,end_string	;fertig Meldung
+   82 809C  CD F036     		call	prmsg
+   83 809F  C3 F033     		jp	mon_warm_start
+   84                   ;
+   85 80A2  0D 0A 0A 46 format_string:	defm	0dh,0ah,0ah,"Formatiere 4 virtuelle Disk",0dh,0ah,"Disk 1",0dh,0ah,0
+   86 80CB  0D 0A 46 6F end_string:	defm	0dh,0ah,'Formatierung beendet',0dh,0dh,0ah,0
+   87 80E5  0D 0A 6E 65 disk_string:	defm	0dh,0ah,'next Disk',0dh,0ah,0
+   88                   ;
+   89 80F3    0001      disk:			defs	1
+   90 80F4    0002      sector:		defs	2
+   91 80F6    0002      track:		defs	2
+   92 80F8    0002      address:		defs	2
+   93 80FA    0002      char_count:	defs	2
+   94 80FC  E5 E5 E5 E5 dir_sector:	ds	128,0E5h	;byte for empty directory
+   95 817C    00FF      			ds	0FFh		;stack space
+   96 827B              stack:
+   97                   		end
+ 0 Error(s) Detected.
+ 635 Absolute Bytes. 25 Symbols Detected.
+l	prmsg
+   79 8095  E1          		pop  hl
+   80 8096  C3 8014     		jp	disk_loop
+   81 8099  21 80CB     don

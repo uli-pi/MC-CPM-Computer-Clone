@@ -1,0 +1,68 @@
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   1
+PUTSYS2 Z80
+
+    1                   ;Putsys by Donn Stewart, June 2019
+    2                   ;gedndert 4/2026 Ulrich Haumann
+    3                   ;Copies the memory image of CP/M loaded at cpm_start onto track 0 of the first CP/M disk
+    4                   ;Image size is 6400 bytes, so need to save 6400/128 = 50 sectors
+    5                   ;For system with 64-sector tracks, image can all be on track 0
+    6                   ;Load and run from ROM monitor
+    7                   ;Uses calls to cbios, in memory at EA00h
+    8                   ;benuzt calls zum Monitor im oberen RAM F000h
+    9                   ;
+   10                   ;Writes track 0, sectors 1 to 50 (sector 0 has cpm loader)
+   11                   ;
+   12         D400      cpm_start		equ	0D400h
+   13                   ;
+   14                   ;nachfolgend die BIOS Einspruenge:
+   15                   ;
+   16         EA1B      seldsk		equ	0EA1Bh		;pass disk no. in c
+   17         EA24      setdma		equ	0EA24h		;pass address in bc
+   18         EA1E      settrk		equ	0EA1Eh		;pass track in reg C
+   19         EA21      setsec		equ	0EA21h		;pass sector in reg c
+   20         EA2A      write			equ	0EA2Ah		;write one CP/M sector to disk
+   21                   ;
+   22                   ;Monitor Einspruenge:
+   23                   ;
+   24         F033      mon_warm_start	equ	0F033h		;Monitor Einsprung
+   25                   ;
+   26                   ;
+   27         8000      		org	08000h			;Programm wird auf 8000H abgelegt
+   28                   ;
+   29 8000  0E 00       		ld	c,00h				;CP/M disk a
+   30 8002  CD EA1B     		call	seldsk
+   31                   ;Write track 0, sectors 1 to 50
+   32 8005  3E 01       		ld	a,1				;starting sector
+   33 8007  32 8042     		ld	(sector),a
+   34 800A  21 D400     		ld	hl,cpm_start		;memory address to start
+   35 800D  22 8043     		ld	(address),hl
+   36 8010  0E 00       		ld	c,0				;CP/M track
+   37 8012  CD EA1E     		call	settrk
+   38 8015              wr_trk_0_loop:	
+   39 8015  3A 8042     		ld	a,(sector)
+   40 8018  4F          		ld	c,a				;CP/M sector
+   41 8019  CD EA21     		call	setsec
+   42 801C  ED 4B 8043  		ld	bc,(address)		;memory location
+   43 8020  CD EA24     		call	setdma
+   44 8023  CD EA2A     		call	write
+   45 8026  3A 8042     		ld	a,(sector)
+   46 8029  FE 32       		cp	50
+   47 802B  CA 803F     		jp	z,done
+   48 802E  3C          		inc	a
+   49 802F  32 8042     		ld	(sector),a
+   50 8032  2A 8043     		ld	hl,(address)
+   51 8035  11 0080     		ld	de,128
+   52 8038  19          		add	hl,de
+   53 8039  22 8043     		ld	(address),hl
+   54 803C  C3 8015     		jp	wr_trk_0_loop
+   55 803F  C3 F033     done:		jp	mon_warm_start		;zurueck zum Monitor
+   56                   ;
+   57 8042  00          sector:	db	00h
+   58 8043  0000        address:	dw	0000h
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   2
+PUTSYS2 Z80
+
+   59                   		end
+ 0 Error(s) Detected.
+ 69 Absolute Bytes. 11 Symbols Detected.
+8015  3A 8042     		ld	a,(sec

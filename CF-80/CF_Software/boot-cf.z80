@@ -1,0 +1,37 @@
+;schreibt Bootloader auf die CF-Karte
+;benuzt calls zum Monitor im oberen RAM F000h
+;Writes track 0, sectors 0 
+;Subroutine to write one IDE/ATA Disk sector (256 bytes)
+;Address of data to write to disk passed in HL
+;LBA bits 0 to 7 passed in C, bits 8 to 15 passed in B
+;LBA bits 16 to 23 passed in E
+;
+			org	0100h		;Programm wird auf 100h abgelegt
+;
+loader_adr		equ	08000h	;hier befindet sich der 
+						;Bootloader
+			CR 	EQU 0DH
+			LF 	EQU 0AH
+;Monitor Einspruenge:
+disk_write		equ	0F02Dh	;CF Schreibroutine
+mon_warm_start	equ	0F033h	;Monitor Einsprung
+print_msg		equ	0F036h	;Textstring ausgeben
+;
+	
+start:	ld	hl,loader_adr
+		ld	c,00h
+		ld	b,00h
+		ld	e,00h
+		call	disk_write
+		ld	hl,msg
+		call	print_msg
+done:		jp	mon_warm_start	;zurueck zum Monitor
+;
+msg:		DEFB CR,LF
+		DEFM " -------------------------",CR,LF
+		DEFM "   Ready - Loader on Disk ",CR,LF
+		DEFM	" -------------------------",CR,LF,LF
+;
+		end
+
+

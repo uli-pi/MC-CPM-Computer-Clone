@@ -1,0 +1,75 @@
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   1
+LOADSYS2Z80
+
+    1                   ;Retrieves CP/M image from disk and loads it in memory starting at cpm_start
+    2                   ;Uses calls to Monitor routine for disk read.
+    3                   ;Reads track 0, sectors 1 to 50
+    4                   ;This program is loaded into LBA sector 0 of disk, read to loc. 08000h by Monitor and executed
+    5                   ;
+    6         8100      hstbuf 	equ	08100h		;will put 256-byte raw sector here
+    7         F02A      disk_read	equ	0F02AH		;Monitor Funktion im oberen RAM
+    8         EA00      cpm		equ	0EA00h		;CP/M cold start entry
+    9         D400      cpm_start	equ	0D400h
+   10         001F      IDE_STAT	equ	01Fh			;Hardwareadresse IDE Statusregister
+   11                   ;
+   12         8000      		org	08000h
+   13                   ;
+   14                   ;Read track 0, sectors 1 to 50
+   15 8000  3E 01       		ld	a,1			;starting sector -- sector 0 has cpm_loader
+   16 8002  32 8056     		ld	(sector),a
+   17 8005  21 D400     		ld	hl,cpm_start	;memory address to place image
+   18 8008  22 8058     		ld	(dmaad),hl
+   19 800B  3E 00       		ld	a,0			;CP/M track
+   20 800D  32 8057     		ld	(track),a
+   21 8010  CD 802F     rd_trk_0_loop:	call	read
+   22 8013  3A 8056     		ld	a,(sector)
+   23 8016  FE 32       		cp	50
+   24 8018  CA 802C     		jp	z,done
+   25 801B  3C          		inc	a
+   26 801C  32 8056     		ld	(sector),a
+   27 801F  2A 8058     		ld	hl,(dmaad)
+   28 8022  11 0080     		ld	de,128
+   29 8025  19          		add	hl,de
+   30 8026  22 8058     		ld	(dmaad),hl
+   31 8029  C3 8010     		jp	rd_trk_0_loop
+   32 802C  C3 EA00     done:		jp	cpm
+   33                   
+   34 802F              read:
+   35                   ;Read one CP/M sector from disk 0
+   36                   ;Track number in 'track'
+   37                   ;Sector number in 'sector'
+   38                   ;Dma address (location in memory to place the CP/M sector) in 'dmaad' (0-65535)
+   39                   ;
+   40 802F  21 8100     			ld	hl,hstbuf		;buffer to place raw disk sector (256 bytes)
+   41 8032  3A 8056     			ld	a,(sector)
+   42 8035  CB 27       			sla	a			;shifts to match cbios CP/M disk read routine
+   43 8037  CB 27       			sla	a			;which combine sector and disk no. in one byte
+   44 8039  4F          			ld	c,a			;LBA bits 0 to 7
+   45 803A  3A 8057     			ld	a,(track)
+   46 803D  47          			ld	b,a			;LBA bits 8 to 15
+   47 803E  1E 00       			ld	e,00h			;LBA bits 16 to 23
+   48 8040  CD F02A     			call	disk_read		;subroutine in RAM Monitor
+   49                   							;Transfer top 128-bytes out of buffer to memory
+   50 8043  2A 8058     			ld	hl,(dmaad)		;memory location to place data read from disk
+   51 8046  11 8100     			ld	de,hstbuf		;host buffer
+   52 8049  06 80       			ld	b,128			;size of CP/M sector
+   53 804B              rd_sector_loop:		
+   54 804B  1A          			ld a,(de)	;get byte from host buffer
+   55 804C  77          			ld	(hl),a		;put in memory
+   56 804D  23          			inc	hl
+   57 804E  13          			inc	de
+   58 804F  10 FA       			djnz	rd_sector_loop	;put 128 bytes into memory
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   2
+LOADSYS2Z80
+
+   59 8051  DB 1F       			in	a,(IDE_STAT)	;get status
+   60 8053  E6 01       			and	01h			;error bit
+   61 8055  C9          			ret
+   62 8056  00          sector:		db	00h
+   63 8057  00          track:		db	00h
+   64 8058  0000        dmaad:		dw	0000h
+   65                   		end
+ 0 Error(s) Detected.
+ 90 Absolute Bytes. 12 Symbols Detected.
+      							;Transfer top 128-bytes out of buffer to memory
+   50 8043  2A 8058     			ld	hl,(dmaad)		;memory
