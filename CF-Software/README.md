@@ -119,4 +119,4 @@ Auf auf dem CP/M Rechner rufen wir GETPC Filename.ext auf. Filename.ext entspric
 Auf dem PC im Programm TerraTerm sind es die Kommandos DATEI, TRANSFER, XMODEM, SEND und Datei auswählen. Wir brauchen uns über Länge und Speicherplatz nicht mehr zu kümmern. Das machen die Programme untereinander aus.
 
 Zurückspielen von CP/M auf PC geht dann mit PCPUT.com das wir ja jetzt mit GETPC  einfach auf unseren CP/M Rechner holen können.
-GETPC.com und PUTPC.com sind einfach Kopien von PCGET.com und PCPUT.com die auf die Hardware der SYS80s Karte angepasst wurden. Ich habe diese umbenannt damit man nicht mit den Varianten für das originale System mit OUT Karte durcheinander kommt. Da die Programme direkt über die Hardware kommunizieren, müssen sie immer an die verwendete Hardware angepasst werden.
+GETPC.com und PUTPC.com sind Kopien von PCGET.com und PCPUT.com die auf die Hardware der SYS80s Karte angepasst wurden. Ich habe diese umbenannt damit man nicht mit den Varianten für das originale System mit OUT Karte durcheinander kommt. Da die Programme direkt über die Hardware kommunizieren, müssen sie immer an die verwendete Hardware angepasst werden.
