@@ -10,13 +10,3 @@ Viele kleine Solid-State-Flash-Module benötigen keinen separaten Stromanschluss
 
 Die Adressen sind auf der Karte zwischen 010h bis 078h einstellbar, es werden 8 Adressen benutzt.
 Für das SYS-80 System liegt die Basis Adresse auf 018Hex.
-
-Adressen IDE Port CF-80 Karte
-
-	IDEDATA	EQU 0x8h			;IDE Daten Register
-	SECCND	EQU 0xah			;Sector Count Register
-	LBA7	EQU 0xbh			;LBA Bits 0-7
-	LBA15	EQU 0xch			;LBA Bits 8-15
-	LBA23	EQU 0xdh			;LBA Bits 16-23
-	IDEHEAD	EQU 0xeh			;IDE Drive Head Register
-	IDESTAT	EQU 0xfh			;IDE Command/Status Register
