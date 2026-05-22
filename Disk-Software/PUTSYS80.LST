@@ -1,0 +1,59 @@
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   1
+PUT80   Z80
+
+    1                   	.Z80
+    2                   ;*************************************************
+    3                   ;* Cold - Boot Programm fuer Minilaufwerke       *
+    4                   ;* Rolf-Dieter Klein 841204    1.0               *
+    5                   ;* 80 Spur Laufwerke   1K pro Sektor Boot        *
+    6                   ;* umgeschrieben als putsys U.Haumann 07.05.26   *
+    7                   ;*************************************************
+    8                   
+    9                   
+   10                   
+   11         0100      		ORG	0100h		
+   12                   
+   13         A000      OFFSET	EQU	0A000H		;damit BIOS Start bei EA00h
+   14         D400      CPMB		EQU	03400H+OFFSET	;start cp/m
+   15         EA00      BIOS		EQU	04A00H+OFFSET	;start bios
+   16                   
+   17 0100              WBOOT0:
+   18                   ;
+   19 0100  31 0200     		LD	SP,200H		;start of stack
+   20                   ;
+   21 0103  21 D400     		LD	HL,CPMB		;START CCP
+   22 0106  06 07       		LD	B,7			;ANZAHL DER SEKTOREN  A 1024 BYTES
+   23                   						; fuellt genau bis 0EFFF
+   24                   						;1c00h bytes (groesser als std 34h/8)
+   25 0108  16 00       		LD	D,0			;START BEI TRACK 0 Sektor 2, da 1 bootsektor
+   26 010A  1E 02       		LD	E,2			;1..5 SEKTOR
+   27 010C              SEC:
+   28 010C  E5          		PUSH	HL
+   29 010D  D5          		PUSH	DE
+   30 010E  C5          		PUSH	BC
+   31 010F  0E D0       		LD	C,11010000B	;laufwerk 0 double dense mini
+   32 0111  06 02       		LD	B,2			; 1=read  2=write
+   33 0113  CD F027     		CALL	0F027H		;Monitor Einsprung Mini Laufwerk
+   34 0116  C1          		POP	BC
+   35 0117  D1          		POP	DE
+   36 0118  E1          		POP	HL
+   37 0119  DA F01E     		JP	C,0F01EH		;monitor aufrufen bei fehler (Restart)
+   38 011C  D5          		PUSH	DE			;NEXT ADRESSE
+   39 011D  11 0400     		LD	DE,1024		;double dense bloecke
+   40 0120  19          		ADD	HL,DE
+   41 0121  D1          		POP	DE
+   42 0122  1C          		INC	E			;SEKTORANZAHL + 1
+   43 0123  7B          		LD	A,E
+   44 0124  FE 06       		CP	5+1			;1..5  erst bei 6 neue Spur (4 max)
+   45 0126  DA 012C     		JP	C,loop1
+   46 0129  1E 01       		LD	E,1			;START OVER
+   47 012B  14          		INC	D
+   48 012C  05          loop1:	DEC	B
+   49 012D  C2 010C     		JP	NZ,SEC		;solange bis fertig
+   50 0130  C3 EA00     		JP	BIOS			;start coldbios
+   51                   
+   52                   		END
+ 0 Error(s) Detected.
+ 51 Absolute Bytes. 6 Symbols Detected.
+      		LD	B,2			; 1=read  2=write
+   33 0113  CD F027     		CALL	0F027H		;Monitor Einsprung Mini Laufwerk

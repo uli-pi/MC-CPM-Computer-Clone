@@ -1,0 +1,51 @@
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   1
+LOAD80  Z80
+
+    1                   	.Z80
+    2                   ;************************************************
+    3                   ;* Load Program f|r Boot Loader				*
+    4                   ;* Der Boot Loader muss sich an Adresse 1000H   *
+    5                   ;* befinden							*
+    6                   ;* 80 Spur Laufwerke   1K pro Sektor Boot       *
+    7                   ;* U. Haumann 07.05.2026					*
+    8                   ;************************************************
+    9                   
+   10                   
+   11                   
+   12         0100      	ORG	0100H		
+   13                   
+   14         A000      OFFSET	EQU	0A000H		;damit BIOS Start bei EA00h
+   15         D400      CPMB		EQU	03400H+OFFSET	;start cp/m
+   16         EA00      BIOS		EQU	04A00H+OFFSET	;start bios
+   17         1000      BOOTP		EQU	01000H		;Hier muss sich das Boot Programm befinden
+   18                   
+   19         0064      		ORG	0100			;
+   20 0064              WBOOT0:
+   21                   ;
+   22 0064  31 00FF     		LD	SP,0FFH		;start of stack
+   23                   ;
+   24 0067  21 1000     		LD	HL,BOOTP		;START ADRESSE
+   25 006A  06 01       		LD	B,1			;ANZAHL DER SEKTOREN  A 1024 BYTES
+   26 006C  16 00       		LD	D,0			;START BEI TRACK 0 Sektor 1, 1=bootsektor
+   27 006E  1E 01       		LD	E,1			;
+   28 0070              RDSEC:
+   29 0070  E5          		PUSH	HL
+   30 0071  D5          		PUSH	DE
+   31 0072  C5          		PUSH	BC
+   32 0073  0E D0       		LD	C,11010000B	;laufwerk 0 double dense mini
+   33 0075  06 02       		LD	B,2			;1=read 2=Write
+   34 0077  CD F027     		CALL	0F027H		;Monitor Einsprung Mini Laufwerk
+   35 007A  C1          		POP	BC
+   36 007B  D1          		POP	DE
+   37 007C  E1          		POP	HL
+   38 007D  DA F01E     		JP	C,0F01EH		;monitor aufrufen bei fehler (Restart)
+   39                   				
+   40 0080  C3 EA00     		JP	BIOS			;Fertig start coldbios
+   41                   
+   42                   		END
+ 0 Error(s) Detected.
+ 156 Absolute Bytes. 6 Symbols Detected.
+P,0FFH		;start of stack
+   23                   ;
+   24 0067  21 1000     		LD	HL,BOOTP		;START ADRESSE
+   25 006A
