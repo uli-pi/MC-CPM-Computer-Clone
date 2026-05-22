@@ -10,3 +10,5 @@ Als Disk kann eine 3,5" oder auch 5,25" Diskette verwendet werden. Bei Verwendun
 
 
 Im Bios sind 2 Laufwerke (A,B) im NDR Format und 2 Laufwerke im 8" (C,D) im IBM Format definiert. 3,5" Laufwerke verhalten sich wie 8" Laufwerke. Eine 3,5" Diskette mit offenen HD Loch kann als IBM Diskette formatiert werden. 
+
+Das Erstellen einer BOOT Diskette ist im PDF "Erstellen-Boot-Disk" beschrieben.
