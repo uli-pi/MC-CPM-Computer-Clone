@@ -9,7 +9,7 @@ Es gibt ein angepasstes Monitor Eprom (Mon80V1.bin) um diese Schnittstelle als C
 
 Es ist somit möglich die SYS-80s CPU Karte als 1:1 Ersatz für eine alte SYS-1 zu verwenden wenn diese defekt sein sollte.
 
-Auf der SYS-80 Karte wird ein statisches 128KB RAM verwendet. Der Z80 kann aber nur 64KB adressieren so bleibt die hälfte des RAM ungenutzt. Der Chip war deutlich preiswerter als andere Lösungen daher wurde er verwendet. Vielleicht ergibt sich ja in Zukunft die Möglichkeit mit einem Hardware "banking" die zweiten 64KB nutzbar zu machen. Der EPROM Sockel erlaubt 4KB oder 8KB Eproms zu benutzen, dies ist per Jumper einstellbar.
+Auf der SYS-80 Karte wird ein statisches 128KB RAM verwendet. Der Z80 kann aber nur 64KB adressieren so bleibt die Hälfte des RAM ungenutzt. Der Chip war deutlich preiswerter als andere Lösungen daher wurde er verwendet. Vielleicht ergibt sich ja in Zukunft die Möglichkeit mit einem Hardware "banking" die zweiten 64KB nutzbar zu machen. Der EPROM Sockel erlaubt 4KB oder 8KB Eproms zu benutzen, dies ist per Jumper einstellbar.
 
 Der CPU Takt ist mit einem 12Mhz Quarz zwischen 6Mhz und 3Mhz umschaltbar. Bei Benutzung von 8" Floppy Laufwerken ist 6Mhz erforderlich. Heute gibt es genug Z80 Varianten die schnellen CPU-Takt vertragen.
 
