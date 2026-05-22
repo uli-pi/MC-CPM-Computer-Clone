@@ -1,4 +1,4 @@
-# CF-80 Karte - CP/M Install Anleitung für eine CF Speicherkarte
+# CF-80 Karte 
 
 Die Karte wurde für das MC-Computer ECB Bus System entwickelt und verwendet nur 8 Bit des angeschlossenen 16Bit Mediums. Das halbiert schon einmal vorweg die nutzbare Kapazität. Es sollte ein Datenträger mit mindestens 128MB verwendet werden.
 Es kann auch eine ATA  oder eine SSD Festplatte verwendet werden.
