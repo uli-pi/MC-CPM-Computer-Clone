@@ -2,8 +2,7 @@
 
 Eines der größten Probleme bei einem neu gebauten System ist: Wie bekomme ich ein Boot fähiges Medium um CP/M zu starten? In diesem Verzeichnis befinden sich alle Dateien um eine Boot Diskette im NDR 80Spur Format zu erstellen. 
 
-Das verwendete CBIOS ist Hardwareseitig für die SYS-80s CPU-Karte mit serieller Schnittstelle eingestellt. Für die SYS ohne serielle Schnittstelle muss ein andres Bios verwendet werden.
-
+Das verwendete CBIOS ist Hardwareseitig für die SYS-80s CPU-Karte mit serieller Schnittstelle eingestellt. 
 Für Disketten brauchen Sie natürlich die Floppy Karte FLO-80 und ein entsprechendes Laufwerk.
 
 Als Disk kann eine 3,5" oder auch 5,25" Diskette verwendet werden. Bei Verwendung von 3,5" Disketten ist das "HD-Loch" abzukleben. Das Format entspricht 80 Spuren x 1024Byte x5Sektoren, das ergibt eine Kapazität von 800KB. Oder Sie verwenden eine Compact Flash Karte. Anleitung dazu siehe CF-Karte.
