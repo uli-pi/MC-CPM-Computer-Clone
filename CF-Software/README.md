@@ -114,7 +114,7 @@ Das erste Kommando in CP/M ist nun save 5 getpc.com und wir haben das Programm a
 
 Wir wechseln das Terminal Programm und verwenden ab sofort TerraTerm. Dieses Programm hat ein integriertes XMODEM.
 
-Auf der CP/M Seite rufen wir GETPC Filename.ext  der Datei die wir übertragen wollen auf. Dann wartet CP/M auf das File. Der Filename ist frei wählbar das Programm überträgt einfach die Datei und speichert sie unter dem gewählten Namen ab.
+Auf auf dem CP/M Rechner rufen wir GETPC Filename.ext auf. Filename.ext entspricht der Datei die wir übertragen wollen. Dann wartet CP/M auf das File. Der Filename ist frei wählbar das Programm überträgt einfach die Datei und speichert sie unter dem gewählten Namen ab.
 
 Auf dem PC im Programm TerraTerm sind es die Kommandos DATEI, TRANSFER, XMODEM, SEND und Datei auswählen. Wir brauchen uns über Länge und Speicherplatz nicht mehr zu kümmern. Das machen die Programme untereinander aus.
 
