@@ -10,6 +10,6 @@ Im diesem Bios sind 2 Laufwerke (A,B) im NDR Format (80TRK, 5 x 1024, 800KB) und
 
 Für das NDR 80TRK Format können 3,5" oder auch 5,25" Laufwerke verwendet werden. Das Bios ist für beide Laufwerksarten identisch. Bei Verwendung von 3,5" Disketten ist das "HD-Loch" auf der Disk abzukleben. Bei Verwendung von 5,25" Laufwerken müssen Sie darauf achten das, das Laufwerk als Double Density (DD) konfiguriert ist. PC Laufwerke in der Standard Einstellung arbeiten im HD Modus und funktionieren mit diesem Bios nicht. Die meisten 5,25" Laufwerke kann man auf DD umstellen. Anleitungen dazu findet man im Internet. Das würde hier den Rahmen sprengen, da ist jedes Laufwerk anders.  
 
-Wenn man ein CP/M System mit richtigem Floppy Laufwerk aufbauen möchte ist der einfacheste Weg die Benutzung eines 3,5" Laufwerkes. Der in diesem Projekt  beschriebene Floppy Adapter ermöglicht es die 3,5" Laufwerke an die FLO-80 anzuschließen und die Laufwerk ID einzustellen.
+Wenn man ein CP/M System mit richtigem Floppy Laufwerk aufbauen möchte ist der einfachste Weg die Benutzung eines 3,5" Laufwerkes. Der in diesem Projekt  beschriebene Floppy Adapter ermöglicht es die 3,5" Laufwerke an die FLO-80 anzuschließen und die Laufwerk ID einzustellen.
 
 Das Erstellen einer BOOT Diskette ist im PDF "Erstellen-Boot-Disk" beschrieben.
