@@ -1,7 +1,7 @@
 # MC CPM Computer Clone
  
 Hier entsteht ein MC CP/M Computer kompatibler Rechner. Dieser wurde in der Zeitschrift MC Computer 1984 als Nachbauprojekt veröffentlicht. Der Autor war Rolf-Dieter Klein der auch den NDR Computer gleichzeitig entwickelte.
-Das Projekt ist als "Retro" Computing Projekt ausgelegt. Die Karten werden nicht 1:1 "gecloned" sonderen mit einigen Verbesserungen neu aufgelegt. Es wird aber alles weitgehend mit Chips aus der Zeit aufgebaut werden, also kommen keine SMD Bauteile oder Microcontroller wie Raspi, Arduino oder ähnliches zum Einsatz.
+Das Projekt ist als "Retro" Computing Projekt ausgelegt. Die Karten werden nicht 1:1 "gecloned" sondern mit einigen Verbesserungen neu aufgelegt. Es wird aber alles weitgehend mit Chips aus der Zeit aufgebaut werden, also kommen keine SMD Bauteile oder Microcontroller wie Raspi, Arduino oder ähnliches zum Einsatz.
 
 Es werden nachfolgend die Baugruppen CPU Karte (SYS-80s), OUT Karte (OUT-80), Floppy Controller (FLO-80), sowie einige neue Karten hier veröffentlicht. Die Karten sind ECB Bus Kompatibel zu eventuell vorhandenen Karten aus den 80ziger Jahren. Diese können gemischt betrieben werden. Wer also noch einen MC-CPM Computer sein eigen nennt kann z.B. Die CPU Karte gegen die neue SYS-80s tauschen usw.
 
