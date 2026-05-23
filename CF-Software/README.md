@@ -65,13 +65,14 @@ Um das System in einen definierten Ausganszustand zu bringen leert man zuerst de
 
 Es muss der Datenträger für das CPM vorbereitet (formatiert) werden. Dazu nutzten wir das CPM Bios das auf den Datenträger soll. Es beinhaltet alle Funktionen die zum Schreiben von Sektoren im richtigen Format nötig sind.
 
+Der Monitor kann nur Dateien im INTEL HEX Format empfangen!
+
 Im Monitor eingeben rea00  -> Enter, der Monitor erwartet jetzt eine Datei die er auf Adresse EA00 Hex abspeichert.
 
-Der Monitor kann nur Dateien im INTEL HEX Format empfangen!
 
 Nun wird in Real Term mit der Send Funktion die Datei CBIOS-CF.Hex übertragen. Ist die Übertragung korrekt erfolgt meldet sich der Monitor mit FF* wieder zurück.
 
-Nach der gleichen Methode  wird nun FORM-CF.HEX auf Adresse 8000h geladen.
+Nach der gleichen Methode  wird nun FORM-CF.HEX auf Adresse 8000h geladen (r8000 -> Enter).
 
 Dann startet man das Formatprogramm mit g8000 -> Enter
 
@@ -81,7 +82,7 @@ Wenn der  Datenträger formatiert ist kann CP/M aufgespielt werden.
 
 Die erste Datei ist CPM22.com, Diese kommt auf Adresse D400h. Das geht wieder  mit dem R Kommando:  rd400 -> Enter. Diese originale DR Datei enthält das CCP, BDOS und eine leere Sprungtabelle für CP/M 2.2. Datei in Real Term auswählen und übertragen.
 
-Dann patchen wir das BIOS in das leere CP/M. Dies ist die Datei CBIOS-CF.HEX, kommt auf Adresse EA00h. Wie gehabt mit dem R Befehl.
+Dann patchen wir das BIOS in das leere CP/M. Dies ist die Datei CBIOS-CF.HEX, kommt auf Adresse EA00h. Wie gehabt mit dem R Befehl (rea00 -> Enter).
 
 Das komplette CP/M ist nun im Ram und muss auf den Datenträger geschrieben werden.
 Dazu lädt man nun PUTSY-CF.HEX auf Adresse 8000h 
