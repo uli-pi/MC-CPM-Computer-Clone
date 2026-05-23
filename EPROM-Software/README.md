@@ -1,4 +1,4 @@
-﻿# Monitor Eprom Dateien für SYS-80:
+﻿# Monitor Eprom Dateien für SYS-80s:
 
 
 
