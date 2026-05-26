@@ -1,5 +1,6 @@
 ﻿# Floppy Controller FLO-80
 
+<img width="1024" height="607" alt="FLO-80" src="https://github.com/user-attachments/assets/319e2cc6-d75c-4727-8343-2995fb4de503" />
 
 Die Flo-80 Karte ist kompatibel zur FLO-2 Karte des MC CP/M Computers. 
 Es wurde der FDC9239BT Datenseparator benutzt da die alte originale FLO-Karte erhebliche Probleme mit dem Datenseparator hatte. In der ersten FLO Karte war der Datenseparator noch diskret aufgebaut und ohne Oszilloskope war ein Abgleich nur schwer möglich. Dann gab es eine Umbauanleitung mit dem 9216 Datenseparator. Die folgenden FLO Karten verwendeten den FDC 9229 Chip.
