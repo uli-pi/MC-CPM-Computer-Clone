@@ -1,5 +1,6 @@
 ﻿# SYS-80s CPU Karte
 
+<img width="1024" height="570" alt="SYS-80s-V1 1" src="https://github.com/user-attachments/assets/7a9a39a9-3526-4aac-b80d-6c9ba4da95b0" />
 
 MC CP/M Computer kompatible CPU Karte zur originalen MC-Computer SYS-1 Karte.
 
