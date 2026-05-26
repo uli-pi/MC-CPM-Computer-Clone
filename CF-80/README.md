@@ -1,5 +1,7 @@
 # CF-80 Karte 
 
+<img width="1280" height="785" alt="CF-Card" src="https://github.com/user-attachments/assets/354090ca-34f4-4ea9-8e36-fa82cbd1fe2e" />
+
 Die Karte wurde für das MC-Computer ECB Bus System entwickelt und verwendet nur 8 Bit des angeschlossenen 16Bit Mediums. Das halbiert schon einmal vorweg die nutzbare Kapazität. Es sollte ein Datenträger mit mindestens 128MB verwendet werden.
 Es kann auch eine ATA  oder eine SSD Festplatte verwendet werden.
  
