@@ -82,7 +82,7 @@ Jetzt sollte das Formatprogramm arbeiten. Es werden 4 Laufwerke formatiert und d
 Das Programm  zeigt den Formatierungsfortschritt an. Geduld, das dauert ein paar Minuten. Das Programm springt, wenn fertig, wieder in den Monitor zurück.
 Wenn der  Datenträger formatiert ist kann CP/M aufgespielt werden.
 
-Die erste Datei ist CPM22.com, Diese kommt auf Adresse D400h. Das geht wieder  mit dem R Kommando:  rd400 -> Enter. Diese originale DR Datei enthält das CCP, BDOS und eine leere Sprungtabelle für CP/M 2.2. Datei in Real Term auswählen und übertragen.
+Die erste Datei ist CPM22.HEX, Diese kommt auf Adresse D400h. Das geht wieder  mit dem R Kommando:  rd400 -> Enter. Diese originale DR Datei enthält das CCP, BDOS und eine leere Sprungtabelle für CP/M 2.2. Datei in Real Term auswählen und übertragen.
 
 Dann patchen wir das BIOS in das leere CP/M. Dies ist die Datei CBIOS-CF.HEX, kommt auf Adresse EA00h. Wie gehabt mit dem R Befehl (rea00 -> Enter).
 
