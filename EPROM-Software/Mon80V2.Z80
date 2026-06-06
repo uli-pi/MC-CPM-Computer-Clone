@@ -1,56 +1,38 @@
+	TITLE "MC CPM-Computer Mon80V2"
+	
 	.Z80
 ;---------------------------------------------------------------
-;Monitor fuer MC-Computer Platine SYS-80 und SYS-80s
-;Assembliert mit Z80ASM von SLR Systems wegen der langen
-;Label die mit einigen anderen Assemblern nicht moeglich sind.
+; Monitor fuer MC-Computer Platine SYS-80 und SYS-80s
+; Assembliert mit Z80ASM von SLR Systems wegen der langen
+; Label die mit einigen anderen Assemblern nicht moeglich sind.
 ;
-;Erstellt 05/2026 von U. Haumann
-;Enthaelt weitgehend Routinen aus RDK Monitor 1.1 850129
-;V7.2 851216, sowie Teile aus dem Monitor von Donn Stewart 
-;fuer den "CPU-Ville" Z80 Computer.
-;Treiber fuer Serielle Schnittstelle auf CPU-Platine mit UART 8251
-;implementiert.
-;Flo1 und Flo2 waehlber auf Hardware Basis Adresse 0C0h.
-;Der Mointor erwartet 64KB Ram Memory. Er darf selbst nicht
-;groesser als 4KB werden, es sein denn man schiebt die MON_ADR
-;und CCP weiter nach unten. Der CPM Bereich verkleinert sich dann.
-;Der Monitor kopiert sich nach Reset an das Speicherende
-;auf den Wert in MON_ADR und gibt den unteren RAM Bereich frei.
-;Dies wird auf der SYS CPU Platine mit einem Lesebefehl auf
-;Adresse 7000h erreicht. Das Eprom ist dann ausgeblendet.
-;Somit steht der Speicher durchgaengig ab 0000h bis zu MON_ADR
-;zur Verfuehgung.
-;Das CPM BIOS fuer den MC-Computer ueberschreibt den Monitorbereich
-;ab FC00h. Alle relevanten Teile für den Betrieb des Rechners 
-;muessen vor FC00h plaziert werden.
+; Erstellt 05/2026 von U. Haumann
+; Enthaelt weitgehend Routinen aus RDK Monitor 1.1 850129
+; V7.2 851216, sowie Teile aus dem Monitor von Donn Stewart 
+; fuer den "CPU-Ville" Z80 Computer.
+; Treiber fuer Serielle Schnittstelle auf CPU-Platine mit UART 8251
+; implementiert.
+; Flo1 und Flo2 waehlber auf Hardware Basis Adresse 0C0h.
+; Der Mointor erwartet 64KB Ram Memory. Er darf selbst nicht
+; groesser als 4KB werden, es sein denn man schiebt die MON_ADR
+; und CCP weiter nach unten. Der CPM Bereich verkleinert sich dann.
+; Der Monitor kopiert sich nach Reset an das Speicherende
+; auf den Wert in MON_ADR und gibt den unteren RAM Bereich frei.
+; Dies wird auf der SYS CPU Platine mit einem Lesebefehl auf
+; Adresse 7000h erreicht. Das Eprom ist dann ausgeblendet.
+; Somit steht der Speicher durchgaengig ab 0000h bis zu MON_ADR
+; zur Verfuehgung.
+; Das CPM BIOS fuer den MC-Computer ueberschreibt den Monitorbereich
+; ab FC00h. Alle relevanten Teile für den Betrieb des Rechners 
+; muessen vor FC00h plaziert werden.
+
+; 06/2026 Ueberarbeitet von Detlef Gerhardt
+; komplette Ueberarbeitung der Labels und sukzessive Kommentierung des Quellcodes.
+; um nach und nach moeglichst viele Routinen zu verstehen.
+; Diese Version ist bis auf die Versionsnummer noch binaerkompatibel zu Version 8.0v1
+; --- Work in progress ---
 
 ;------------------------------------------------------------------------------
-
-	ORG 0000h		; Im ROM auf Adresse 0
-
-	; Kopieren des ROMs von ROMSTRT nach F000
-
-BEGIN:	LD SP,0FFFFH 		; Stack auf Speicherende
-	LD A,0C9H 		; RET-Befehl auf F000h speichern
-	LD (0F000H),A 		; 
-	CALL 0F000H 		; eigene Speicheradresse ermitteln
-
-ANF:	DEC SP  		; Um kopieren von beliebiger Adresse zu
-	DEC SP  		; ermoeglichen (fuer Tests)
-	POP DE
-	LD HL,ROMSTRT-ANF
-	ADD HL,DE		; Quelladresse in HL
-	LD DE,0F000H 		; Zieladresse in DE
-	LD BC,0FFFH 		; Laenge in BC (4KB - 1)
-	LDIR  			; 
-	JP 0F000H 		; Monitor im ROM aufrufen
-
-;------------------------------------------------------------------------------
-; START DES EIGENTLICHEN MONITORS
-
-ROMSTRT:	; Start address of Monitor in ROM, before .PHASE!!!
-
-	.PHASE 0F000H
 
 CR 	EQU 0DH
 LF 	EQU 0AH
@@ -90,47 +72,71 @@ U_TXB	EQU 001h	; TX Ready Bit UART 8251
 
 	; Address of IDE Port CF-80 card
 
-IDEDATA	EQU 018h	; IDE Daten Register
-SECCND	EQU 01ah	; Sector Count Register
-LBA7	EQU 01bh	; LBA Bits 0-7
-LBA15	EQU 01ch	; LBA Bits 8-15
-LBA23	EQU 01dh	; LBA Bits 16-23
-IDEHEAD	EQU 01eh	; IDE Drive Head Register
-IDESTAT	EQU 01fh	; IDE Command/Status Register
+IDEDATA	EQU 018h	; IDE Data Register
+SECCND	EQU 01Ah	; Sector Count Register
+LBA7	EQU 01Bh	; LBA Bits 0-7
+LBA15	EQU 01Ch	; LBA Bits 8-15
+LBA23	EQU 01Dh	; LBA Bits 16-23
+IDEHEAD	EQU 01Eh	; IDE Drive Head Register
+IDESTAT	EQU 01Fh	; IDE Command/Status Register
+
+;------------------------------------------------------------------------------
+
+	ORG 0000h		; start address in ROM
+
+	; Copy Monitor from address ROMSRT in ROM to address F000 in RAM
+
+BEGIN:	LD SP,0FFFFh 		; set Stack to end of memory
+	LD A,0C9h 		; place RET command at F000h
+	LD (0F000h),A 		; 
+	CALL 0F000h 		; and call it
+
+BEG:	DEC SP  		; get return address from Stack to calculate
+	DEC SP  		; Monitor location in ROM
+	POP DE
+	LD HL,ROMSRT-BEG	; offset from BEG to ROMSRT
+	ADD HL,DE		; actual Montor address in ROM as source address in HL
+	LD DE,0F000h 		; dest address in DE
+	LD BC,0FFFh 		; length in BC (4KB - 1)
+	LDIR  			; copy
+	JP 0F000h 		; jump to Monitor in RAM
 
 ;------------------------------------------------------------------------------
 ; Start of Monitor program, ROM address 0F000h
 
+ROMSRT:	; Start address of Monitor in ROM
+	; label must be located before .PHASE
+
+	.PHASE 0F000H	; monitor start address in RAM
+
 	JP INIT
-	JP CI		; Console in
-	JP RI		; Reader In
-	JP CO		; Console Out
-	JP POO		; Punch Out
-	JP LO		; List Out
-	JP CSTS		; main status routine, 0FFH IN A, FALLS ZEICHEN DA
-	JP IOGET	; get iobyte, IN A AKTUELLE IO-KONFIGURATION
-	JP IOSET	; set iobyte, VERAENDERN, IO IN C-REG
-	JP MEMCK	; IN B HIGH IN A LOW MEMORY
+	JP CONIN	; Console In
+	JP READIN	; Reader In (<- SIO B)
+	JP CONOUT	; Console Out
+	JP PUNOUT	; Punch Out (-> SIO B)
+	JP LSTOUT	; List Out (-> SIO B)
+	JP CONSTS	; Get console status, 0FFh in A, if character available
+	JP IOGET	; Get iobyte, current configuration in A
+	JP IOSET	; Set iobyte, new configuration in C
+	JP MEMCHK	; High memory in B, low memory in A
 
 TRAP:	; trap/breakpoint entry
 
 	JP RSTRT
-	JP FLOP	 	; neue Floppy-Schnittstelle rev 1.0
-	JP MAXI		; FLOPPY EXEC VEKTOR SOFT (alt)
-	JP MINI		; FLOPPY EXEC VEKTOR MINI (alt)
-	JP IDERD	; IDE Sektor lesen
-	JP IDEWR	; IDE Sektor schreiben
+	JP FLOP	 	; new floppy interface rev 1.0
+	JP MAXI		; FLOPPY EXEC VEKTOR SOFT (old)
+	JP MINI		; FLOPPY EXEC VEKTOR MINI (old)
+	JP IDERD	; Read IDE sector
+	JP IDEWR	; Write IDE Sector
 	JP COLD		; Monitor Cold Start (no Hardware init)
 	JP WARM		; Monitor Warm Start
-	JP WRSTR	; gibt mit 0 terminierten String aus
+	JP WRSTR	; gibt einen 0-terminierten String aus
 
-	DEFW TABSTART 	; TABELLEN-START, USER-BEREICH SPRUNGTABELLE,
-			; IMMER INDIREKT VERWENDEN
-	DEFW LASTMON 	; ADRESSE LETZTE BELEGTE ZELLE
-			; DES MONITORS DANACH PATCH FREI
-	DEFW FREEMEM 	; Lade-Adresse hinter IO-Gebiet
+TABPTR:	DEFW TABSTART 	; Start of user jump table
+ENDPTR:	DEFW LASTMON 	; End address of Monitor
+FREPTR:	DEFW FREEMEM 	; End of Monitor driver section. The area behind it can be overwritten by CP/M.
 
-	; Sprungtabelle, um mit FLOMON kompatibel zu sein (NDR-Computer)
+	; Jump table for compatibility to FLOMON (NDR-Klein-Computer)
 	
 	DEFS 13 	; f033,34,35,36,37,38,39,3a,3b,3c,3d,3e,3f
 			; BASIS F040h
@@ -146,7 +152,8 @@ TRAP:	; trap/breakpoint entry
 	JP ILLEGAL 	; hl=quelle,de=ziel,c=bank quelle, b=bank ziel
 			; carry wenn bankram auf f000h nicht da ist
 
-	; --- Ende Sprungtabelle ---
+
+; End of area of tables and fixed addresses, that are used by CP/M BIOS, UFORMAT etc.
 
 ;------------------------------------------------------------------------------
 
@@ -165,92 +172,96 @@ INIT:	JP INIT1 	; kurzschliessen ggf.
 ;==============================================================================
 ; IO Routinen
 ;==============================================================================
-; output 0-terminated string, address in HL
+; Output 0-terminated string, address in HL
 
 WRSTR:	IN  A,(U_STS)	; read status
 	AND U_TXB	; check TxRDY bit
-	JP Z,WRSTR	; loop if not set
+	JP Z,WRSTR	; wait if not set
+	
 	LD A,(HL)	; get char from string
 	AND A		; check if 0
-	RET Z		; alles ausgegeben, dann zurueck
-	OUT (U_DAT),A	; no, write char to output
+	RET Z		; -> send of string
+	
+	OUT (U_DAT),A	; write char to output
 	INC HL		; next char in string
 	JP WRSTR	; start over
 
 ;------------------------------------------------------------------------------
-; Console In main routine
+; Console Input main routine (SYS)
 
-CI:	LD A,(IOBYT)
-	AND 3 			; console mask
-	JR NZ,CI2		; other device
+CONIN:	LD A,(IOBYT)
+	AND 00000011b		; console mask
+	JR NZ,CONI2		; -> user device
 
-CI1:	IN A,(U_STS)
+CONI1:	IN A,(U_STS)
 	AND U_RXB
-	JR Z,CI1
+	JR Z,CONI1
 	IN A,(U_DAT)
 	RET
 
-CI2:	JP USERCI  		; user CI
+CONI2:	JP USERCI  		; user CI
 
 ;------------------------------------------------------------------------------
-; Reader In routine
+; Reader Input routine (SIO B)
 
-RI:	LD A,(IOBYT)
-	AND 00001100B
-	JP Z,CI  	; AR=T
+READIN:	LD A,(IOBYT)
+	AND 00001100b
+	JP Z,CONIN  	; AR=T
+
 	CP 00000100B 
 	JP NZ,USERRI
 	
-RI1:	;AR = P
+READI1:	; AR = P
 	IN A,(SB_STS)
 	AND S_RXB
-	JR Z,RI1
+	JR Z,READI1
+	
 	IN A,(SB_DAT)
 	RET
 
 ;------------------------------------------------------------------------------
-; Console Out main routine
+; Console Output main routine
 
-CO:	LD A,(IOBYT)
-	AND 3
-	JR NZ,CO2
+CONOUT:	LD A,(IOBYT)
+	AND 00000011b
+	JR NZ,CONO2
 
-CO1:	IN A,(U_STS)
+CONO1:	IN A,(U_STS)
 	AND U_TXB
-	JR Z,CO1
+	JR Z,CONO1
 	
 	LD A,C
 	OUT (U_DAT),A
 	RET
 
-CO2:	JP USERCO	; user CO
+CONO2:	JP USERCO	; user console output
 
 ;------------------------------------------------------------------------------
-; Punch Out main routine
+; Punch Output main routine
 ; HIER ABFRAGE IOBYT MOEGLICH
 ;
-POO:	LD A,(IOBYT)
-	AND 00110000B
-	JP Z,CO  			; AP=T
+PUNOUT:	LD A,(IOBYT)
+	AND 00110000b
+	JP Z,CONOUT  			; AP=T
 	
-	CP 00010000B
-	JP NZ,USERPOO
+	CP 00010000b
+	JP NZ,USERPO
 	
-POO1:	; AP=P
+PUNO1:	; AP=P
 	IN A,(SB_STS)
 	AND S_TXB
-	JR Z,POO1
+	JR Z,PUNO1
 	
 	LD A,C
 	OUT (SB_DAT),A
 	RET
 
 ;------------------------------------------------------------------------------
-; List Out main routine
+; List Output main routine
 
-LO:	LD A,(IOBYT)
+LSTOUT:	LD A,(IOBYT)
 	AND 0C0H
-	JP Z,CO1 		; AL=T
+	JP Z,CONO1 		; AL=T
 	
 	CP 10000000B 		
 	JP NZ,USERLO
@@ -267,11 +278,11 @@ LO1:	; AL=L
 ;------------------------------------------------------------------------------
 ; Console Status main routine
 
-CSTS:	LD A,(IOBYT)
-	AND 3
-	JR NZ,CSTS2
+CONSTS:	LD A,(IOBYT)
+	AND 03h
+	JR NZ,CONS2
 	
-CSTS1:	IN A,(U_STS)
+CONS1:	IN A,(U_STS)
 	AND U_RXB
 	RET Z
 	
@@ -279,7 +290,7 @@ CSTS1:	IN A,(U_STS)
 	OR A
 	RET
 
-CSTS2:	JP USERCSTS	; user csts
+CONS2:	JP USERCSTS	; user csts
 
 ;------------------------------------------------------------------------------
 ; The IOBYTE is used to switch from physical to logical device. It has the
@@ -297,14 +308,14 @@ IOSET:	LD A,C
 	
 ;------------------------------------------------------------------------------
 ; prueft den Speicherbereich und gibt die hoechste verfuegbare Zelle an
-; MEMCK IN B HIGH IN A LOW MEMORY
+; MEMCHK IN B HIGH IN A LOW MEMORY
 
-MEMCK:	PUSH HL
+MEMCHK:	PUSH HL
 	CALL MEMSIZ
 	LD A,L
 	SUB 3CH
 	JR NC,MEMCK1
-	
+
 	DEC H
 	
 MEMCK1:	LD B,H
@@ -317,7 +328,7 @@ MEMCK1:	LD B,H
 MEMSIZ:	PUSH BC
 
 	; Einsprung
-MEMSIZ1:
+MEMSIZB:
 	LD HL,-1
 
 MEMS1:	INC H
@@ -355,16 +366,21 @@ TABSTART:
 
 ; Hier können eigene Routinen stehen für Input/Output
 
-USERCI:	JP CI1
-USERRI:	JP CI1
-USERCO:	JP CO1
-USERPOO:
-	JP CO1
-USERLO:	JP CO1
+USERCI:	JP CONI1
+USERRI:	JP CONI1
+USERCO:	JP CONO1
+USERPO:	JP CONO1
+USERLO:	JP CONO1
 USERCSTS:
-	JP CSTS1
+	JP CONS1
 
-IOBYT:	DEFB 0		; IOBYTE-SPEICHER 
+	; IOBYTE
+	; 000000XX CONSOLE
+	; 0000XX00 READER
+	; 00XX0000 PUNCH
+	; XX000000 LISTER
+IOBYT:	DEFB 0
+
 OEXEC:	DEFS 3
 IEXEC:	DEFS 3
 KEXEC:	DEFS 3
@@ -382,8 +398,8 @@ KEXEC:	DEFS 3
 
 getfl:	DI  		; ohne Interrupts
 	LD A,0D0H
-	OUT (FLO0),A 	; Stop Controller
-	IN A,(FLO0) 	; Ints loeschen
+	OUT (FLO),A 	; Stop Controller
+	IN A,(FLO) 	; Ints loeschen
 	LD A,C
 	AND 8FH 	; nur Drivecode ok
 	LD C,A
@@ -425,14 +441,14 @@ get1fl1:
 	LD A,C
 	
 get1fl2:
-	OUT (FLO4),A 	; Drive-Code probieren
+	OUT (FLO+4),A 	; Drive-Code probieren
 	LD A,0FH 	; RSTORE-Befehl mit Verify verwenden
-	OUT (FLO0),A 	; und ausgeben
+	OUT (FLO),A 	; und ausgeben
 get1fl3:
-	IN A,(FLO4)
+	IN A,(FLO+4)
 	AND 40H 	; Bit 6 pruefen
 	JR Z,GET1FL3 	; bis INT da
-	IN A,(FLO0) 	; und dann status lesen, int loeschen
+	IN A,(FLO) 	; und dann status lesen, int loeschen
 	AND  10011000B 	; krit. Bit testen 
 	SCF  		; falls Fehler, dann setzen
 	RET NZ  	; carry=Fehler
@@ -570,41 +586,39 @@ mini4:	LD A,2  	; sso-flag setzen
 ;    -------------------------
 ;      1=Laufwerk an
 
-
-
-FLO	EQU 0C0H 	; Basisadresse Floppy-Controller
-FLO0	EQU 0C0H   	
-FLO1	EQU 0C1H
-FLO2	EQU 0C2H
-FLO3	EQU 0C3H
-FLO4	EQU 0C4H 	; Port fuer Zusatzstatus etc.
+FLO	EQU 0C0H 		; Basisadresse Floppy-Controller
+;FLO0	EQU 0C0H   	
+;FLO1	EQU 0C1H
+;FLO2	EQU 0C2H
+;FLO3	EQU 0C3H
+;FLO4	EQU 0C4H 		; Port fuer Zusatzstatus etc.
 
 	; Bei einem Interrupt wird an diese Stelle gesprungen
 	; Der Interrupt erfolgt vom Floppy-Controller
 
 intex:	; Das INT-Program arbeitet nicht als Unterprogramm
-	POP AF  	; alte Ret-Adresse vernichten
-	IN A,(FLO) 	; Status lesen und INT loeschen
-	EI  		; Interrupt wieder freigeben
-	RETI  		; zurueck zum vorherigen Aufrufer
+	POP AF  		; alte Ret-Adresse vernichten
+	IN A,(FLO) 		; Status lesen und INT loeschen
+	EI  			; Interrupt wieder freigeben
+	RETI  			; zurueck zum vorherigen Aufrufer
 
 ;------------------------------------------------------------------------------
 
-iniflp:			; Floppy Routinen Init
-	LD A,2  	; 3= langsamste Steprate
-	LD (STEPRATE),A	; einstellen, kein SSO
+iniflp:				; Floppy Routinen Init
+	LD A,2  		; 3= langsamste Steprate
+	LD (STEPRATE),A		; einstellen, kein SSO
 	LD A,0FFH
-	LD (DRVAT),A 	; Drive ungueltig
+	LD (DRVAT),A 		; Drive ungueltig
 	RET 
 
 ;------------------------------------------------------------------------------
 
-intvek	EQU 38h 	; Interruptziel
+intvek	EQU 38h 		; Interruptziel
 
-flop:			; Haupteingang der Floppy-Routinen
-	XOR A  		; sso-Flag auf 0 setzen
-flop1:			; a=sso flag, nur 2 zunlaessig
-	LD (SSOFLAG),A 	; ok setzen hier moeglich
+flop:				; Haupteingang der Floppy-Routinen
+	XOR A  			; sso-Flag auf 0 setzen
+flop1:				; a=sso flag, nur 2 zunlaessig
+	LD (SSOFLAG),A 		; ok setzen hier moeglich
 				; hl = Ziel oder Quelladresse
 				; E= Sektor D= Track
 				; C= Laufwerkscode+Dichtecode+Seite
@@ -667,18 +681,18 @@ setup:				; testet ob der Kopf noch
 	AND 80H
 	JR Z,SET2UP 		; Seite 0, immer mit SSO=0
 	LD A,(STEPRATE) 	; jetzt pruefen ob flags da
-	AND 80H 			;<>0, dann SSO setzen, wenn seite 1
-	JR Z,SET1UP 		;=0, dann code 0, oder SSOFLAG
-	LD B,2  			;SSO setzen 
+	AND 80H 		; <>0, dann SSO setzen, wenn seite 1
+	JR Z,SET1UP 		; =0, dann code 0, oder SSOFLAG
+	LD B,2  		; SSO setzen 
 	JR SET2UP
 set1up:				; pruefen ob SSO-Flag
 	LD A,(SSOFLAG) 		; ok, 2=Flag
 	AND 2  			; SSO-Bit
-	LD B,A  			; 0,2 erlaubt 
+	LD B,A  		; 0,2 erlaubt 
 set2up:		
-					; entsprechenden Bits
-	IN A,(FLO4) 		; Status Port
-	AND 20H 			; Head-Load Bit
+				; entsprechenden Bits
+	IN A,(FLO+4) 		; Status Port
+	AND 20H 		; Head-Load Bit
 	JR NZ,NOSET 		; =1 dann Kopf auf Diskette
 	LD A,B
 	OR 4  			; sonst Bitmaske fuer headdown
@@ -692,37 +706,37 @@ noset:
 rdflp:				; einen Sektor lesen
 				; e=sektor nr
 	LD A,C
-	OUT (FLO4),A 		; erst mal Dichtecode setzen und Seite
+	OUT (FLO+4),A 		; erst mal Dichtecode setzen und Seite
 	LD A,E
-	OUT (FLO2),A 		; ins Sektorregister
-	LD C,FLO3 			; Adresse Datenport dann nach c
-	CALL SETUP 			; Register A vorbereiten
-	ADD A,88H 			; Lese-Befehl, sidesel=0
+	OUT (FLO+2),A 		; ins Sektorregister
+	LD C,FLO+3 		; Adresse Datenport dann nach c
+	CALL SETUP 		; Register A vorbereiten
+	ADD A,88H 		; Lese-Befehl, sidesel=0
 	OUT (FLO),A 		; Befehl ausfuehren
 rd1:
-	IN A,(FLO4) 		; DRQ schon da ?
+	IN A,(FLO+4) 		; DRQ schon da ?
 	RLCA  			; bit7 = drq bit6 = int
-	JP NC,RD1 			; bis drq=1 da ist
-	INI  				; dann Transport moeglich
-	JP RD1  			; und alles wiederholen bis INT
+	JP NC,RD1 		; bis drq=1 da ist
+	INI  			; dann Transport moeglich
+	JP RD1  		; und alles wiederholen bis INT
 
 ;------------------------------------------------------------------------------
 
 wrflp:				; Floppy-Sektor schreiben
 	LD A,C
-	OUT (FLO4),A 		; erst mal Seite anwaehlen und Dichte
-	LD A,E  			; Sektorregister setzen
-	OUT (FLO2),A
-	LD C,FLO3			; Adresse Datenport laden
-	CALL SETUP			; E-Code in A laden
-	ADD A,0A8H			; Befehl Schreibe-Sektor
+	OUT (FLO+4),A 		; erst mal Seite anwaehlen und Dichte
+	LD A,E  		; Sektorregister setzen
+	OUT (FLO+2),A
+	LD C,FLO+3		; Adresse Datenport laden
+	CALL SETUP		; E-Code in A laden
+	ADD A,0A8H		; Befehl Schreibe-Sektor
 	OUT (FLO),A 		; und Befehl ausfuehren
 wr1:
-	IN A,(FLO4)			; warten bis DRQ da
+	IN A,(FLO+4)		; warten bis DRQ da
 	RLCA
-	JP NC,WR1 			; dann Wert ausgeben
+	JP NC,WR1 		; dann Wert ausgeben
 	OUTI  			; mit Blockbefehl
-	JP WR1  			; verlassen nur durch INT
+	JP WR1  		; verlassen nur durch INT
 
 ;------------------------------------------------------------------------------
 
@@ -744,14 +758,14 @@ delay:	DEC BC
 ;------------------------------------------------------------------------------
 
 seek:				; Spur anfahren C=Drive D=Spur E=Sektor
-	CALL WAWA 		; Sicherheitshalber warten
+	CALL WAWA 		; sicherheitshalber warten
 	LD A,C
-	OUT (FLO4),A 		; Drive-Code und Dichte sowie Seite
+	OUT (FLO+4),A 		; Drive-Code und Dichte sowie Seite
 	LD A,E
-	OUT (FLO2),A 		; Sektor
+	OUT (FLO+2),A 		; Sektor
 	LD A,D
-	OUT (FLO3),A 		; Spur
-	LD B,1CH 			; Seek-Befehl
+	OUT (FLO+3),A 		; Spur
+	LD B,1CH 		; Seek-Befehl
 	LD A,(STEPRATE)
 	AND 3  			; 0,1,2,3  zulaessig
 	OR B  			; Seek Befehl zusammen mit Steprate
@@ -762,9 +776,9 @@ seek:				; Spur anfahren C=Drive D=Spur E=Sektor
 
 rstore:				; Kopf auf Spur 0 stellen
 	CALL WAWA
-	LD A,C  			; Laufwerkscode (drive)
-	OUT (FLO4),A 		; mit Dichtecode etc. ausgeben
-	LD B,8  			; nur Head-load, kein verify
+	LD A,C  		; Laufwerkscode (drive)
+	OUT (FLO+4),A 		; mit Dichtecode etc. ausgeben
+	LD B,8  		; nur Head-load, kein verify
 	LD A,(STEPRATE)
 	AND 3  			; 0,1,2,3 zulaessig
 	OR B  			; als Befehl kombiniert
@@ -792,8 +806,8 @@ rstore:				; Kopf auf Spur 0 stellen
 softex:	LD A,B
 	OR A
 	JR NZ, SOFT1  		; dann Steprate in Register D (0..3)
-	LD A,D   			;(+80h =SSO verwenden und pruefen).
-	AND 83H  			; Bit 7=SSO-Flag bei Zugriffen wichtig,
+	LD A,D   		; (+80h =SSO verwenden und pruefen).
+	AND 83H  		; Bit 7=SSO-Flag bei Zugriffen wichtig,
 	LD (STEPRATE),A		; die die zweite Seite verwenden.
 	XOR A
 	RET
@@ -802,22 +816,22 @@ soft1:	XOR A
 	LD (FEHZA),A 		; Fehlerzahl 0
 	LD A,C
 	LD (CCODE),A 		; Drive-Code
-	AND 0FH 			; fuer Vergleich
-	LD C,A  			; wieder zurueck
+	AND 0FH 		; fuer Vergleich
+	LD C,A  		; wieder zurueck
 	LD A,(DRVAT)
-	CP 0FFH 			; ungueltig, dann setzen noetig
+	CP 0FFH 		; ungueltig, dann setzen noetig
 	JR Z,NOTDEF
-	AND 0FH 			; nur Laufwerksnummer relevant
+	AND 0FH 		; nur Laufwerksnummer relevant
 	CP C  			; Vergleich ob Laufwerkewechsel
 	JP Z,NURSEEK 		; nur Seek noetig
 	PUSH HL
 	PUSH BC
 	LD HL,DRVTAB 		; Basisadresse
 	LD C,A
-	LD B,0  			; Alter Laufwerktrack merken
+	LD B,0  		; alten Laufwerktrack merken
 	ADD HL,BC
-	IN A,(FLO1) 		; Tracknr
-	LD (HL),A 			; und dort ablegen
+	IN A,(FLO+1) 		; Tracknr
+	LD (HL),A 		; und dort ablegen
 	POP BC
 	POP HL
 	
@@ -825,13 +839,13 @@ notdef:				; Drive nur laden
 	PUSH HL
 	PUSH BC
 	LD A,(CCODE) 		; neues Laufwerk
-	AND 0FH 			; nur Laufwerkscode
+	AND 0FH 		; nur Laufwerkscode
 	LD C,A
 	LD B,0
 	LD HL,DRVTAB 		; Tabellenstart
-	ADD HL,BC 			; hl zeigt auf Laufwerkstrack
+	ADD HL,BC 		; hl zeigt auf Laufwerkstrack
 	LD A,(HL)
-	OUT (FLO1),A 		; und ins Register des FDs
+	OUT (FLO+1),A 		; und ins Register des FDs
 	POP BC
 	POP HL
 	LD A,(CCODE)
@@ -840,38 +854,38 @@ notdef:				; Drive nur laden
 	LD BC,1000*3/12		; ca 1ms warten
 	CALL DELAY
 	LD A,(CCODE) 		; Dann neues Laufwerk ansprechen
-	OUT (FLO4),A
-	LD BC,2917			; ca 35ms .. 15ms
-	CALL DELAY			; um head-load-Zeit zu beruecksichtigen 
-	POP BC  			; alte Codes zurueck
-	JR NUR1 			; Immer auf ready pruefen, da
-					; head down sein kann und dennoch
-					; nicht ready
+	OUT (FLO+4),A
+	LD BC,2917		; ca 35ms .. 15ms
+	CALL DELAY		; um head-load-Zeit zu beruecksichtigen 
+	POP BC  		; alte Codes zurueck
+	JR NUR1 		; Immer auf ready pruefen, da
+				; head down sein kann und dennoch
+				; nicht ready
 
 nurseek:
-	IN A,(FLO4) 		; wenn head down dann kein dummyseek
+	IN A,(FLO+4) 		; wenn head down dann kein dummyseek
 	AND 20H
 	JR NZ,NODUM
-nur1:					; immer einsprung
+nur1:				; immer einsprung
 	LD A,(CCODE)
 	LD C,A
 	CALL SEEKEX 		; seek selekt dummy nur fuer readytest
-	IN A,(FLO)			; test Status
-	AND 80H 			; fuer Ready
-	JR NZ,NUR1			; Wiederhole solange bis Laufwerk READY
+	IN A,(FLO)		; test Status
+	AND 80H 		; fuer Ready
+	JR NZ,NUR1		; Wiederhole solange bis Laufwerk READY
 nodum:				; Einsprung head down ok
-	IN A,(FLO1) 		; nun pruefen of Tracks gleich sind
-	CP 0FFH 			; nicht definiert
-	JR Z,TRY1 			; dann zuerst RESTORE
+	IN A,(FLO+1) 		; nun pruefen of Tracks gleich sind
+	CP 0FFH 		; nicht definiert
+	JR Z,TRY1 		; dann zuerst RESTORE
 	CP D  			; oder schon auf dem Track
-	JP Z,SK11 			; ja dann nur lesen,schreiben
+	JP Z,SK11 		; ja dann nur lesen,schreiben
 	TRYº  			; SEEK ausfuehren
 	LD A,(CCODE)
 	LD C,A
 	CALL SEEKEX 		; und Track anfahren Reg retten
 	AND 10010000B 		; Fehlermaske
-	JR Z,SK11 			; ja dann R/W moeglich
-try1:					; Laufwerk normieren und RSTORE
+	JR Z,SK11 		; ja dann R/W moeglich
+try1:				; Laufwerk normieren und RSTORE
 	LD A,(CCODE)
 	LD C,A
 	PUSH HL
@@ -885,42 +899,42 @@ try1:					; Laufwerk normieren und RSTORE
 	INC A
 	LD (FEHZA),A
 	CP 10  			; bei 10 Fatal-Fehler
-	JR C,TRY 			; sonst nochmals mit SEEK probieren
+	JR C,TRY 		; sonst nochmals mit SEEK probieren
 error1:
 	LD A,0FFH
 	OR A
-	SCF  				; 0ffh, carry als Fehlerflag
-	RET  				; ABBRUCH FATAL
+	SCF  			; 0ffh, carry als Fehlerflag
+	RET  			; ABBRUCH FATAL
 
 noerr1:				; Ausgang wenn kein Fehler da
 	XOR A
 	RET
 ;
-sk11:					; r/w ausfuehren
+sk11:				; r/w ausfuehren
 	LD A,B
 	CP 2
-	JP Z,WRTEX			; Schreibbefehl
+	JP Z,WRTEX		; Schreibbefehl
 	LD A,(CCODE)
 	LD C,A
 	PUSH HL
 	PUSH DE
 	PUSH BC
-	CALL RDFLP			; und Lesen
+	CALL RDFLP		; und Lesen
 	POP BC
 	POP DE
 	POP HL
 	AND 10011100B 		; Fehlermaske incl. Lost data
 	JR Z,NOERR1 		; ende
 	AND 00010000B 		; bei record not found SEEK
-	JR NZ,TRY1			; mit vorherigem Restore
+	JR NZ,TRY1		; mit vorherigem Restore
 	LD A,(FEHZA)
 	INC A
 	LD (FEHZA),A 		; CRC Fehler sonst
 	CP 5  			; kleiner als 5 dann nochmals probieren
 	JR C,SK11
 	CP 10
-	JR C,TRY1 			; sonst rstore und seek
-	JR ERROR1 			; sonst FATAL - Fehler
+	JR C,TRY1 		; sonst rstore und seek
+	JR ERROR1 		; sonst FATAL - Fehler
 
 wrtex:				; Schreiben
 	LD A,(CCODE)
@@ -935,13 +949,13 @@ wrtex:				; Schreiben
 	AND 11111100B
 	JR Z,NOERR1 		; alles ok
 	AND 00010000B 		; record not found
-	JR NZ,TRY1			; gleich neuen Seek ausfuehren
+	JR NZ,TRY1		; gleich neuen Seek ausfuehren
 	LD A,(FEHZA)
 	INC A
 	LD (FEHZA),A 
 	CP 4  			; recht bald, da i.A. nur record not fnd
-	JR C,TRY1 			; daher nur 4 Versuche
-	JR ERROR1 			; FATAL FEHLER
+	JR C,TRY1 		; daher nur 4 Versuche
+	JR ERROR1 		; FATAL FEHLER
 
 seekex:				; Seek ausfuehren
 	PUSH HL
@@ -958,38 +972,38 @@ seekex:				; Seek ausfuehren
 ;==============================================================================
 ; RAM
 
-		; Buffer Bereich fuer Floppy-Routinen
+	; Buffer Bereich fuer Floppy-Routinen
 
-steprate:
+STEPRATE:
 	DEFB 0    		; Merker fuer die Steprate + SSO-Option
-ssoflag:
+SSOFLAG:
 	DEFB 0    		; zusaetzlich, dominant, fuer MINI
-sp0:	DEFW 0 			; Stackmerker fuer BDOS
+SP0:	DEFW 0 			; Stackmerker fuer BDOS
 				; =2, dann mit sso, sonst 0
-locint:	DEFB 0,0,0 		; Merker fuer alten Inhalt Intvektor
-fehza:	DEFB 0    		; Fehlerzaehler fuer retry
-ccode:	DEFB 0    		; Drive-Code
-drvat:	DEFB 0FFH  		; letztes Laufwerk
-drvtab:	DEFB 0FFH,0ffh,0ffh,0ffh 	; 16 moegliche Laufwerke
+LOCINT:	DEFB 0,0,0 		; Merker fuer alten Inhalt Intvektor
+FEHZA:	DEFB 0    		; Fehlerzaehler fuer retry
+CCODE:	DEFB 0    		; Drive-Code
+DRVAT:	DEFB 0FFH  		; letztes Laufwerk
+DRVTAB:	DEFB 0FFH,0ffh,0ffh,0ffh 	; 16 moegliche Laufwerke
 	DEFB 0FFH,0ffh,0ffh,0ffh
 	DEFB 0FFH,0ffh,0ffh,0ffh
 	DEFB 0FFH,0ffh,0ffh,0ffh
 	
 	DEFS 100   		; lokaler Stack
-tstack:	DEFB 0
+TSTACK:	DEFB 0
 
 ;==============================================================================
 ; ENDE FLO2-Routinen
 ;==============================================================================
 
-task:	DEFS 6  		;task block
-oldsec:	DEFW 0  		;frueherer sector a 128
-imwr:	DEFB 0ffh 		;wichtig init auf ff,wiini etc
-hstbuf:	DEFS 256 		;sector buffer
-imbef:	DEFB 0  		;befehl =1 read =2 write
-sectrk:	DEFW 0  		;sectoradresse a 128
-imdma:	DEFW 0  		;adresse ziel,quelle
-floc0:	DEFB 0  		;0=FLO2, 1=FLO1
+TASK:	DEFS 6  		;task block
+OLDSEC:	DEFW 0  		;frueherer sector a 128
+IMWR:	DEFB 0ffh 		;wichtig init auf ff,wiini etc
+HSTBUF:	DEFS 256 		;sector buffer
+IMBEF:	DEFB 0  		;befehl =1 read =2 write
+SECTRK:	DEFW 0  		;sectoradresse a 128
+IMDMA:	DEFW 0  		;adresse ziel,quelle
+FLOC0:	DEFB 0  		;0=FLO2, 1=FLO1
 
 ;==============================================================================
 ; IDE Karten Interface für CF-Karte
@@ -1094,49 +1108,58 @@ IDEWR5:	; WAIT FOR BUSY CLEAr
 	IN	A,(IDESTAT)	; clear INTRQ
 	RET
 
-FREEMEM EQU $ 	;dynamischer Platz fuer Buffer etc.
+;==============================================================================
 
-;------------------------------------------------------------------------------
-; Bereich kann geloescht werden unter CP/M
-; um Platz fuer Puffer etc zu bieten
+; The driver section of the Monitor that is used by the CP/M BIOS ends here.
+; The area starting here can be overwritten by CP/M, for buffers etc.
+
+FREEMEM EQU $
+
+;==============================================================================
+; Monitor start message
 
 MSG:	DEFB CR,LF
 
 	DEFM ESC,"[2J",ESC,"[H",BELL,CR,LF
 	DEFM " -------------------------",CR,LF
-	DEFM " Monitor MC COMPUTER V 7.2",CR,LF
+	DEFM " Monitor MC COMPUTER V 8.0",CR,LF
 	DEFM "   RDK/JS 1985 - UH 2026",CR,LF
 	DEFM	" -------------------------",CR,LF,LF
 	DEFM " Bootmenue = I",CR,LF,LF,0
 	MSGL EQU $-MSG
 
-INIT1:	;nur einmal verwendet
+INIT1:	; only called once
 
-; Hardware Initialisierung Z80 SIO
+; Init SIO on OUT-Board
 
-	LD C,sa_sts
+	LD C,SA_STS
 	LD B,8
-	LD HL,TABSIA
+	LD HL,TABSIOA
 	OTIR
-	LD C,sb_sts
+	
+	LD C,SB_STS
 	LD B,8
-	LD HL,TABSIB
+	LD HL,TABSIOB
 	OTIR
+	
 	JR SKSKL
 
-TABSIA:	DEFB 1,0
+TABSIOA:
+	DEFB 1,0
 	DEFB 3,11100001B	; -CTS UND -DCD ENABLE rev 3.4 term1
 	DEFB 4,01001100B
-	DEFB 5,11101010B	;dtr rts +12V bedeutet ready rev 3.4
+	DEFB 5,11101010B	; dtr rts +12V bedeutet ready rev 3.4
 
-TABSIB:	DEFB 1,0
+TABSIOB:
+	DEFB 1,0
 	DEFB 3,11100001B	; -CTS UND -DCD ENABLE
 	DEFB 4,01001100B
-	DEFB 5,11101010B	;dtr rts +12V bedeutet ready rev 3.4
+	DEFB 5,11101010B	; dtr rts +12V bedeutet ready rev 3.4
 
 ;------------------------------------------------------------------------------
 
-; Init 8251 (D71051c)
+; Init 8251 (D71051c) on CPU-Board
+
 SKSKL:
 ;INIT_UART:
 	XOR	A		; lt. Datenblatt erst mal "aufwecken"
@@ -1155,18 +1178,16 @@ SKSKL:
 ;------------------------------------------------------------------------------
 ; Monitor cold start
 
-COLD:	LD A,(7000H)		; Bank-Select umschalten
-	XOR A			; alles auf Console schalten
+COLD:	LD A,(7000H)		; activate RAM below 8000h
+	XOR A			; switch all input/output to console
 	LD (IOBYT),A
 
-	LD SP,AHEAD-4
-	JP MEMSIZ1
-
-;------------------------------------------------------------------------------
+	LD SP,AHEAD-4		; dirty stack hack ???, use AHEAD as return address?
+	JP MEMSIZB
 
 	DEFW AHEAD
 
-AHEAD:	LD SP,HL
+AHEAD:	LD SP,HL		; set stack to end of memory, but before F000h
 	EX DE,HL
 	LD BC,ENDX-EXIT
 	LD HL,EXIT
@@ -1182,7 +1203,7 @@ STKIT:	PUSH HL
 	DJNZ STKIT
 
 HELLO:	LD C,1AH
-	CALL CO
+	CALL CONOUT
 	LD B,MSGL
 	CALL TOM1
 
@@ -1194,7 +1215,7 @@ WARM:	LD DE,WARM
 	PUSH DE
 	CALL CRLF
 	LD C,'>'
-	CALL CO
+	CALL CONOUT
 	
 WARM1:	CALL TI
 	AND 7FH
@@ -1261,10 +1282,10 @@ BOOT:	CALL INIFLP 	; Vektoren etc definieren
 	LD HL,BOOTMSG 	; Meldung ausgeben
 	LD B,FLPL 	 
 	CALL TOM 	; dann Antwort abwarten
-	CALL CI
+	CALL CONIN
 	AND 7FH  	; ohne Paritaet
 	LD C,A
-	CALL CO		; echo
+	CALL CONOUT		; echo
 	CALL CRLF
 	
 	CP "I"  	; I-Vektor fuer Benutzerbefehl
@@ -1314,7 +1335,7 @@ BOOT3:
 	LD HL,0FC00H 	; sonst 1K Block ggf. dorthin.
 ; Ende +++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-exec1:	PUSH HL 	; rev (1.5) 1.1
+EXEC1:	PUSH HL 	; rev (1.5) 1.1
 	LD B,1  	; lesen
 	LD D,0  	; track 0
 	LD E,1  	; sektor 1
@@ -1403,7 +1424,7 @@ ASSIG9:	CALL PCHK
 
 BYE:	CALL CRLF
 
-BYE1:	CALL CI7	; In HEX Dump 1E 
+BYE1:	CALL CONIN7	; In HEX Dump 1E 
 	CP 0EH  	; CRTL-N ist 0Eh
 	JR NZ,BYE1 	; gaendert gegenueber MC-Vers
 
@@ -1419,7 +1440,7 @@ PUTA:	CALL EXPR1
 	CALL CRLF
 	POP HL
 
-PUTA1:	CALL CI7
+PUTA1:	CALL CONIN7
 	CP 4  		; Beenden der Eingabe CTRL-D
 	JP Z,LFADR
 	CP "_"  	; Rueckwaertsschritt
@@ -1429,7 +1450,7 @@ PUTA1:	CALL CI7
 	LD C,A
 	INC HL
 
-PUTA2:	CALL CO
+PUTA2:	CALL CONOUT
 	JR PUTA1
 
 PUTA3:	DEC HL
@@ -1489,7 +1510,7 @@ DISP2:	CALL BLK
 EOF:	CALL EXPR1
 	CALL PEOL
 	LD C,':'
-	CALL POO
+	CALL PUNOUT
 	XOR A
 	CALL PBYTE
 	POP HL
@@ -1810,7 +1831,7 @@ TYPE4:	CP 7CH
 	JR NC,TYPE3
 	
 	LD C,A
-	CALL CO
+	CALL CONOUT
 	CALL HILOX
 	DJNZ TYPE2
 	
@@ -1891,7 +1912,7 @@ WRITE:	CALL EXLF
 
 WRITE1:	CALL PEOL
 	LD BC,':'
-	CALL POO
+	CALL PUNOUT
 	PUSH DE
 	PUSH HL
 
@@ -2019,9 +2040,9 @@ XAM8:	CALL BLK
 	OR A
 	RET M
 	LD C,A
-	CALL CO
+	CALL CONOUT
 	LD C,"="
-	CALL CO
+	CALL CONOUT
 	LD A,(HL)
 	LD B,A
 	AND 3FH
@@ -2064,15 +2085,15 @@ TOM1:	LD HL,MSG
 
 TOM:	LD C,(HL)
 	INC HL
-	CALL CO
+	CALL CONOUT
 	DJNZ TOM
-	CALL CSTS
+	CALL CONSTS
 	OR A
 	RET Z
 
 ; IF CTRL C ABORT
 
-CCHK:	CALL CI7
+CCHK:	CALL CONIN7
 	CP 3
 	RET NZ
 
@@ -2084,9 +2105,9 @@ ERROR:	CALL MEMSIZ
 	ADD HL,DE
 	LD SP,HL
 	LD C,7
-	CALL CO
+	CALL CONOUT
 	LD C,'*'
-	CALL CO
+	CALL CONOUT
 	JP WARM
 
 ;------------------------------------------------------------------------------
@@ -2094,7 +2115,7 @@ ERROR:	CALL MEMSIZ
 ; abort on carry
 ; compare with D
 
-RIFF:	CALL RI
+RIFF:	CALL READIN
 	JR C,ERROR
 	CP D
 	RET
@@ -2112,15 +2133,15 @@ LFADR:	CALL CRLF
 HLSP:	CALL LADR
 
 BLK:	LD C,' '
-	JP CO
+	JP CONOUT
 
 ;------------------------------------------------------------------------------
 ; Punch EOL
 
 PEOL:	LD C,0DH
-	CALL POO
+	CALL PUNOUT
 	LD C,0AH
-	JP POO
+	JP PUNOUT
 
 ;------------------------------------------------------------------------------
 ; Monitor command UNLOAD
@@ -2131,7 +2152,7 @@ UNLOAD:	CALL EXLF
 	CALL MARK
 
 UNLOD1:	LD C,(HL)
-	CALL POO
+	CALL PUNOUT
 	CALL HILO
 	JR NC,UNLOD1
 	
@@ -2266,7 +2287,7 @@ LBYTE:	PUSH AF
 	POP AF
 
 LXR22:	CALL CONV
-	JP CO
+	JP CONOUT
 
 ;------------------------------------------------------------------------------
 
@@ -2277,7 +2298,7 @@ MARK:	LD BC,8FFH
 
 LEAD:	LD BC,4800H
 
-LEO:	CALL POO
+LEO:	CALL PUNOUT
 	DJNZ  LEO
 	RET
 
@@ -2309,11 +2330,11 @@ PBYTE:	PUSH AF
 	RRCA
 	RRCA
 	CALL CONV
-	CALL POO
+	CALL PUNOUT
 	POP AF
 	PUSH AF
 	CALL CONV
-	CALL POO
+	CALL PUNOUT
 	POP AF
 	ADD A,D
 	LD D,A
@@ -2322,7 +2343,7 @@ PBYTE:	PUSH AF
 ;------------------------------------------------------------------------------
 
 COPCK:	LD C,'-'
-	CALL CO
+	CALL CONOUT
 
 PCHK:	CALL TI
 
@@ -2452,7 +2473,7 @@ RSTRT5:	LD HL,LLOCX
 	LD (HL),B
 	PUSH BC
 	LD C,'@'
-	CALL CO
+	CALL CONOUT
 	POP HL
 	CALL LADR
 	LD HL,TLOCX
@@ -2489,33 +2510,34 @@ RSTRT7:	INC HL
 	JP WARM
 
 ;------------------------------------------------------------------------------
-; Console in 7 Bits
+; Console Inputs, 7 Bits
 
-CI7:	CALL CI
+CONIN7:	CALL CONIN
 	AND 7FH
 	RET
 
 ;------------------------------------------------------------------------------
+; ???
 
-TI:	CALL CI7
+TI:	CALL CONIN7
 	RET Z
 	
 	INC A
-	RET M
+	RET M		; return if minus, char >= 7Fh
 	
 	DEC A
 	CP 0DH
-	RET Z
+	RET Z		; char = CR
 	
 	CP 'N'
-	RET Z
+	RET Z		; char = 'N'
 	
 	CP 'n'
-	JR Z,TI1
+	JR Z,TI1	; char = 'n'
 	
 	PUSH BC
 	LD C,A
-	CALL CO
+	CALL CONOUT	; echo
 	LD A,C
 	POP BC
 	CP 'A'-1
@@ -2552,7 +2574,7 @@ BITS1:	SLA E
 	LD A,'0' SHR 1
 	ADC A,A
 	LD C,A
-	CALL CO
+	CALL CONOUT
 	DJNZ BITS1
 	RET
 
@@ -2581,31 +2603,31 @@ VERIF2:	INC BC
 	JR VERIF1
 
 ;------------------------------------------------------------------------------
-; IO LOOKUP TABLE
+; IO lookup table (for ASSIGN command)
 
-LTBL:	DEFB 'C'
-	DEFB 'T'
-	DEFB 'V'
-	DEFB 'B'
-	DEFB 'U'
+LTBL:	DEFB 'C'	; console
+	DEFB 'T'	; tty
+	DEFB 'V'	; video
+	DEFB 'B'	; batch
+	DEFB 'U'	; user
 
-	DEFB 'R'
-	DEFB 'T'
-	DEFB 'P'
-	DEFB 'C'
-	DEFB 'U'
+	DEFB 'R'	; reader
+	DEFB 'T'	; tty
+	DEFB 'P'	; punch-read
+	DEFB 'C'	; cassette
+	DEFB 'U'	; user
 
-	DEFB 'P'
-	DEFB 'T'
-	DEFB 'P'
-	DEFB 'C'
-	DEFB 'U'
+	DEFB 'P'	; punch
+	DEFB 'T'	; tty
+	DEFB 'P'	; punch.read
+	DEFB 'C'	; cassette
+	DEFB 'U'	; user
 
-	DEFB 'L'
-	DEFB 'T'
-	DEFB 'V'
-	DEFB 'L'
-	DEFB 'U'
+	DEFB 'L'	; list
+	DEFB 'T'	; tty
+	DEFB 'V'	; video
+	DEFB 'L'	; list
+	DEFB 'U'	; user
 
 ;------------------------------------------------------------------------------
 
