@@ -403,7 +403,7 @@ getfl:	DI  		; ohne Interrupts
 	LD A,C
 	AND 8FH 	; nur Drivecode ok
 	LD C,A
-	CALL WAWA
+	CALL WAWA	; short delay
 	LD A,C
 	OR 00110000B	; mini sd vorgeben		
 	LD C,A
@@ -593,10 +593,11 @@ FLO	EQU 0C0H 		; Basisadresse Floppy-Controller
 ;FLO3	EQU 0C3H
 ;FLO4	EQU 0C4H 		; Port fuer Zusatzstatus etc.
 
-	; Bei einem Interrupt wird an diese Stelle gesprungen
-	; Der Interrupt erfolgt vom Floppy-Controller
+;------------------------------------------------------------------------------
+; Bei einem Interrupt wird an diese Stelle gesprungen
+; Der Interrupt erfolgt vom Floppy-Controller
 
-intex:	; Das INT-Program arbeitet nicht als Unterprogramm
+INTEX:	; Das INT-Program arbeitet nicht als Unterprogramm
 	POP AF  		; alte Ret-Adresse vernichten
 	IN A,(FLO) 		; Status lesen und INT loeschen
 	EI  			; Interrupt wieder freigeben
@@ -608,67 +609,71 @@ iniflp:				; Floppy Routinen Init
 	LD A,2  		; 3= langsamste Steprate
 	LD (STEPRATE),A		; einstellen, kein SSO
 	LD A,0FFH
-	LD (DRVAT),A 		; Drive ungueltig
+	LD (CURDRV),A 		; Drive ungueltig
 	RET 
 
 ;------------------------------------------------------------------------------
 
-intvek	EQU 38h 		; Interruptziel
+INTVEK	EQU 38h 		; Interruptziel
 
-flop:				; Haupteingang der Floppy-Routinen
+FLOP:				; Haupteingang der Floppy-Routinen
 	XOR A  			; sso-Flag auf 0 setzen
-flop1:				; a=sso flag, nur 2 zunlaessig
+flop1:				; a=sso flag, nur 2 zulaessig
 	LD (SSOFLAG),A 		; ok setzen hier moeglich
-				; hl = Ziel oder Quelladresse
-				; E= Sektor D= Track
-				; C= Laufwerkscode+Dichtecode+Seite
-				; B= 0 dann Steprate setzen+SSO-Flag
-				;  = 1 dann lesen
-				;  = 2 dann schreiben
+				; HL = Ziel oder Quelladresse
+				; E = Sektor D= Track
+				; C = Laufwerkscode + Dichtecode + Seite
+				; B = 0 dann Steprate setzen + SSO-Flag
+				;   = 1 dann lesen
+				;   = 2 dann schreiben
 
 cflo1:	PUSH AF			; entscheiden FLO1 oder FLO2
 	LD A,(FLOC0)
-	; IF A=1 -> FLO1
 	CP 1  
-	JP NZ,CFLO2
+	JP NZ,CFLO2		; -> FLO2
 	
 	; FLO1
 	LD A,C
 	AND 10111111B 		; kein autowait 
 	XOR 10H 		; invertieren Dichtebit fuer FLO1
 	LD C,A
-	; ENDIF
 
-cflo2:	POP AF
-	LD (SP0),SP 		; Stack umsetzen, da Tiefe ggf zu gross
-	LD SP,TSTACK 		; fuer BDOS
+CFLO2:	POP AF
+	LD (SP0),SP 		; save user-stack, maybe to deep for BDOS
+	LD SP,TSTACK 		;
 
 	LD A,0D0H
-	OUT (FLO),A 		; Floppy-Controller ruecksetzen
+	OUT (FLO),A 		; reset floppy controller
+	
+	; set interrupt vector to INTEX
 	LD A,(INTVEK)
-	LD (LOCINT),A
+	LD (SAVINT),A
 	LD A,0C3H 		; JP-Befehl
 	LD (INTVEK),A
-	PUSH HL 		; Ziel, Quelladresse
+	PUSH HL
 	LD HL,(INTVEK+1)
-	LD (LOCINT+1),HL
-	LD HL,INTEX 		; JP INTEX ablegen auf intvek
+	LD (SAVINT+1),HL
+	LD HL,INTEX 		; set to JP INTEX
 	LD (INTVEK+1),HL
 	POP HL
+	
 	IN A,(FLO)		; Status - Port
-	IM 1  			; Mode 1 einstellen
+	IM 1  			; set interrupt mode 1 ->  execure at 38h
 	EI  			; Interrupt freigeben
 	CALL SOFTEX
-	DI  			; Sperren Int
+	DI  			; disable interrupt
+	
+	; restore interrupt vector
 	PUSH AF 		; Status
-	LD A,(LOCINT)
+	LD A,(SAVINT)
 	LD (INTVEK),A 		; zurueckspeichern
 	PUSH HL
-	LD HL,(LOCINT+1)
+	LD HL,(SAVINT+1)
 	LD (INTVEK+1),HL
 	POP HL
 	POP AF
-	LD SP,(SP0) 		; und wieder user-stack verwenden
+	LD SP,(SP0) 		; restore user-stack
+	
 	RET
 
 ;------------------------------------------------------------------------------
@@ -677,7 +682,7 @@ cflo2:	POP AF
 setup:				; testet ob der Kopf noch
 				; geladen ist und setzt die
 	LD B,0  		; Flag fuer SSO-Bit
-	LD A,(CCODE) 		; wenn Bit 7 gesetzt, dann abfragen
+	LD A,(DRVCOD) 		; wenn Bit 7 gesetzt, dann abfragen
 	AND 80H
 	JR Z,SET2UP 		; Seite 0, immer mit SSO=0
 	LD A,(STEPRATE) 	; jetzt pruefen ob flags da
@@ -739,17 +744,18 @@ wr1:
 	JP WR1  		; verlassen nur durch INT
 
 ;------------------------------------------------------------------------------
+; delay: 4 ms at 4 MHz
 
-wawa:				; Warteschleife fuer einige ms
-	PUSH BC 		; pro Schleife ca 6ys bei 4MHz
-	LD BC,500 		; 500*6ys Dauer
+WAWA:	PUSH BC 		; pro Schleife ca 6us bei 4MHz
+	LD BC,500 		; 500*6us Dauer
 	CALL DELAY
 	POP BC
 	RET
-	
-;------------------------------------------------------------------------------
 
-delay:	DEC BC
+;------------------------------------------------------------------------------
+; delay: 6 microseconds at 4 MHz
+
+DELAY:	DEC BC
 	LD A,B
 	OR C
 	JP NZ,DELAY
@@ -758,7 +764,7 @@ delay:	DEC BC
 ;------------------------------------------------------------------------------
 
 seek:				; Spur anfahren C=Drive D=Spur E=Sektor
-	CALL WAWA 		; sicherheitshalber warten
+	CALL WAWA 		; short delay
 	LD A,C
 	OUT (FLO+4),A 		; Drive-Code und Dichte sowie Seite
 	LD A,E
@@ -773,54 +779,60 @@ seek:				; Spur anfahren C=Drive D=Spur E=Sektor
 	HALT  			; warten bis INT
 
 ;------------------------------------------------------------------------------
+; Kopf auf Spur 0 stellen
+			
+RSTORE:	CALL WAWA		; short delay
 
-rstore:				; Kopf auf Spur 0 stellen
-	CALL WAWA
 	LD A,C  		; Laufwerkscode (drive)
 	OUT (FLO+4),A 		; mit Dichtecode etc. ausgeben
+	
 	LD B,8  		; nur Head-load, kein verify
 	LD A,(STEPRATE)
 	AND 3  			; 0,1,2,3 zulaessig
 	OR B  			; als Befehl kombiniert
 	OUT (FLO),A 		; und ausfuehren
-	HALT  			; bis INT dort warten
+	
+	HALT  			; wait for INT
 
 ;------------------------------------------------------------------------------
 ; Floppy-Kernroutinen
 
-; hl=adresse, d=track e=sektor
-; b=Befehl 0=Steprate setzen 1=read 2=write
+; HL=address, d=track e=sector
+; b=Befehl (0=Steprate setzen, 1=read, 2=write)
 ; c=Laufwerkscode
 ;   aufgebaut wie Statusregister
-; 7    6    5    4    3    2    1    0
-; sso  mot  min  dens d    d    d    d
-; sso  = seitenauswahl 1=seite 1
-; mot  = motor on code std=0
-; min  = 1 bei Minilaufwerken
-; dens = 1 bei Single Dense Aufzeichnung
+;   7    6    5    4    3    2    1    0
+;   sso  mot  min  dens d    d    d    d
+;   sso  = seitenauswahl (1=seite 1)
+;   mot  = motor on code (std=0)
+;   min  = 1 bei Minilaufwerken
+;   dens = 1 bei Single Dense Aufzeichnung
 ; d=binaerer Laufwerkscode
 ;   normalerweise nur 1,2,4,8 moeglich
 ;   Kombinationen moeglich, wenn binaere
 ;   Dekodierung beim Laufwerk verwendet wird
 
-softex:	LD A,B
+SOFTEX:	LD A,B			; B = steprate
 	OR A
-	JR NZ, SOFT1  		; dann Steprate in Register D (0..3)
+	JR NZ,SOFT1
+
+	; new set steprate (0..3 in D, SSO in bit 7)
 	LD A,D   		; (+80h =SSO verwenden und pruefen).
-	AND 83H  		; Bit 7=SSO-Flag bei Zugriffen wichtig,
+	AND 83h  		; Bit 7=SSO-Flag bei Zugriffen wichtig
 	LD (STEPRATE),A		; die die zweite Seite verwenden.
 	XOR A
 	RET
 
-soft1:	XOR A
-	LD (FEHZA),A 		; Fehlerzahl 0
+SOFT1:	XOR A
+	LD (ERRCNT),A 		; Fehlerzahl 0
 	LD A,C
-	LD (CCODE),A 		; Drive-Code
+	LD (DRVCOD),A 		; Drive-Code
 	AND 0FH 		; fuer Vergleich
 	LD C,A  		; wieder zurueck
-	LD A,(DRVAT)
+	LD A,(CURDRV)
 	CP 0FFH 		; ungueltig, dann setzen noetig
 	JR Z,NOTDEF
+	
 	AND 0FH 		; nur Laufwerksnummer relevant
 	CP C  			; Vergleich ob Laufwerkewechsel
 	JP Z,NURSEEK 		; nur Seek noetig
@@ -834,11 +846,11 @@ soft1:	XOR A
 	LD (HL),A 		; und dort ablegen
 	POP BC
 	POP HL
-	
+
 notdef:				; Drive nur laden
 	PUSH HL
 	PUSH BC
-	LD A,(CCODE) 		; neues Laufwerk
+	LD A,(DRVCOD) 		; neues Laufwerk
 	AND 0FH 		; nur Laufwerkscode
 	LD C,A
 	LD B,0
@@ -848,12 +860,12 @@ notdef:				; Drive nur laden
 	OUT (FLO+1),A 		; und ins Register des FDs
 	POP BC
 	POP HL
-	LD A,(CCODE)
-	LD (DRVAT),A 		; ist nun neues Laufwerk
+	LD A,(DRVCOD)
+	LD (CURDRV),A 		; ist nun neues Laufwerk
 	PUSH BC
 	LD BC,1000*3/12		; ca 1ms warten
 	CALL DELAY
-	LD A,(CCODE) 		; Dann neues Laufwerk ansprechen
+	LD A,(DRVCOD) 		; Dann neues Laufwerk ansprechen
 	OUT (FLO+4),A
 	LD BC,2917		; ca 35ms .. 15ms
 	CALL DELAY		; um head-load-Zeit zu beruecksichtigen 
@@ -866,78 +878,86 @@ nurseek:
 	IN A,(FLO+4) 		; wenn head down dann kein dummyseek
 	AND 20H
 	JR NZ,NODUM
+
 nur1:				; immer einsprung
-	LD A,(CCODE)
+	LD A,(DRVCOD)
 	LD C,A
 	CALL SEEKEX 		; seek selekt dummy nur fuer readytest
 	IN A,(FLO)		; test Status
 	AND 80H 		; fuer Ready
 	JR NZ,NUR1		; Wiederhole solange bis Laufwerk READY
+
 nodum:				; Einsprung head down ok
 	IN A,(FLO+1) 		; nun pruefen of Tracks gleich sind
 	CP 0FFH 		; nicht definiert
 	JR Z,TRY1 		; dann zuerst RESTORE
 	CP D  			; oder schon auf dem Track
-	JP Z,SK11 		; ja dann nur lesen,schreiben
+	JP Z,RDWR 		; ja dann nur lesen,schreiben
 	TRYº  			; SEEK ausfuehren
-	LD A,(CCODE)
+	LD A,(DRVCOD)
 	LD C,A
 	CALL SEEKEX 		; und Track anfahren Reg retten
 	AND 10010000B 		; Fehlermaske
-	JR Z,SK11 		; ja dann R/W moeglich
-try1:				; Laufwerk normieren und RSTORE
-	LD A,(CCODE)
+	JR Z,RDWR 		; ja dann R/W moeglich
+	
+TRY1:	; Laufwerk normieren und RSTORE
+	LD A,(DRVCOD)
 	LD C,A
 	PUSH HL
 	PUSH DE
 	PUSH BC
-	CALL RSTORE
+	CALL RSTORE		; track 0
 	POP BC
 	POP DE
 	POP HL
-	LD A,(FEHZA) 		; Fehler erhoehen
+	LD A,(ERRCNT) 		; Fehler erhoehen
 	INC A
-	LD (FEHZA),A
+	LD (ERRCNT),A
 	CP 10  			; bei 10 Fatal-Fehler
 	JR C,TRY 		; sonst nochmals mit SEEK probieren
-error1:
-	LD A,0FFH
+
+error1:	LD A,0FFH
 	OR A
 	SCF  			; 0ffh, carry als Fehlerflag
 	RET  			; ABBRUCH FATAL
 
-noerr1:				; Ausgang wenn kein Fehler da
+NOERR:	; return without error
 	XOR A
 	RET
-;
-sk11:				; r/w ausfuehren
+
+RDWR:	; execute read/write
 	LD A,B
 	CP 2
-	JP Z,WRTEX		; Schreibbefehl
-	LD A,(CCODE)
+	JP Z,WRTEX		; -> execute write
+
+	; execute read
+	LD A,(DRVCOD)
 	LD C,A
 	PUSH HL
 	PUSH DE
 	PUSH BC
-	CALL RDFLP		; und Lesen
+	CALL RDFLP		; read floppy
 	POP BC
 	POP DE
 	POP HL
 	AND 10011100B 		; Fehlermaske incl. Lost data
-	JR Z,NOERR1 		; ende
-	AND 00010000B 		; bei record not found SEEK
-	JR NZ,TRY1		; mit vorherigem Restore
-	LD A,(FEHZA)
+	JR Z,NOERR 		; exit without error
+
+	; error
+	AND 00010000B
+	JR NZ,TRY1		; record not found -> SEEK, RESTORE
+
+	LD A,(ERRCNT)
 	INC A
-	LD (FEHZA),A 		; CRC Fehler sonst
-	CP 5  			; kleiner als 5 dann nochmals probieren
-	JR C,SK11
+	LD (ERRCNT),A 		; CRC error
+	CP 5
+	JR C,RDWR		; less than 5, try again
 	CP 10
 	JR C,TRY1 		; sonst rstore und seek
 	JR ERROR1 		; sonst FATAL - Fehler
 
-wrtex:				; Schreiben
-	LD A,(CCODE)
+WRTEX:	; execute write
+	LD A,(DRVCOD)
 	LD C,A
 	PUSH HL
 	PUSH DE
@@ -947,12 +967,12 @@ wrtex:				; Schreiben
 	POP DE
 	POP HL
 	AND 11111100B
-	JR Z,NOERR1 		; alles ok
+	JR Z,NOERR 		; alles ok
 	AND 00010000B 		; record not found
 	JR NZ,TRY1		; gleich neuen Seek ausfuehren
-	LD A,(FEHZA)
+	LD A,(ERRCNT)
 	INC A
-	LD (FEHZA),A 
+	LD (ERRCNT),A 
 	CP 4  			; recht bald, da i.A. nur record not fnd
 	JR C,TRY1 		; daher nur 4 Versuche
 	JR ERROR1 		; FATAL FEHLER
@@ -972,7 +992,7 @@ seekex:				; Seek ausfuehren
 ;==============================================================================
 ; RAM
 
-	; Buffer Bereich fuer Floppy-Routinen
+; Buffer Bereich fuer Floppy-Routinen
 
 STEPRATE:
 	DEFB 0    		; Merker fuer die Steprate + SSO-Option
@@ -980,21 +1000,27 @@ SSOFLAG:
 	DEFB 0    		; zusaetzlich, dominant, fuer MINI
 SP0:	DEFW 0 			; Stackmerker fuer BDOS
 				; =2, dann mit sso, sonst 0
-LOCINT:	DEFB 0,0,0 		; Merker fuer alten Inhalt Intvektor
-FEHZA:	DEFB 0    		; Fehlerzaehler fuer retry
-CCODE:	DEFB 0    		; Drive-Code
-DRVAT:	DEFB 0FFH  		; letztes Laufwerk
-DRVTAB:	DEFB 0FFH,0ffh,0ffh,0ffh 	; 16 moegliche Laufwerke
+SAVINT:	DEFB 0,0,0 		; Merker fuer alten Inhalt Int-Vektor
+ERRCNT:	DEFB 0    		; Floppy error counter for retry
+DRVCOD:	DEFB 0    		; drive code
+CURDRV:	DEFB 0FFH  		; last/current drive
+
+	; track table for 16 drives
+DRVTAB:	DEFB 0FFH,0ffh,0ffh,0ffh
 	DEFB 0FFH,0ffh,0ffh,0ffh
 	DEFB 0FFH,0ffh,0ffh,0ffh
 	DEFB 0FFH,0ffh,0ffh,0ffh
+
+;==============================================================================
 	
-	DEFS 100   		; lokaler Stack
+	DEFS 100   		; local stack
 TSTACK:	DEFB 0
 
 ;==============================================================================
 ; ENDE FLO2-Routinen
 ;==============================================================================
+
+; werden bis auf FLOC0 alle nicht verwendet ???
 
 TASK:	DEFS 6  		;task block
 OLDSEC:	DEFW 0  		;frueherer sector a 128
@@ -1006,13 +1032,14 @@ IMDMA:	DEFW 0  		;adresse ziel,quelle
 FLOC0:	DEFB 0  		;0=FLO2, 1=FLO1
 
 ;==============================================================================
-; IDE Karten Interface für CF-Karte
+; IDE/CF card interface
 ;
-; Subroutine to read one IDE/ATA Disk sector (256 bytes)
-; Address to place data passed in HL
-; LBA bits 0 to 7 passed in C, bits 8 to 15 passed in B
+; Read one IDE/CF card sector (256 bytes)
+;
+; Address for data in HL
+; LBA bits 0 to 7 passed in C
+; LBA bits 8 to 15 passed in B
 ; LBA bits 16 to 23 passed in E
-;
 
 IDERD:
 IDERD1:	IN	A,(IDESTAT)	; check status
@@ -1036,19 +1063,19 @@ IDERD2:	IN	A,(IDESTAT)	; check	status
 	LD	A,20H		; Read sector command
 	OUT	(IDESTAT),A
 
-IDERD3:	; WAIT FOR DRQ SET
+IDERD3:	; wait for drq set
 	IN	A,(IDESTAT)	; read status
 	AND	08H		; DRQ bit
 	JP	Z,IDERD3	; loop until bit set
 	
-IDERD4:	; WAIT FOR BUSY CLEay
+IDERD4:	; wait for busy clear
 	IN	A,(IDESTAT)
 	AND	80H
 	JP	NZ,IDERD4
 	
 	IN	A,(IDESTAT)	; clear INTRQ
 
-IDERD5: ; READ LOOP
+IDERD5: ; read loop
 	IN	A,(IDEDATA)	; get data
 	LD	(HL),A
 	INC	HL
@@ -1059,10 +1086,11 @@ IDERD5: ; READ LOOP
 	RET
 			
 ;------------------------------------------------------------------------------
+; Write one IDE/CF-card sector (256 bytes)
 ;
-; Subroutine to write one IDE/ATA Disk sector (256 bytes)
-; Address of data to write to disk passed in HL
-; LBA bits 0 to 7 passed in C, bits 8 to 15 passed in B
+; Address of data in HL
+; LBA bits 0 to 7 passed in C
+; LBA bits 8 to 15 passed in B
 ; LBA bits 16 to 23 passed in E
 
 IDEWR:
@@ -1087,12 +1115,12 @@ IDEWR2:	IN	A,(IDESTAT)	; check status
 	LD	A,30H		; Write sector command
 	OUT	(IDESTAT),A
 	
-IDEWR3:	; WAIT FOR DRQ SET
+IDEWR3:	; wait for drq set
 	IN	A,(IDESTAT)	; read status
 	AND	08H		; DRQ bit
 	JP	Z,IDEWR3	; loop until bit set			
 
-IDEWR4:	; WRITE LOOP
+IDEWR4:	; write loop
 	LD	A,(HL)
 	OUT	(IDEDATA),A	; write data
 	INC	HL
@@ -1100,7 +1128,7 @@ IDEWR4:	; WRITE LOOP
 	AND	08H		; check DRQ bit
 	JP	NZ,IDEWR4	; write until bit cleared
 
-IDEWR5:	; WAIT FOR BUSY CLEAr
+IDEWR5:	; wait for busy clear
 	IN	A,(IDESTAT)
 	AND	80H
 	JP	NZ,IDEWR5
