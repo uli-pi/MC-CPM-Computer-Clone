@@ -27,13 +27,16 @@
 ; muessen vor FC00h plaziert werden.
 
 ; 06/2026 Ueberarbeitet von Detlef Gerhardt
-; komplette Ueberarbeitung der Labels und sukzessive Kommentierung des Quellcodes.
+; komplette Ueberarbeitung der Labels und sukzessive Kommentierung des Quellcodes
 ; um nach und nach moeglichst viele Routinen zu verstehen.
 ; Diese Version ist bis auf die Versionsnummer noch binaerkompatibel zu Version 8.0v1
 ; --- Work in progress ---
 
 ;------------------------------------------------------------------------------
+; Constants
 
+FALSE	EQU 0
+TRUE	EQU 1
 CR 	EQU 0DH
 LF 	EQU 0AH
 BELL	EQU 7
@@ -44,33 +47,50 @@ ESC	EQU 1BH
 
 RST7	EQU 38H		; der Vektor RST7 wird fuer Breakpoints gebraucht
 
-	; Adressen des seriell Port MC Computer OUT SIO/PIO Karte
+;------------------------------------------------------------------------------
+; I/O addresses
 
+; SYS80S = TRUE:  serial port of SYS-80S card ist used for console
+; SYS80S = FALSE: serial port SIO A at OUT-80 card is used for console
+
+; OUT-80 card SIO B is used for reader, punch and lister
+
+SYS80S	EQU TRUE
+
+; Addresses of serial port UART 8251 at SYS-80s CPU card
+SU_DAT	EQU 020H	; UART 8251 Daten
+SU_STS	EQU 021H	; UART 8251 Control
+SU_RXB	EQU 002h	; RX Ready Bit UART 8251
+SU_TXB	EQU 001h	; TX Ready Bit UART 8251
+
+; Addresses of serial port MC Computer OUT-80 card with SIO
 SA_DAT	EQU 0F0H	; SIO A Daten
 SA_STS	EQU 0F1H	; SIO A Control
 SB_DAT	EQU 0F2H	; SIO B Daten
 SB_STS	EQU 0F3H	; SIO B Control
 S_RXB	EQU 01h		; SIO RX Ready Bit
 S_TXB	EQU 04h		; SIO TX Ready Bit
-	
-	; Adressen des Seriell Port UART 8251 auf SYS-80s CPU Karte
-	; bei SYS-1 oder SYS-80 sind die entsprechenden Daten der
-	; SIO A einzutragen, siehe Auskommentierung
-	IF 0
-U_DAT	EQU SA_DAT	; SIO A Daten
-U_STS	EQU SA_STS	; SIO A Control
-U_RXB	EQU S_RXB	; RX Ready Bit SIO A
-U_TXB	EQU S_TXB	; TX Ready Bit SIO A
+
+	IF SYS80S
+
+; Console is redirected to UART on SYS-80s
+U_DAT	EQU SU_DAT
+U_STS	EQU SU_STS
+U_RXB	EQU SU_RXB
+U_TXB	EQU SU_TXB
+
+	ELSE
+
+; Console is redirected to SIO A on OUT-80 board
+U_DAT	EQU SA_DAT
+U_STS	EQU SA_STS
+U_RXB	EQU S_RXB
+U_TXB	EQU S_TXB
+
 	ENDIF
 
-	; Serial Port A is redirected to UART on SYS-80s
 
-U_DAT	EQU 020H	; UART 8251 Daten
-U_STS	EQU 021H	; UART 8251 Control
-U_RXB	EQU 002h	; RX Ready Bit UART 8251
-U_TXB	EQU 001h	; TX Ready Bit UART 8251
-
-	; Address of IDE Port CF-80 card
+; Address of IDE Port CF-80 card
 
 IDEDATA	EQU 018h	; IDE Data Register
 SECCND	EQU 01Ah	; Sector Count Register
@@ -84,17 +104,17 @@ IDESTAT	EQU 01Fh	; IDE Command/Status Register
 
 	ORG 0000h		; start address in ROM
 
-	; Copy Monitor from address ROMSRT in ROM to address F000 in RAM
+	; Copy Monitor from address ROMSTRT in ROM to address F000 in RAM
 
 BEGIN:	LD SP,0FFFFh 		; set Stack to end of memory
 	LD A,0C9h 		; place RET command at F000h
 	LD (0F000h),A 		; 
 	CALL 0F000h 		; and call it
 
-BEG:	DEC SP  		; get return address from Stack to calculate
+OFFS:	DEC SP  		; get return address from Stack to calculate
 	DEC SP  		; Monitor location in ROM
 	POP DE
-	LD HL,ROMSRT-BEG	; offset from BEG to ROMSRT
+	LD HL,ROMSTRT-OFFS	; offset from BEG to ROMSTRT
 	ADD HL,DE		; actual Montor address in ROM as source address in HL
 	LD DE,0F000h 		; dest address in DE
 	LD BC,0FFFh 		; length in BC (4KB - 1)
@@ -104,7 +124,8 @@ BEG:	DEC SP  		; get return address from Stack to calculate
 ;------------------------------------------------------------------------------
 ; Start of Monitor program, ROM address 0F000h
 
-ROMSRT:	; Start address of Monitor in ROM
+ROMSTRT:
+	; Start address of Monitor in ROM
 	; label must be located before .PHASE
 
 	.PHASE 0F000H	; monitor start address in RAM
@@ -120,7 +141,7 @@ ROMSRT:	; Start address of Monitor in ROM
 	JP IOSET	; Set iobyte, new configuration in C
 	JP MEMCHK	; High memory in B, low memory in A
 
-TRAP:	; trap/breakpoint entry
+TRAP:	; trap/breakpoint entry -> RSTRT
 
 	JP RSTRT
 	JP FLOP	 	; new floppy interface rev 1.0
@@ -409,11 +430,13 @@ getfl:	DI  		; ohne Interrupts
 	LD C,A
 	CALL GET1FL
 	RET NC  	; kein Fehler, no carry
+	
 	LD A,C
 	AND 10101111B
 	LD C,A
 	CALL GET1FL
 	RET NC
+	
 	LD A,C
 	AND 10001111B
 	OR  00010000B
@@ -426,25 +449,26 @@ getfl:	DI  		; ohne Interrupts
 	CALL GET1FL
 	RET  		; carry, dann Fehler
 
+;------------------------------------------------------------------------------
 ; get1fl
 
-get1fl:	LD A,(FLOC0)
-	CP 1  		; if a=1 -> FLO1 
-	JP NZ,GET1FL1
-	
+GET1FL:	LD A,(FLOC0)
+	CP 1
+	JP NZ,GET1FL1	; -> FLO2
+
+	; FLO1
 	LD A,C
-	XOR 10H		;wenn Flo1 dann invertieren Dichtebit
+	XOR 10H		; if FLO1 invert density bit
 	JP GET1FL2
 	
-get1fl1:
-	; ELSE FLO2
+GET1FL1:; FLO2
 	LD A,C
 	
-get1fl2:
+GET1FL2:
 	OUT (FLO+4),A 	; Drive-Code probieren
 	LD A,0FH 	; RSTORE-Befehl mit Verify verwenden
 	OUT (FLO),A 	; und ausgeben
-get1fl3:
+GET1FL3:
 	IN A,(FLO+4)
 	AND 40H 	; Bit 6 pruefen
 	JR Z,GET1FL3 	; bis INT da
@@ -470,58 +494,57 @@ get1fl3:
 ; c=0,1,2,3
 ; 	0,2 gekoppelt  1,3 gekoppelt					
 
-maxi:	CALL SETCOD
+MAXI:	CALL SCODA	; coding 1
 	JP FLOP		; sso-flag auf 0 setzen, jedoch stepflag
 			; gueltig wenn bit 7 gesetzt.
 
 ;------------------------------------------------------------------------------
 
-setcod:	LD A,C  	; SD MAXI
+SCODA:	LD A,C  	; SD MAXI
 	AND 3  		; muss Bereich 0..3 sein
 	CP 0  		; 0 seite 0
-	JR NZ,MAX1
+	JR NZ,SCODA1
 	
 	LD C,00010001B 	; LW 1
 	RET
 
-max1:	CP 1
-	JR NZ,MAX2
+SCODA1:	CP 1
+	JR NZ,SCODA2
 	
 	LD C,00010010B 	; LW 2 seite 0
 	RET
 
-max2:	CP 2
-	JR NZ,MAX3
+SCODA2:	CP 2
+	JR NZ,SCODA3
 	
 	LD C,10010001B 	; LW 1 seite 1
 	RET
-max3:
-	LD C,10010010B 	; LW 2 seite 1
+
+SCODA3:	LD C,10010010B 	; LW 2 seite 1
 	RET
 
 ;------------------------------------------------------------------------------
 
-set2cod:
-	AND 3  		; 0,1,2,3 erlaubt
+SCODB:	AND 3  		; 0,1,2,3 erlaubt
 	CP 0
-	JR NZ,SET2C1
+	JR NZ,SCODB1
 	
 	LD C,00000001B 	; LW 1 seite 0
 	RET
 
-set2c1:	CP 1
-	JR NZ,SET2C2
+SCODB1:	CP 1
+	JR NZ,SCODB2
 	
 	LD C,10000001B 	; LW 1 seite 1
 	RET
 
-set2c2:	CP 2
-	JR NZ,SET2C3
+SCODB2:	CP 2
+	JR NZ,SCODB3
 	
 	LD C,00000010B 	; LW 2 seite 0
 	RET
 
-set2c3:	LD C,10000010B 	; LW 2 seite 1 
+SCODB3:	LD C,10000010B 	; LW 2 seite 1 
 	RET
 
 ;------------------------------------------------------------------------------
@@ -533,7 +556,7 @@ mini:	LD A,C
 	AND 7FH 	; bit 7 interessiert nicht
 	LD C,A
 	PUSH AF
-	CALL SET2COD 	; codierung 2
+	CALL SCODB 	; coding 2
 	POP AF
 	AND 40H 	; dd,sd 
 	JP NZ,MINI3
@@ -678,39 +701,45 @@ CFLO2:	POP AF
 
 ;------------------------------------------------------------------------------
 ; Diverse Unterprogramme
+;------------------------------------------------------------------------------
 
-setup:				; testet ob der Kopf noch
+SETUP:				; testet ob der Kopf noch
 				; geladen ist und setzt die
 	LD B,0  		; Flag fuer SSO-Bit
 	LD A,(DRVCOD) 		; wenn Bit 7 gesetzt, dann abfragen
 	AND 80H
-	JR Z,SET2UP 		; Seite 0, immer mit SSO=0
+	JR Z,SETUP2 		; Seite 0, immer mit SSO=0
+	
 	LD A,(STEPRATE) 	; jetzt pruefen ob flags da
 	AND 80H 		; <>0, dann SSO setzen, wenn seite 1
-	JR Z,SET1UP 		; =0, dann code 0, oder SSOFLAG
+	JR Z,SETUP1 		; =0, dann code 0, oder SSOFLAG
+	
 	LD B,2  		; SSO setzen 
-	JR SET2UP
-set1up:				; pruefen ob SSO-Flag
+	JR SETUP2
+
+SETUP1:	; pruefen ob SSO-Flag
 	LD A,(SSOFLAG) 		; ok, 2=Flag
 	AND 2  			; SSO-Bit
 	LD B,A  		; 0,2 erlaubt 
-set2up:		
-				; entsprechenden Bits
+
+SETUP2:	; entsprechenden Bits
 	IN A,(FLO+4) 		; Status Port
 	AND 20H 		; Head-Load Bit
-	JR NZ,NOSET 		; =1 dann Kopf auf Diskette
+	JR NZ,SETUP3 		; =1 dann Kopf auf Diskette
+	
 	LD A,B
 	OR 4  			; sonst Bitmaske fuer headdown
 	RET
-noset:
+
+SETUP3:	; noset
 	LD A,B
 	RET 			; Code belassen
 	
 ;------------------------------------------------------------------------------
+; Read one sector
+; sector number in E
 
-rdflp:				; einen Sektor lesen
-				; e=sektor nr
-	LD A,C
+RDFLP:	LD A,C
 	OUT (FLO+4),A 		; erst mal Dichtecode setzen und Seite
 	LD A,E
 	OUT (FLO+2),A 		; ins Sektorregister
@@ -718,17 +747,19 @@ rdflp:				; einen Sektor lesen
 	CALL SETUP 		; Register A vorbereiten
 	ADD A,88H 		; Lese-Befehl, sidesel=0
 	OUT (FLO),A 		; Befehl ausfuehren
-rd1:
+
+RDFLP1:	; wait for DRQ
 	IN A,(FLO+4) 		; DRQ schon da ?
-	RLCA  			; bit7 = drq bit6 = int
-	JP NC,RD1 		; bis drq=1 da ist
-	INI  			; dann Transport moeglich
-	JP RD1  		; und alles wiederholen bis INT
+	RLCA  			; bit7 = drq, bit6 = int
+	JP NC,RDFLP1 		; bis drq=1 da ist
+	
+	INI  			; IN (C) -> (HL), HL++
+	JP RDFLP1  		; verlassen nur durch INT
 
 ;------------------------------------------------------------------------------
+; Write one sector
 
-wrflp:				; Floppy-Sektor schreiben
-	LD A,C
+WRFLP:	LD A,C
 	OUT (FLO+4),A 		; erst mal Seite anwaehlen und Dichte
 	LD A,E  		; Sektorregister setzen
 	OUT (FLO+2),A
@@ -736,12 +767,14 @@ wrflp:				; Floppy-Sektor schreiben
 	CALL SETUP		; E-Code in A laden
 	ADD A,0A8H		; Befehl Schreibe-Sektor
 	OUT (FLO),A 		; und Befehl ausfuehren
-wr1:
-	IN A,(FLO+4)		; warten bis DRQ da
+
+WRFLP1:	; wait for DRQ
+	IN A,(FLO+4)
 	RLCA
-	JP NC,WR1 		; dann Wert ausgeben
-	OUTI  			; mit Blockbefehl
-	JP WR1  		; verlassen nur durch INT
+	JP NC,WRFLP1
+	
+	OUTI  			; (HL) -> OUT (C), HL++
+	JP WRFLP1  		; verlassen nur durch INT
 
 ;------------------------------------------------------------------------------
 ; delay: 4 ms at 4 MHz
@@ -759,24 +792,28 @@ DELAY:	DEC BC
 	LD A,B
 	OR C
 	JP NZ,DELAY
+	
 	RET
 
 ;------------------------------------------------------------------------------
+; Seek to track
+; C=Drive D=Track E=Sector
 
-seek:				; Spur anfahren C=Drive D=Spur E=Sektor
-	CALL WAWA 		; short delay
+SEEK:	CALL WAWA 		; short delay
+
 	LD A,C
-	OUT (FLO+4),A 		; Drive-Code und Dichte sowie Seite
+	OUT (FLO+4),A 		; drive code, density and side
 	LD A,E
-	OUT (FLO+2),A 		; Sektor
+	OUT (FLO+2),A 		; Sector
 	LD A,D
-	OUT (FLO+3),A 		; Spur
-	LD B,1CH 		; Seek-Befehl
+	OUT (FLO+3),A 		; track
+	LD B,1CH 		; seek command
 	LD A,(STEPRATE)
-	AND 3  			; 0,1,2,3  zulaessig
-	OR B  			; Seek Befehl zusammen mit Steprate
-	OUT (FLO),A 		; als Befehl ausgeben
-	HALT  			; warten bis INT
+	AND 3  			; 0,1,2,3 zulaessig
+	OR B  			; 
+	OUT (FLO),A 		; execute Seek together with steprate
+
+	HALT  			; wait for INT
 
 ;------------------------------------------------------------------------------
 ; Kopf auf Spur 0 stellen
@@ -795,11 +832,11 @@ RSTORE:	CALL WAWA		; short delay
 	HALT  			; wait for INT
 
 ;------------------------------------------------------------------------------
-; Floppy-Kernroutinen
+; Floppy Kernal Routines
 
-; HL=address, d=track e=sector
-; b=Befehl (0=Steprate setzen, 1=read, 2=write)
-; c=Laufwerkscode
+; HL=Address, d=Track e=Sector
+; b=Command (0=set dteprate, 1=read, 2=write)
+; c=drive code
 ;   aufgebaut wie Statusregister
 ;   7    6    5    4    3    2    1    0
 ;   sso  mot  min  dens d    d    d    d
@@ -807,7 +844,7 @@ RSTORE:	CALL WAWA		; short delay
 ;   mot  = motor on code (std=0)
 ;   min  = 1 bei Minilaufwerken
 ;   dens = 1 bei Single Dense Aufzeichnung
-; d=binaerer Laufwerkscode
+; d=binary drive code
 ;   normalerweise nur 1,2,4,8 moeglich
 ;   Kombinationen moeglich, wenn binaere
 ;   Dekodierung beim Laufwerk verwendet wird
@@ -816,7 +853,7 @@ SOFTEX:	LD A,B			; B = steprate
 	OR A
 	JR NZ,SOFT1
 
-	; new set steprate (0..3 in D, SSO in bit 7)
+	; set new steprate (0..3 in D, SSO in bit 7)
 	LD A,D   		; (+80h =SSO verwenden und pruefen).
 	AND 83h  		; Bit 7=SSO-Flag bei Zugriffen wichtig
 	LD (STEPRATE),A		; die die zweite Seite verwenden.
@@ -868,7 +905,7 @@ notdef:				; Drive nur laden
 	LD A,(DRVCOD) 		; Dann neues Laufwerk ansprechen
 	OUT (FLO+4),A
 	LD BC,2917		; ca 35ms .. 15ms
-	CALL DELAY		; um head-load-Zeit zu beruecksichtigen 
+	CALL DELAY		; um headload-Zeit zu beruecksichtigen 
 	POP BC  		; alte Codes zurueck
 	JR NUR1 		; Immer auf ready pruefen, da
 				; head down sein kann und dennoch
@@ -977,7 +1014,9 @@ WRTEX:	; execute write
 	JR C,TRY1 		; daher nur 4 Versuche
 	JR ERROR1 		; FATAL FEHLER
 
-seekex:				; Seek ausfuehren
+;------------------------------------------------------------------------------
+
+SEEKEX:	; execute seek
 	PUSH HL
 	PUSH DE
 	PUSH BC
@@ -1146,7 +1185,9 @@ FREEMEM EQU $
 ;==============================================================================
 ; Monitor start message
 
-MSG:	DEFB CR,LF
+MSGSTRT:
+MSGCRLF:
+	DEFB CR,LF
 
 	DEFM ESC,"[2J",ESC,"[H",BELL,CR,LF
 	DEFM " -------------------------",CR,LF
@@ -1154,7 +1195,9 @@ MSG:	DEFB CR,LF
 	DEFM "   RDK/JS 1985 - UH 2026",CR,LF
 	DEFM	" -------------------------",CR,LF,LF
 	DEFM " Bootmenue = I",CR,LF,LF,0
-	MSGL EQU $-MSG
+	MSGL EQU $-MSGSTRT
+
+;------------------------------------------------------------------------------
 
 INIT1:	; only called once
 
@@ -1233,7 +1276,7 @@ STKIT:	PUSH HL
 HELLO:	LD C,1AH
 	CALL CONOUT
 	LD B,MSGL
-	CALL TOM1
+	CALL OUTSTRT		; output monitor start message
 
 	;----------------------------------------------------------------------
 	
@@ -1309,11 +1352,11 @@ FLPL	EQU $-BOOTMSG
 BOOT:	CALL INIFLP 	; Vektoren etc definieren
 	LD HL,BOOTMSG 	; Meldung ausgeben
 	LD B,FLPL 	 
-	CALL TOM 	; dann Antwort abwarten
-	CALL CONIN
+	CALL OUTMSG
+	CALL CONIN 	; und auf Antwort abwarten
 	AND 7FH  	; ohne Paritaet
 	LD C,A
-	CALL CONOUT		; echo
+	CALL CONOUT	; echo
 	CALL CRLF
 	
 	CP "I"  	; I-Vektor fuer Benutzerbefehl
@@ -1374,18 +1417,18 @@ EXEC1:	PUSH HL 	; rev (1.5) 1.1
 	JP (HL) 	; Boot sector ausfuehren
 
 ;------------------------------------------------------------------------------
+; Load boot sector from IDE/CF-card to RAM location 08000h
 
-IDE_CF:	LD HL,08000h	; laedt Bootloader von IDE/ATA Disk
-			; in die RAM Adresse 08000h
-	LD BC,0000h	; LBA 0
+IDE_CF:	LD HL,08000h
+	LD BC,0000h	; B,C,E = 0 -> LBA = 0
 	LD E,00H
-	CALL IDERD
-	JP 08000H	; Boot sector ausfuehren
+	CALL IDERD	; IDE read
+	JP 08000H	; Execute boot sector
 
 ;------------------------------------------------------------------------------
 ; Monitor command ASSIGN
-
 ; assign IOBYTE
+
 ; 000000XX CONSOLE
 ; 0000XX00 READER
 ; 00XX0000 PUNCH
@@ -2105,28 +2148,32 @@ XAM10:	PUSH HL
 	JR XAM9
 	
 ;------------------------------------------------------------------------------
-; Monitor message output routine
-; Address in HL
-; Length in B
+; Outputs monitor message start message or CR+LF or message pointer in HL
+; length in B
 
-TOM1:	LD HL,MSG
+OUTSTRT:
+OUTCRLF:
+	LD HL,MSGSTRT
 
-TOM:	LD C,(HL)
+	; Message address in HL
+	
+OUTMSG:	LD C,(HL)
 	INC HL
 	CALL CONOUT
-	DJNZ TOM
+	DJNZ OUTMSG
+	
+	; check if char received
 	CALL CONSTS
 	OR A
 	RET Z
 
-; IF CTRL C ABORT
-
-CCHK:	CALL CONIN7
+	; check if CTRL-C abort
+	CALL CONIN7
 	CP 3
 	RET NZ
 
-;------------------------------------------------------------------------------
-; ERROR
+	;------------------------------------------------------------------------------
+	; reset stack pointer and output '*' to indicate an error
 
 ERROR:	CALL MEMSIZ
 	LD DE,-22
@@ -2214,7 +2261,7 @@ EXLF:	CALL EXPR
 CRLF:	PUSH HL
 	push AF
 	LD B,2
-	CALL TOM1
+	CALL OUTCRLF	; output CR+LF
 	POP AF
 	POP HL
 	RET
@@ -2538,14 +2585,14 @@ RSTRT7:	INC HL
 	JP WARM
 
 ;------------------------------------------------------------------------------
-; Console Inputs, 7 Bits
+; Console Input, 7 Bit
 
 CONIN7:	CALL CONIN
 	AND 7FH
 	RET
 
 ;------------------------------------------------------------------------------
-; ???
+; Input, analyse and convert a char from the console
 
 TI:	CALL CONIN7
 	RET Z
@@ -2579,7 +2626,7 @@ TI1:	AND 05FH
 
 ;------------------------------------------------------------------------------
 ; Monitor command QUERY
-; Ein-und Ausgabe auf Ports
+; Ein- und Ausgabe auf Ports
 
 QUERY:	CALL TI
 	CP 'O'
@@ -2658,6 +2705,7 @@ LTBL:	DEFB 'C'	; console
 	DEFB 'U'	; user
 
 ;------------------------------------------------------------------------------
+; ???
 
 EXIT:	POP BC
 	LD A,C
