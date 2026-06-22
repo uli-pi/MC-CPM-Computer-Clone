@@ -1,0 +1,2250 @@
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   1
+UF122N  Z80
+
+    1                   	.z80
+    2                   		;*********************************************
+    3                   		;* Universal Formatierer fuer Mini/Maxi      *
+    4                   		;* Rev 1.22 (C) 1984 Rolf-Dieter Klein / JS  *
+    5                   		;* FLO2-Baugruppe / MC/ NDR/                 *
+    6                   		;* FLO1-Baugruppe MC                         *
+    7                   		;*********************************************
+    8         00C0      	flo0 equ 0c0h 	; FLO2-Mini/Maxi.
+    9         00C1      	flo1 equ 0c1h
+   10         00C2      	flo2 equ 0c2h
+   11         00C3      	flo3 equ 0c3h
+   12         00C4      	flo4 equ 0c4h
+   13                   		;
+   14         0040      	floa0 equ 040h 	; FLO1-Maxi
+   15         0041      	floa1 equ 041h
+   16         0042      	floa2 equ 042h
+   17         0043      	floa3 equ 043h
+   18         0044      	floa4 equ 044h
+   19                   		;
+   20         0030      	flob0 equ 030h 	; FLO1-Mini
+   21         0031      	flob1 equ 031h
+   22         0032      	flob2 equ 032h
+   23         0033      	flob3 equ 033h
+   24         0034      	flob4 equ 034h
+   25                   		;
+   26                   		; arbeitet unabhaengig vom CP/M - Betriebsystem.
+   27 0100  C3 070E     	jp start 	; Hauptprogr.
+   28                   
+   29 0103  C3 F009     co::	jp 0f009h 	; Ausgabe eines Zeichens in C
+   30                   
+   31 0106              ci::	; v1.22
+   32 0106  CD F003     	call 0f003h 	; Eingabe eines Zeichens nach A
+   33 0109  E6 7F       	and 7Fh
+   34 010B  C9          	ret
+   35                   
+   36 010C              int::
+   37 010C  F1          	pop af  	; spez. Int-Routine
+   38 010D  DB 40       	in a,(floa0)
+   39 010F  DB 30       	in a,(flob0)
+   40 0111  DB C0       	in a,(flo0) 	; Status flo ist wichtig
+   41 0113  FB          	ei
+   42 0114  ED 4D       	reti  	; ok fertig
+   43                   
+   44 0116              format::		; Universal Formatierer
+   45 0116  21 156C     	ld hl,fmsg 
+   46 0119  CD 0B99     	call print
+   47 011C  DB 40       	in a,(floa0) 	; ggf. bei gemischtem Betrieb auch
+   48 011E  DB 30       	in a,(flob0)   	; andere Ports loeschen
+   49 0120  DB C0       	in a,(flo0) 	; alle Interrupts loeschen
+   50                   		;
+   51 0122  ED 56       	im 1  	; Mode 1, RST-7 verwenden
+   52 0124  3E C3       	ld a,0c3h 	; Sprungvektor setzen
+   53 0126  32 0038     	ld (38h),a
+   54 0129  21 010C     	ld hl,int
+   55 012C  22 0039     	ld (39h),hl 	; auf Interruptroutine
+   56                   		; 
+   57 012F  CD 048E     	call rstore 	; Auf Spur 0 bringen
+   58                   		;
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   2
+UF122N  Z80
+
+   59 0132  AF          	xor a
+   60 0133  32 18C7     	ld (akttrk),a  	; Start bei Spur 0
+   61 0136  3A 18C1     	ld a,(spuren) 	; Anzahl Spuren
+   62 0139  47          	ld b,a
+   63 013A              loop::
+   64 013A  C5          	push bc
+   65 013B  CD 01F3     	call ecmachk 	; falls Spur 0, und ecma70
+   66 013E  CD 02E3     	call gentrack 	; Spur generieren
+   67 0141  CD 0674     	call form 	; und formatieren
+   68 0144  CD 0245     	call errchk
+   69 0147  3A 18C2     	ld a,(kopf)
+   70                   ;1 	if a=1  	; Seite 1 auch
+   71 014A  FE 01       	CP 1  
+   72 014C  C2 0178     	JP NZ,.L1
+   73 014F  3A 18C4     	ld a,(laufwerk) 	; Rueckseite setzen
+   74 0152  F6 80       	or 80h  	; aber kein Side-sel
+   75 0154  32 18C4     	ld (laufwerk),a
+   76 0157  3A 18C6     	ld a,(sideflag)
+   77                   ;2 	if a<>0
+   78 015A  B7          	OR A
+   79 015B  CA 0163     	JP Z,.L2
+   80 015E  3E 80       	ld a,80h
+   81 0160  32 18C5     	ld (sidesel),a 	; setzen
+   82                   ;2 	endif
+   83 0163              .L2:
+   84 0163  CD 02E3     	call gentrack
+   85 0166  CD 0674     	call form
+   86 0169  CD 0245     	call errchk
+   87 016C  3A 18C4     	ld a,(laufwerk)
+   88 016F  E6 7F       	and 7fh
+   89 0171  32 18C4     	ld (laufwerk),a   
+   90 0174  AF          	xor a
+   91 0175  32 18C5     	ld (sidesel),a
+   92                   ;1 	endif
+   93 0178              .L1:
+   94 0178  3A 18C7     	ld a,(akttrk)
+   95 017B  3C          	inc a
+   96 017C  32 18C7     	ld (akttrk),a
+   97 017F  47          	ld b,a
+   98 0180  3A 18C1     	ld a,(spuren)
+   99                   ;1 	if a<>b
+  100 0183  B8          	CP b
+  101 0184  CA 018A     	JP Z,.L3
+  102 0187  CD 0546     	call stepin
+  103                   ;1 	endif
+  104 018A              .L3:
+  105 018A  0E 46       	ld c,'F'
+  106 018C  CD 0103     	call co 	; Meldung FFFFF ausgeben bei jeder Spur ein F
+  107 018F  C1          	pop bc
+  108 0190  10 A8       	djnz loop
+  109                   		; Verify
+  110 0192  21 1838     	ld hl,vmsg
+  111 0195  CD 0B99     	call print
+  112 0198  CD 048E     	call rstore
+  113 019B  AF          	xor a
+  114 019C  32 18C7     	ld (akttrk),a  	; Start bei Spur 0
+  115 019F  3A 18C1     	ld a,(spuren) 	; Anzahl Spuren
+  116 01A2  47          	ld b,a
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   3
+UF122N  Z80
+
+  117 01A3              loop1::
+  118 01A3  C5          	push bc
+  119 01A4  CD 01F3     	call ecmachk
+  120 01A7  CD 0462     	call verify
+  121 01AA  3A 18C2     	ld a,(kopf)
+  122                   ;1 	if a=1
+  123 01AD  FE 01       	CP 1
+  124 01AF  C2 01D5     	JP NZ,.L4
+  125 01B2  3A 18C4     	ld a,(laufwerk)
+  126 01B5  F6 80       	or 80h
+  127 01B7  32 18C4     	ld (laufwerk),a
+  128 01BA  3A 18C6     	ld a,(sideflag)
+  129                   ;2 	if a<>0
+  130 01BD  B7          	OR A
+  131 01BE  CA 01C6     	JP Z,.L5
+  132 01C1  3E 80       	ld a,80h
+  133 01C3  32 18C5     	ld (sidesel),a 	; setzen
+  134                   ;2 	endif
+  135 01C6              .L5:
+  136 01C6  CD 0462     	call verify
+  137 01C9  3A 18C4     	ld a,(laufwerk)
+  138 01CC  E6 7F       	and 7fh
+  139 01CE  32 18C4     	ld (laufwerk),a 
+  140 01D1  AF          	xor a
+  141 01D2  32 18C5     	ld (sidesel),a 	; wieder Seite 0
+  142                   ;1 	endif
+  143 01D5              .L4:
+  144 01D5  3A 18C7     	ld a,(akttrk)
+  145 01D8  3C          	inc a
+  146 01D9  32 18C7     	ld (akttrk),a
+  147 01DC  47          	ld b,a
+  148 01DD  3A 18C1     	ld a,(spuren)
+  149                   ;1 	if a<>b
+  150 01E0  B8          	CP b
+  151 01E1  CA 01E7     	JP Z,.L6
+  152 01E4  CD 0546     	call stepin
+  153                   ;1 	endif
+  154 01E7              .L6:
+  155 01E7  0E 56       	ld c,'V' 
+  156 01E9  CD 0103     	call co 	; VVVVV fuer Verify
+  157 01EC  C1          	pop bc
+  158 01ED  10 B4       	djnz loop1
+  159 01EF  CD 048E     	call rstore 	; und am Schluss auf 0 zurueck
+  160 01F2  C9          	ret
+  161                   
+  162 01F3              ecmachk:
+  163 01F3  3A 18BB     	ld a,(ecma)
+  164 01F6  B7          	or a
+  165 01F7  C8          	ret z  	; 0=kein ECMA70 Format
+  166 01F8  AF          	xor a
+  167 01F9  32 18BA     	ld (minimax),a 	; immer Minilaufwerk
+  168 01FC  3A 18C7     	ld a,(akttrk) 	; = Spur 0, dann SD-Formatieren
+  169                   ;1 	if a=0
+  170 01FF  B7          	OR A
+  171 0200  C2 0225     	JP NZ,.L7
+  172 0203  21 0080     	ld hl,128
+  173 0206  22 18BC     	ld (anzbyte),hl
+  174 0209  3E 00       	ld a,0 	; erste Spur einfache Dichte
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   4
+UF122N  Z80
+
+  175 020B  32 18BF     	ld (dichte),a 	;
+  176 020E  3E 00       	ld a,0
+  177 0210  32 18C2     	ld (kopf),a 	; 16 x SD , 40 Spuren
+  178 0213  3E 10       	ld a,16
+  179 0215  32 18C3     	ld (sektoren),a
+  180 0218  3E 1B       	ld a,27
+  181 021A  32 18C0     	ld (gaplen),a
+  182 021D  3E 28       	ld a,40
+  183 021F  32 18C1     	ld (spuren),a
+  184                   ;1 	else
+  185 0222  C3 0244     	JP .L8
+  186 0225              .L7:
+  187 0225  21 0100     	ld hl,256 	; rest DD
+  188 0228  22 18BC     	ld (anzbyte),hl
+  189 022B  3E 01       	ld a,1
+  190 022D  32 18BF     	ld (dichte),a 	; DD
+  191 0230  3E 00       	ld a,0
+  192 0232  32 18C2     	ld (kopf),a 	; nur einseitig
+  193 0235  3E 10       	ld a,16 	; Sektorenzahl
+  194 0237  32 18C3     	ld (sektoren),a
+  195 023A  3E 36       	ld a,54
+  196 023C  32 18C0     	ld (gaplen),a 	; STD Gap
+  197 023F  3E 28       	ld a,40 	; und 40 Spuren
+  198 0241  32 18C1     	ld (spuren),a
+  199                   ;1 	endif
+  200 0244              .L8:
+  201 0244  C9          	ret
+  202 0245              errchk:		; allgemeine Fehlerpruefroutine
+  203 0245  B7          	or a
+  204 0246  C8          	ret z  	; =0, Status ok
+  205                   		; Track, Spur ausgeben
+  206 0247  F5          	push af 	; Fehlercode retten
+  207 0248  21 1721     	ld hl,tkmsg
+  208 024B  CD 0B99     	call print
+  209 024E  3A 18C7     	ld a,(akttrk)
+  210 0251  6F          	ld l,a
+  211 0252  26 00       	ld h,0 
+  212 0254  CD 02AE     	call printhl
+  213 0257  21 172C     	ld hl,skmsg
+  214 025A  CD 0B99     	call print
+  215 025D  3A 18C8     	ld a,(aktsek)
+  216 0260  6F          	ld l,a
+  217 0261  26 00       	ld h,0
+  218 0263  CD 02AE     	call printhl
+  219 0266  CD 0D50     	call crlf
+  220                   		;
+  221 0269  F1          	pop af  	; Fehlercode zurueck
+  222 026A  CB 57       	bit 2,a
+  223 026C  21 16ED     	ld hl,f0msg 	; error
+  224                   ;1 	if nz
+  225 026F  CA 0275     	JP Z,.L9
+  226 0272  21 167B     	ld hl,f2msg
+  227                   ;1 	endif
+  228 0275              .L9:
+  229 0275  CB 5F       	bit 3,a
+  230                   ;1 	if nz
+  231 0277  CA 027D     	JP Z,.L10
+  232 027A  21 1643     	ld hl,f3msg
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   5
+UF122N  Z80
+
+  233                   ;1 	endif
+  234 027D              .L10:
+  235 027D  CB 67       	bit 4,a
+  236                   ;1 	if nz
+  237 027F  CA 0285     	JP Z,.L11
+  238 0282  21 160C     	ld hl,f4msg
+  239                   ;1 	endif
+  240 0285              .L11:
+  241 0285  CB 6F       	bit 5,a
+  242                   ;1 	if nz
+  243 0287  CA 028D     	JP Z,.L12
+  244 028A  21 15D5     	ld hl,f5msg
+  245                   ;1 	endif
+  246 028D              .L12:
+  247 028D  CB 77       	bit 6,a
+  248                   ;1 	if nz
+  249 028F  CA 0295     	JP Z,.L13
+  250 0292  21 159E     	ld hl,f6msg
+  251                   ;1 	endif
+  252 0295              .L13:
+  253                   ;1 	if nz
+  254 0295  CA 029B     	JP Z,.L14
+  255 0298  21 159E     	ld hl,f6msg 	; dominant ist Fehler, Writeprot.
+  256                   ;1 	endif
+  257 029B              .L14:
+  258 029B  CD 0B99     	call print
+  259                   ;1 	repeat
+  260 029E              .L15:
+  261 029E  CD 0106     	call ci
+  262                   ;1 	until a in ['W','w']
+  263 02A1  FE 57       	CP 'W'
+  264 02A3  CA 02AB     	JP Z,.L16
+  265 02A6  FE 77       	CP 'w'
+  266 02A8  C2 029E     	JP NZ,.L15
+  267 02AB              .L16:
+  268 02AB  C3 070E     	jp start 	; Stack adjust nicht noetig 
+  269 02AE              printhl:		; dezimale Ausgabe
+  270 02AE  AF          	xor a
+  271 02AF  F5          	push af
+  272 02B0              aus1:
+  273 02B0  3E 10       	ld a,16
+  274 02B2  01 000A     	ld bc,10 	; div 10
+  275 02B5  11 0000     	ld de,0 	; Rest
+  276 02B8  EB          	ex de,hl
+  277 02B9              divlp:
+  278 02B9  F5          	push af
+  279 02BA  CB 23       	sla e
+  280 02BC  CB 12       	rl d
+  281 02BE  CB 15       	rl l
+  282 02C0  CB 14       	rl h
+  283 02C2  CB C3       	set 0,e
+  284 02C4  AF          	xor a
+  285 02C5  ED 42       	sbc hl,bc
+  286                   ;1 	if c
+  287 02C7  D2 02CD     	JP NC,.L17
+  288 02CA  09          	add hl,bc
+  289 02CB  CB 83       	res 0,e
+  290                   ;1 	endif
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   6
+UF122N  Z80
+
+  291 02CD              .L17:
+  292 02CD  F1          	pop af
+  293 02CE  3D          	dec a
+  294 02CF  20 E8       	jr nz,divlp
+  295 02D1  EB          	ex de,hl 	; hl=erg, de=rest
+  296                   		;
+  297 02D2  7B          	ld a,e
+  298 02D3  F6 30       	or 30h
+  299 02D5  F5          	push af
+  300 02D6  7C          	ld a,h
+  301 02D7  B5          	or l
+  302 02D8  20 D6       	jr nz,aus1
+  303 02DA              aus2:
+  304 02DA  F1          	pop af
+  305 02DB  B7          	or a
+  306 02DC  C8          	ret z
+  307 02DD  4F          	ld c,a
+  308 02DE  CD 0103     	call co
+  309 02E1  18 F7       	jr aus2
+  310 02E3              gentrack::		; neue Spur erzeugen
+  311 02E3  DD 21 18C9  	ld ix,formtab 	; Startadresse Formattabelle 
+  312                   		; header ausgeben
+  313 02E7  3A 18BF     	ld a,(dichte) 	; je nach dichte
+  314                   ;1 	if a=0
+  315 02EA  B7          	OR A
+  316 02EB  C2 02F5     	JP NZ,.L18
+  317 02EE  06 10       	ld b,16
+  318 02F0  0E FF       	ld c,0ffh 	; fuellbyte 
+  319                   ;1 	else
+  320 02F2  C3 02F9     	JP .L19
+  321 02F5              .L18:
+  322 02F5  06 20       	ld b,32 	; bei doppelter Dichte
+  323 02F7  0E 4E       	ld c,04eh
+  324                   ;1 	endif
+  325 02F9              .L19:
+  326                   ;1 	do b
+  327 02F9              .L20:
+  328 02F9  DD 71 00    	ld (ix+0),c
+  329 02FC  DD 23       	inc ix
+  330                   ;1 	enddo  	; Header wird abgelegt
+  331 02FE  05          	DEC B
+  332 02FF  C2 02F9     	JP NZ,.L20
+  333                   		; Sektorenschleife
+  334 0302  3E 01       	ld a,1
+  335 0304  32 18C8     	ld (aktsek),a 	; aktueller Sektor
+  336 0307  3A 18C3     	ld a,(sektoren)
+  337 030A  47          	ld b,a
+  338                   ;1 	do b
+  339 030B              .L21:
+  340 030B  C5          	push bc
+  341                   		; ID-Feld aufbereiten
+  342 030C  3A 18BF     	ld a,(dichte)
+  343                   ;2 	if a=0 	; SD
+  344 030F  B7          	OR A
+  345 0310  C2 0382     	JP NZ,.L22
+  346                   ;3 	do b,6
+  347 0313  06 06       	LD b,6
+  348 0315              .L23:
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   7
+UF122N  Z80
+
+  349 0315  DD 36 00 00 	ld (ix+0),0
+  350 0319  DD 23       	inc ix
+  351                   ;3 	enddo
+  352 031B  05          	DEC B
+  353 031C  C2 0315     	JP NZ,.L23
+  354 031F  DD 36 00 FE 	ld (ix+0),0feh 	; ID-Adress-Mark
+  355 0323  DD 23       	inc ix
+  356 0325  3A 18C7     	ld a,(akttrk)
+  357 0328  DD 77 00    	ld (ix+0),a  	; Track 0..n
+  358 032B  DD 23       	inc ix
+  359 032D  3A 18C5     	ld a,(sidesel) 	; fuer Side-Flag
+  360 0330  E6 80       	and 80h  	;
+  361                   ;3 	if a=0
+  362 0332  B7          	OR A
+  363 0333  C2 033D     	JP NZ,.L24
+  364 0336  DD 36 00 00 	ld (ix+0),0  	; Seite 0
+  365                   ;3 	else
+  366 033A  C3 0341     	JP .L25
+  367 033D              .L24:
+  368 033D  DD 36 00 01 	ld (ix+0),1  	; Seite 1
+  369                   ;3 	endif
+  370 0341              .L25:
+  371 0341  DD 23       	inc ix
+  372 0343  3A 18C8     	ld a,(aktsek)
+  373 0346  DD 77 00    	ld (ix+0),a  	; Sektor 1..n
+  374 0349  DD 23       	inc ix
+  375 034B  2A 18BC     	ld hl,(anzbyte) 	; 128,256,512,1024
+  376 034E  7C          	ld a,h  	; 0,1,2,4 da 80h,100h,200h,400h
+  377                   ;3 	if a=4
+  378 034F  FE 04       	CP 4
+  379 0351  C2 0356     	JP NZ,.L26
+  380 0354  3E 03       	ld a,3
+  381                   ;3 	endif
+  382 0356              .L26:
+  383 0356  DD 77 00    	ld (ix+0),a  	; 0,1,2,3 Laengenkennung
+  384 0359  DD 23       	inc ix
+  385 035B  DD 36 00 F7 	ld (ix+0),0f7h 	; und CRC erzeugen
+  386 035F  DD 23       	inc ix
+  387                   ;3 	do b,11
+  388 0361  06 0B       	LD b,11
+  389 0363              .L27:
+  390 0363  DD 36 00 FF 	ld (ix+0),0ffh
+  391 0367  DD 23       	inc ix
+  392                   ;3 	enddo
+  393 0369  05          	DEC B
+  394 036A  C2 0363     	JP NZ,.L27
+  395                   ;3 	do b,6
+  396 036D  06 06       	LD b,6
+  397 036F              .L28:
+  398 036F  DD 36 00 00 	ld (ix+0),0
+  399 0373  DD 23       	inc ix
+  400                   ;3 	enddo
+  401 0375  05          	DEC B
+  402 0376  C2 036F     	JP NZ,.L28
+  403 0379  DD 36 00 FB 	ld (ix+0),0fbh 	; Data Mark
+  404 037D  DD 23       	inc ix
+  405                   ;2 	else  	; DD
+  406 037F  C3 0406     	JP .L29
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   8
+UF122N  Z80
+
+  407 0382              .L22:
+  408                   ;3 	do b,12
+  409 0382  06 0C       	LD b,12
+  410 0384              .L30:
+  411 0384  DD 36 00 00 	ld (ix+0),0
+  412 0388  DD 23       	inc ix
+  413                   ;3 	enddo
+  414 038A  05          	DEC B
+  415 038B  C2 0384     	JP NZ,.L30
+  416                   ;3 	do b,3
+  417 038E  06 03       	LD b,3
+  418 0390              .L31:
+  419 0390  DD 36 00 F5 	ld (ix+0),0f5h
+  420 0394  DD 23       	inc ix
+  421                   ;3 	enddo
+  422 0396  05          	DEC B
+  423 0397  C2 0390     	JP NZ,.L31
+  424 039A  DD 36 00 FE 	ld (ix+0),0feh 	; ID-Adress-Mark
+  425 039E  DD 23       	inc ix
+  426 03A0  3A 18C7     	ld a,(akttrk)
+  427 03A3  DD 77 00    	ld (ix+0),a  	; Track 0..n
+  428 03A6  DD 23       	inc ix
+  429 03A8  3A 18C5     	ld a,(sidesel) 	; fuer Side-Sel SSO
+  430 03AB  E6 80       	and 80h
+  431                   ;3 	if a=0
+  432 03AD  B7          	OR A
+  433 03AE  C2 03B8     	JP NZ,.L32
+  434 03B1  DD 36 00 00 	ld (ix+0),0  	; Seite 0
+  435                   ;3 	else
+  436 03B5  C3 03BC     	JP .L33
+  437 03B8              .L32:
+  438 03B8  DD 36 00 01 	ld (ix+0),1  	; Seite 1
+  439                   ;3 	endif
+  440 03BC              .L33:
+  441 03BC  DD 23       	inc ix
+  442 03BE  3A 18C8     	ld a,(aktsek)
+  443 03C1  DD 77 00    	ld (ix+0),a  	; Sektor 1..n
+  444 03C4  DD 23       	inc ix
+  445 03C6  2A 18BC     	ld hl,(anzbyte) 	; 128,256,512,1024
+  446 03C9  7C          	ld a,h  	; 0,1,2,4 da 80h,100h,200h,400h
+  447                   ;3 	if a=4
+  448 03CA  FE 04       	CP 4
+  449 03CC  C2 03D1     	JP NZ,.L34
+  450 03CF  3E 03       	ld a,3
+  451                   ;3 	endif
+  452 03D1              .L34:
+  453 03D1  DD 77 00    	ld (ix+0),a  	; 0,1,2,3 Laengenkennung
+  454 03D4  DD 23       	inc ix
+  455 03D6  DD 36 00 F7 	ld (ix+0),0f7h 	; und CRC erzeugen
+  456 03DA  DD 23       	inc ix
+  457                   ;3 	do b,22
+  458 03DC  06 16       	LD b,22
+  459 03DE              .L35:
+  460 03DE  DD 36 00 4E 	ld (ix+0),04eh
+  461 03E2  DD 23       	inc ix
+  462                   ;3 	enddo
+  463 03E4  05          	DEC B
+  464 03E5  C2 03DE     	JP NZ,.L35
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   9
+UF122N  Z80
+
+  465                   ;3 	do b,12
+  466 03E8  06 0C       	LD b,12
+  467 03EA              .L36:
+  468 03EA  DD 36 00 00 	ld (ix+0),0
+  469 03EE  DD 23       	inc ix
+  470                   ;3 	enddo
+  471 03F0  05          	DEC B
+  472 03F1  C2 03EA     	JP NZ,.L36
+  473                   ;3 	do b,3
+  474 03F4  06 03       	LD b,3
+  475 03F6              .L37:
+  476 03F6  DD 36 00 F5 	ld (ix+0),0f5h
+  477 03FA  DD 23       	inc ix
+  478                   ;3 	enddo
+  479 03FC  05          	DEC B
+  480 03FD  C2 03F6     	JP NZ,.L37
+  481 0400  DD 36 00 FB 	ld (ix+0),0fbh 	; Data Mark
+  482 0404  DD 23       	inc ix
+  483                   ;2 	endif
+  484 0406              .L29:
+  485                   		; Datenblock ablegen
+  486 0406  3A 18BE     	ld a,(filler) 	; Datenbyte
+  487 0409  4F          	ld c,a
+  488 040A  2A 18BC     	ld hl,(anzbyte) 	; 128,256,512,1024
+  489                   ;2 	do hl
+  490 040D              .L38:
+  491 040D  DD 71 00    	ld (ix+0),c
+  492 0410  DD 23       	inc ix
+  493                   ;2 	enddo
+  494 0412  2B          	DEC HL
+  495 0413  7C          	LD A,H
+  496 0414  B5          	OR L
+  497 0415  C2 040D     	JP NZ,.L38
+  498                   		;
+  499 0418  DD 36 00 F7 	ld (ix+0),0f7h 	; CRC ablegen danach
+  500 041C  DD 23       	inc ix
+  501 041E  3A 18BF     	ld a,(dichte)
+  502                   ;2 	if a=0
+  503 0421  B7          	OR A
+  504 0422  C2 042A     	JP NZ,.L39
+  505 0425  0E FF       	ld c,0ffh  	; Datenbyte SD
+  506                   ;2 	else
+  507 0427  C3 042C     	JP .L40
+  508 042A              .L39:
+  509 042A  0E 4E       	ld c,04eh  	; Datenbyte DD
+  510                   ;2 	endif
+  511 042C              .L40:
+  512 042C  3A 18C0     	ld a,(gaplen)
+  513 042F  47          	ld b,a  	; Gap 3 ablegen
+  514                   ;2 	do b
+  515 0430              .L41:
+  516 0430  DD 71 00    	ld (ix+0),c
+  517 0433  DD 23       	inc ix
+  518                   ;2 	enddo
+  519 0435  05          	DEC B
+  520 0436  C2 0430     	JP NZ,.L41
+  521                   		; alle Sektoren
+  522 0439  3A 18C8     	ld a,(aktsek)
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  10
+UF122N  Z80
+
+  523 043C  3C          	inc a
+  524 043D  32 18C8     	ld (aktsek),a 	; neue Sektorennummer
+  525 0440  C1          	pop bc
+  526                   ;1 	enddo
+  527 0441  05          	DEC B
+  528 0442  C2 030B     	JP NZ,.L21
+  529                   		; fuellen bis ende
+  530 0445  3A 18BF     	ld a,(dichte)
+  531                   ;1 	if a=0  	; SD
+  532 0448  B7          	OR A
+  533 0449  C2 0451     	JP NZ,.L42
+  534 044C  0E FF       	ld c,0ffh 	; Gap 4
+  535                   ;1 	else  	; DD
+  536 044E  C3 0453     	JP .L43
+  537 0451              .L42:
+  538 0451  0E 4E       	ld c,04eh
+  539                   ;1 	endif
+  540 0453              .L43:
+  541                   ;1 	do hl,1000 	; Sicherheitshalber grosse Zahl
+  542 0453  21 03E8     	LD hl,1000 
+  543 0456              .L44:
+  544 0456  DD 71 00    	ld (ix+0),c   	; damit bis zum Indexpuls
+  545 0459  DD 23       	inc ix 	; keine Fremdbytes kommen
+  546                   ;1 	enddo
+  547 045B  2B          	DEC HL
+  548 045C  7C          	LD A,H
+  549 045D  B5          	OR L
+  550 045E  C2 0456     	JP NZ,.L44
+  551 0461  C9          	ret
+  552 0462              verify::		; pruefen einer Spur
+  553 0462  CD 0482     	call wai  	; Head Settle Time
+  554 0465  3E 01       	ld a,1   	; beruecksichtigen
+  555 0467  32 18C8     	ld (aktsek),a
+  556 046A  3A 18C3     	ld a,(sektoren)
+  557 046D  47          	ld b,a
+  558                   ;1 	do b
+  559 046E              .L45:
+  560 046E  C5          	push bc
+  561 046F  CD 0576     	call read  	; einfach einlesen
+  562 0472  CD 0245     	call errchk  	; =0 dann ok, sonst Meldung ausgeben
+  563 0475  3A 18C8     	ld a,(aktsek)
+  564 0478  3C          	inc a
+  565 0479  32 18C8     	ld (aktsek),a
+  566 047C  C1          	pop bc
+  567                   ;1 	enddo
+  568 047D  05          	DEC B
+  569 047E  C2 046E     	JP NZ,.L45
+  570 0481  C9          	ret
+  571                   
+  572 0482              wai::
+  573 0482  C5          	push bc 	; Warteschleife 40ms.. 10ms
+  574 0483  01 0D05     	ld bc,0d05h
+  575 0486              lp3::
+  576 0486  0B          	dec bc
+  577 0487  79          	ld a,c
+  578 0488  B0          	or b
+  579 0489  C2 0486     	jp nz,lp3
+  580 048C  C1          	pop bc
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  11
+UF122N  Z80
+
+  581 048D  C9          	ret
+  582 048E              rstore::		; Auf Spur 0 bringen
+  583 048E  3A 18B8     	ld a,(user)
+  584 0491  B7          	or a  	; FLO2
+  585 0492  C2 04C6     	jp nz,rastore
+  586 0495  21 00FA     	ld hl,250 	; Versuche max
+  587 0498              r1st:
+  588 0498  E5          	push  hl
+  589 0499  DB C0       	in a,(flo0)
+  590 049B  CD 0482     	call wai
+  591 049E  FB          	ei  	; Jetzt Int erlaubt
+  592 049F  CD 052E     	call rexec
+  593 04A2  F3          	di
+  594 04A3  E1          	pop hl
+  595 04A4  DB C0       	in a,(flo0) 	; Status pruefen
+  596 04A6  E6 80       	and 80h 	; <>0 dann nicht ready
+  597 04A8  CA 052D     	jp z,r2st
+  598 04AB  2B          	dec hl
+  599 04AC  7C          	ld a,h
+  600 04AD  B5          	or l  	; Anzahl versuche
+  601 04AE  20 E8       	jr nz,r1st
+  602                   		; FEHLER
+  603 04B0  21 173B     	ld hl,rmsg
+  604 04B3  CD 0B99     	call print
+  605                   ;1 	repeat
+  606 04B6              .L46:
+  607 04B6  CD 0106     	call ci
+  608                   ;1 	until a in ['W','w']
+  609 04B9  FE 57       	CP 'W'
+  610 04BB  CA 04C3     	JP Z,.L47
+  611 04BE  FE 77       	CP 'w'
+  612 04C0  C2 04B6     	JP NZ,.L46
+  613 04C3              .L47:
+  614 04C3  C3 070E     	jp start
+  615 04C6              rastore:
+  616 04C6  FE 01       	cp 1  	; FLO1-Maxi
+  617 04C8  C2 04FC     	jp nz,rbstore
+  618 04CB  21 00FA     	ld hl,250 	; Versuche max
+  619 04CE              ra1st:
+  620 04CE  E5          	push  hl
+  621 04CF  DB 40       	in a,(floa0)
+  622 04D1  CD 0482     	call wai
+  623 04D4  FB          	ei  	; Jetzt Int erlaubt
+  624 04D5  CD 0536     	call raexec
+  625 04D8  F3          	di
+  626 04D9  E1          	pop hl
+  627 04DA  DB 40       	in a,(floa0) 	; Status pruefen
+  628 04DC  E6 80       	and 80h 	; <>0 dann nicht ready
+  629 04DE  CA 052D     	jp z,r2st
+  630 04E1  2B          	dec hl
+  631 04E2  7C          	ld a,h
+  632 04E3  B5          	or l  	; Anzahl versuche
+  633 04E4  20 E8       	jr nz,ra1st
+  634                   		; FEHLER
+  635 04E6  21 173B     	ld hl,rmsg
+  636 04E9  CD 0B99     	call print
+  637                   ;1 	repeat
+  638 04EC              .L48:
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  12
+UF122N  Z80
+
+  639 04EC  CD 0106     	call ci
+  640                   ;1 	until a in ['W','w']
+  641 04EF  FE 57       	CP 'W'
+  642 04F1  CA 04F9     	JP Z,.L49
+  643 04F4  FE 77       	CP 'w'
+  644 04F6  C2 04EC     	JP NZ,.L48
+  645 04F9              .L49:
+  646 04F9  C3 070E     	jp start
+  647 04FC              rbstore:
+  648 04FC  21 00FA     	ld hl,250 	; Versuche max
+  649 04FF              rb1st:
+  650 04FF  E5          	push  hl
+  651 0500  DB 30       	in a,(flob0)
+  652 0502  CD 0482     	call wai
+  653 0505  FB          	ei  	; Jetzt Int erlaubt
+  654 0506  CD 053E     	call rbexec 	; rev 1.2
+  655 0509  F3          	di
+  656 050A  E1          	pop hl
+  657 050B  DB 30       	in a,(flob0) 	; Status pruefen
+  658 050D  E6 80       	and 80h 	; <>0 dann nicht ready
+  659 050F  CA 052D     	jp z,r2st
+  660 0512  2B          	dec hl
+  661 0513  7C          	ld a,h
+  662 0514  B5          	or l  	; Anzahl versuche
+  663 0515  20 E8       	jr nz,rb1st
+  664                   		; FEHLER
+  665 0517  21 173B     	ld hl,rmsg
+  666 051A  CD 0B99     	call print
+  667                   ;1 	repeat
+  668 051D              .L50:
+  669 051D  CD 0106     	call ci
+  670                   ;1 	until a in ['W','w']
+  671 0520  FE 57       	CP 'W'
+  672 0522  CA 052A     	JP Z,.L51
+  673 0525  FE 77       	CP 'w'
+  674 0527  C2 051D     	JP NZ,.L50
+  675 052A              .L51:
+  676 052A  C3 070E     	jp start
+  677                   
+  678 052D              r2st:		; fertig
+  679 052D  C9          	ret
+  680                   
+  681 052E              rexec::		; Ausfuehrung
+  682 052E  CD 0623     	call setup
+  683 0531  3E 0B       	ld a,0bh 	; Rstore ohne Verify
+  684 0533  D3 C0       	out (flo0),a
+  685 0535  76          	halt  	; ueber INT zurueck
+  686                   
+  687 0536              raexec::		; Ausfuehrung
+  688 0536  CD 0623     	call setup
+  689 0539  3E 0B       	ld a,0bh 	; Rstore ohne Verify
+  690 053B  D3 40       	out (floa0),a
+  691 053D  76          	halt  	; ueber INT zurueck
+  692                   
+  693 053E              rbexec::		; Ausfuehrung
+  694 053E  CD 0623     	call setup
+  695 0541  3E 0B       	ld a,0bh 	; Rstore ohne Verify
+  696 0543  D3 30       	out (flob0),a
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  13
+UF122N  Z80
+
+  697 0545  76          	halt  	; ueber INT zurueck
+  698                   
+  699 0546              stepin::		; Step ausfuehren
+  700 0546  CD 0482     	call wai 	; aber erst nach Delay, sonst
+  701 0549  FB          	ei     	; gehen Tracks verloren
+  702 054A  CD 054F     	call stpexec
+  703 054D  F3          	di
+  704 054E  C9          	ret
+  705                   
+  706 054F              stpexec::
+  707 054F  CD 0623     	call setup 	; Laufwerk und Dichte
+  708 0552  3A 18B8     	ld a,(user)
+  709                   ;1 	if a=0
+  710 0555  B7          	OR A
+  711 0556  C2 0560     	JP NZ,.L52
+  712 0559  3E 5B       	ld a,5bh
+  713 055B  D3 C0       	out (flo0),a 	; Step ohne Verify
+  714                   ;1 	elseif a=1
+  715 055D  C3 0575     	JP .L53
+  716 0560              .L52:
+  717 0560  FE 01       	CP 1
+  718 0562  C2 056C     	JP NZ,.L54
+  719 0565  3E 5B       	ld a,5bh
+  720 0567  D3 40       	out (floa0),a
+  721                   ;1 	elseif a=2
+  722 0569  C3 0575     	JP .L53
+  723 056C              .L54:
+  724 056C  FE 02       	CP 2
+  725 056E  C2 0575     	JP NZ,.L55
+  726 0571  3E 5B       	ld a,5bh 
+  727 0573  D3 30       	out (flob0),a
+  728                   ;1 	endif
+  729 0575              .L55:
+  730 0575              .L53:
+  731 0575  76          	halt 
+  732                   
+  733 0576              read:
+  734 0576  06 02       	ld b,2
+  735 0578              read1:
+  736 0578  C5          	push bc
+  737 0579  FB          	ei
+  738 057A  CD 05A2     	call readex
+  739 057D  F3          	di
+  740 057E  C1          	pop bc  	; Fehlerzaehler
+  741 057F  3A 18B8     	ld a,(user)
+  742                   ;1 	if a=0
+  743 0582  B7          	OR A
+  744 0583  C2 058B     	JP NZ,.L56
+  745 0586  DB C0       	in a,(flo0) 	; Status beim Lesen pruefen
+  746                   ;1 	elseif a=1
+  747 0588  C3 059C     	JP .L57
+  748 058B              .L56:
+  749 058B  FE 01       	CP 1
+  750 058D  C2 0595     	JP NZ,.L58
+  751 0590  DB 40       	in a,(floa0)
+  752                   ;1 	elseif a=2
+  753 0592  C3 059C     	JP .L57
+  754 0595              .L58:
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  14
+UF122N  Z80
+
+  755 0595  FE 02       	CP 2
+  756 0597  C2 059C     	JP NZ,.L59
+  757 059A  DB 30       	in a,(flob0)
+  758                   ;1 	endif
+  759 059C              .L59:
+  760 059C              .L57:
+  761 059C  E6 3C       	and 00111100b 	; =0 dann ok
+  762 059E  C8          	ret z
+  763 059F  10 D7       	djnz read1 	; max Retry
+  764 05A1  C9          	ret
+  765 05A2              readex:
+  766 05A2  CD 0623     	call setup 	; Dichtecode setzen, Head ist down.
+  767 05A5  3A 18B8     	ld a,(user)
+  768                   ;1 	if a=0
+  769 05A8  B7          	OR A
+  770 05A9  C2 05D1     	JP NZ,.L60
+  771 05AC  3A 18C8     	ld a,(aktsek)
+  772 05AF  D3 C2       	out (flo2),a 	; Sektor definieren
+  773 05B1  21 18C9     	ld hl,formtab 	; dorthin Daten legen 
+  774 05B4  0E C3       	ld c,flo3 	; Datenport
+  775 05B6  3A 18C5     	ld a,(sidesel) 	; fuer Side-Control
+  776 05B9  E6 80       	and 80h
+  777 05BB  07          	rlca  	; bit 0
+  778 05BC  07          	rlca  	; bit 1
+  779 05BD  E6 02       	and 00000010b 	; 1=Seite 1
+  780 05BF  C6 88       	add a,88h 	; kein Delay abwarten, head ist down
+  781 05C1  D3 C0       	out (flo0),a 	; und Befehl geben
+  782 05C3              red1:
+  783 05C3  DB C4       	in a,(flo4)
+  784 05C5  07          	rlca
+  785 05C6  D2 05C3     	jp nc,red1 	; warten bis DRQ-da ist
+  786 05C9  ED A2       	ini  	; Daten ablegen
+  787 05CB  C3 05C3     	jp red1 	; bis alle Daten gelesen, dann Interrupt 
+  788                   ;1 	elseif a=1 	; flo 1 maxi
+  789 05CE  C3 0622     	JP .L61
+  790 05D1              .L60:
+  791 05D1  FE 01       	CP 1 
+  792 05D3  C2 05FB     	JP NZ,.L62
+  793 05D6  3A 18C8     	ld a,(aktsek)
+  794 05D9  D3 42       	out (floa2),a 	; Sektor definieren
+  795 05DB  21 18C9     	ld hl,formtab 	; dorthin Daten legen 
+  796 05DE  0E 43       	ld c,floa3 	; Datenport
+  797 05E0  3A 18C5     	ld a,(sidesel) 	; fuer Side-Control
+  798 05E3  E6 80       	and 80h
+  799 05E5  07          	rlca  	; bit 0
+  800 05E6  07          	rlca  	; bit 1
+  801 05E7  E6 02       	and 00000010b 	; 1=Seite 1
+  802 05E9  C6 88       	add a,88h 	; kein Delay abwarten, head ist down
+  803 05EB  D3 40       	out (floa0),a 	; und Befehl geben
+  804 05ED              raed1:
+  805 05ED  DB 44       	in a,(floa4)
+  806 05EF  07          	rlca
+  807 05F0  D2 05ED     	jp nc,raed1 	; warten bis DRQ-da ist
+  808 05F3  ED A2       	ini  	; Daten ablegen
+  809 05F5  C3 05ED     	jp raed1 	; bis alle Daten gelesen, dann Interrupt 
+  810                   ;1 	elseif a=2 	; flo1 Mini
+  811 05F8  C3 0622     	JP .L61
+  812 05FB              .L62:
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  15
+UF122N  Z80
+
+  813 05FB  FE 02       	CP 2 
+  814 05FD  C2 0622     	JP NZ,.L63
+  815 0600  3A 18C8     	ld a,(aktsek) 
+  816 0603  D3 32       	out (flob2),a 	; Sektor definieren
+  817 0605  21 18C9     	ld hl,formtab 	; dorthin Daten legen 
+  818 0608  0E 33       	ld c,flob3 	; Datenport
+  819 060A  3A 18C5     	ld a,(sidesel) 	; fuer Side-Control
+  820 060D  E6 80       	and 80h
+  821 060F  07          	rlca  	; bit 0
+  822 0610  07          	rlca  	; bit 1
+  823 0611  E6 02       	and 00000010b 	; 1=Seite 1
+  824 0613  C6 88       	add a,88h 	; kein Delay abwarten, head ist down
+  825 0615  D3 30       	out (flob0),a 	; und Befehl geben
+  826 0617              rbed1:
+  827 0617  DB 34       	in a,(flob4)
+  828 0619  07          	rlca
+  829 061A  D2 0617     	jp nc,rbed1 	; warten bis DRQ-da ist
+  830 061D  ED A2       	ini  	; Daten ablegen
+  831 061F  C3 0617     	jp rbed1 	; bis alle Daten gelesen, dann Interrupt 
+  832                   ;1 	endif
+  833 0622              .L63:
+  834 0622              .L61:
+  835 0622  C9          	ret 
+  836                   
+  837 0623              setup::
+  838 0623  C5          	push bc
+  839 0624  3A 18C4     	ld a,(laufwerk) 	; Laufwerkscode
+  840 0627  47          	ld b,a 
+  841 0628  3A 18BF     	ld a,(dichte)
+  842                   ;1 	if a=0   	; SD
+  843 062B  B7          	OR A
+  844 062C  C2 0633     	JP NZ,.L64
+  845 062F  78          	ld a,b
+  846 0630  F6 10       	or 10h
+  847 0632  47          	ld b,a
+  848                   ;1 	endif
+  849 0633              .L64:
+  850 0633  3A 18BA     	ld a,(minimax)
+  851                   ;1 	if a=0   	; Mini
+  852 0636  B7          	OR A
+  853 0637  C2 063E     	JP NZ,.L65
+  854 063A  78          	ld a,b
+  855 063B  F6 20       	or 20h
+  856 063D  47          	ld b,a
+  857                   ;1 	endif
+  858 063E              .L65:
+  859 063E  3A 18B8     	ld a,(user)
+  860                   ;1 	if a=0   	; FLO2
+  861 0641  B7          	OR A
+  862 0642  C2 065A     	JP NZ,.L66
+  863                   	; v1.22
+  864 0645  3A 18B9     	LD A,(flotyp)
+  865 0648  FE 01       	CP 01h
+  866 064A  C2 0653     	JP NZ,L0653
+  867                   	
+  868 064D  78          	ld a,b  	; OK Code fertig
+  869 064E  EE 10       	XOR 10h
+  870 0650  C3 0654     	JP L0654
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  16
+UF122N  Z80
+
+  871 0653              L0653:
+  872 0653  78          	LD a,b
+  873 0654              L0654:
+  874 0654  C1          	pop bc
+  875 0655  D3 C4       	out (flo4),a	;
+  876                   ;1 	elseif a=1  	; MAXI
+  877 0657  C3 0673     	JP .L67
+  878 065A              .L66:
+  879 065A  FE 01       	CP 1  
+  880 065C  C2 0668     	JP NZ,.L68
+  881 065F  78          	ld a,b
+  882 0660  C1          	pop bc
+  883 0661  EE 10       	xor 10h  	; DENSE invertiert bei FLO1
+  884 0663  D3 44       	out (floa4),a
+  885                   ;1 	elseif a=2
+  886 0665  C3 0673     	JP .L67
+  887 0668              .L68:
+  888 0668  FE 02       	CP 2
+  889 066A  C2 0673     	JP NZ,.L69
+  890 066D  78          	ld a,b
+  891 066E  C1          	pop bc
+  892 066F  EE 10       	xor 10h  	; DENSE invertiert bei FLO1
+  893 0671  D3 34       	out (flob4),a
+  894                   ;1 	endif
+  895 0673              .L69:
+  896 0673              .L67:
+  897 0673  C9          	ret
+  898 0674              form::		; Formatieren einer Spur.
+  899 0674  CD 0482     	call wai
+  900 0677  FB          	ei
+  901 0678  CD 069C     	call fmt
+  902 067B  F3          	di
+  903 067C  3A 18B8     	ld a,(user)
+  904                   ;1 	if a=0
+  905 067F  B7          	OR A
+  906 0680  C2 0688     	JP NZ,.L70
+  907 0683  DB C0       	in a,(flo0) 	; pruefen auf Schreibschutz, Datalost
+  908                   ;1 	elseif a=1
+  909 0685  C3 0699     	JP .L71
+  910 0688              .L70:
+  911 0688  FE 01       	CP 1
+  912 068A  C2 0692     	JP NZ,.L72
+  913 068D  DB 40       	in a,(floa0)
+  914                   ;1 	elseif a=2
+  915 068F  C3 0699     	JP .L71
+  916 0692              .L72:
+  917 0692  FE 02       	CP 2
+  918 0694  C2 0699     	JP NZ,.L73
+  919 0697  DB 30       	in a,(flob0)
+  920                   ;1 	endif
+  921 0699              .L73:
+  922 0699              .L71:
+  923 0699  E6 44       	and 44h
+  924 069B  C9          	ret
+  925                   
+  926 069C              fmt::
+  927 069C  CD 0623     	call setup 	; Dichte einstellen etc., auf Port FLO4
+  928 069F  3A 18B8     	ld a,(user)
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  17
+UF122N  Z80
+
+  929                   ;1 	if a=0  	; FLO 2
+  930 06A2  B7          	OR A
+  931 06A3  C2 06C6     	JP NZ,.L74
+  932 06A6  21 18C9     	ld hl,formtab 	; Startadresse 
+  933 06A9  0E C3       	ld c,flo3 	; Datenport
+  934 06AB  3A 18C5     	ld a,(sidesel) 	; Side-Flag setzen, fuer SSO-Ausgang
+  935 06AE  E6 80       	and 80h 	; wenn Sideflag auf 80h gesetzt wird
+  936 06B0  07          	rlca  	; bit 0
+  937 06B1  07          	rlca  	; bit 1
+  938 06B2  E6 02       	and 00000010b 	; 1=Seite 1
+  939 06B4  F6 F4       	or 0f4h 	; Formatier-Befehl+nicht documentierter
+  940 06B6  D3 C0       	out (flo0),a 	; Side-Select-Befehl fuer SSO
+  941 06B8              fmtlp::
+  942 06B8  DB C4       	in a,(flo4) 	; drq int head
+  943 06BA  07          	rlca  	; bit 7 ins carry
+  944 06BB  D2 06B8     	jp nc,fmtlp 	; 0=warten 1=fertig i
+  945 06BE  ED A3       	outi  	; und Byte ausgeben
+  946 06C0  C3 06B8     	jp fmtlp 	; durch INT wird die Routine gestoppt.
+  947                   ;1 	elseif a=1 	; FLO1 maxi
+  948 06C3  C3 070D     	JP .L75
+  949 06C6              .L74:
+  950 06C6  FE 01       	CP 1 
+  951 06C8  C2 06EB     	JP NZ,.L76
+  952 06CB  21 18C9     	ld hl,formtab 	; Startadresse 
+  953 06CE  0E 43       	ld c,floa3 	; Datenport
+  954 06D0  3A 18C5     	ld a,(sidesel) 	; Side-Flag setzen, fuer SSO-Ausgang
+  955 06D3  E6 80       	and 80h 	; wenn Sideflag auf 80h gesetzt wird
+  956 06D5  07          	rlca  	; bit 0
+  957 06D6  07          	rlca  	; bit 1
+  958 06D7  E6 02       	and 00000010b 	; 1=Seite 1
+  959 06D9  F6 F4       	or 0f4h 	; Formatier-Befehl+nicht documentierter
+  960 06DB  D3 40       	out (floa0),a 	; Side-Select-Befehl fuer SSO
+  961 06DD              famtlp::
+  962 06DD  DB 44       	in a,(floa4) 	; drq int head
+  963 06DF  07          	rlca  	; bit 7 ins carry
+  964 06E0  D2 06DD     	jp nc,famtlp 	; 0=warten 1=fertig i
+  965 06E3  ED A3       	outi  	; und Byte ausgeben
+  966 06E5  C3 06DD     	jp famtlp 	; durch INT wird die Routine gestoppt.
+  967                   ;1 	elseif a=2 	; FLO1 mini
+  968 06E8  C3 070D     	JP .L75
+  969 06EB              .L76:
+  970 06EB  FE 02       	CP 2 
+  971 06ED  C2 070D     	JP NZ,.L77
+  972 06F0  21 18C9     	ld hl,formtab 	; Startadresse 
+  973 06F3  0E 33       	ld c,flob3 	; Datenport
+  974 06F5  3A 18C5     	ld a,(sidesel) 	; Side-Flag setzen, fuer SSO-Ausgang
+  975 06F8  E6 80       	and 80h 	; wenn Sideflag auf 80h gesetzt wird
+  976 06FA  07          	rlca  	; bit 0
+  977 06FB  07          	rlca  	; bit 1
+  978 06FC  E6 02       	and 00000010b 	; 1=Seite 1
+  979 06FE  F6 F4       	or 0f4h 	; Formatier-Befehl+nicht documentierter
+  980 0700  D3 30       	out (flob0),a 	; Side-Select-Befehl fuer SSO
+  981 0702              fbmtlp::
+  982 0702  DB 34       	in a,(flob4) 	; drq int head
+  983 0704  07          	rlca  	; bit 7 ins carry
+  984 0705  D2 0702     	jp nc,fbmtlp 	; 0=warten 1=fertig i
+  985 0708  ED A3       	outi  	; und Byte ausgeben
+  986 070A  C3 0702     	jp fbmtlp 	; durch INT wird die Routine gestoppt.
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  18
+UF122N  Z80
+
+  987                   ;1 	endif
+  988 070D              .L77:
+  989 070D              .L75:
+  990 070D  C9          	ret
+  991 070E              start::
+  992                   		;
+  993 070E              schleife::		; Hauptwiederholschleife
+  994 070E  21 0F0E     	ld hl,headtxt 	; wieder von vorne
+  995 0711  CD 0B99     	call print
+  996                   		; 
+  997                   ;1 	repeat
+  998 0714              .L78:
+  999 0714  CD 0106     	call ci
+ 1000                   ;1 	until a in ['1'..'6']
+ 1001 0717  FE 37       	CP '6'+1
+ 1002 0719  D2 0714     	JP NC,.L78
+ 1003 071C  FE 31       	CP '1'+0
+ 1004 071E  DA 0714     	JP C,.L78
+ 1005 0721              .L79:
+ 1006 0721  F5          	push af
+ 1007 0722  AF          	xor a
+ 1008 0723  32 18BB     	ld (ecma),a 	; kein ECMA70,ist default.
+ 1009 0726  32 18B8     	ld (user),a 	; Savety 0=flo2
+ 1010 0729  3E E5       	ld a,0e5h
+ 1011 072B  32 18BE     	ld (filler),a 	; Filler ist normalerweise E5
+ 1012 072E  AF          	xor a
+ 1013 072F  32 18C5     	ld (sidesel),a 	; std kein SSO verwenden
+ 1014 0732  32 18C6     	ld (sideflag),a 	; auch nicht bei Kopfwechsel 
+ 1015 0735  F1          	pop af
+ 1016                   ;1 	if a='1' 	; Mini
+ 1017 0736  FE 31       	CP '1' 
+ 1018 0738  C2 074E     	JP NZ,.L80
+ 1019 073B  AF          	xor a
+ 1020 073C  32 18BA     	ld (minimax),a
+ 1021 073F  CD 0933     	call setspur
+ 1022 0742  CD 0979     	call setlw
+ 1023 0745  CD 09B4     	call setdichte
+ 1024 0748  CD 09D7     	call setsek
+ 1025                   ;1 	elseif a='2' 	; Maxi
+ 1026 074B  C3 07FF     	JP .L81
+ 1027 074E              .L80:
+ 1028 074E  FE 32       	CP '2' 
+ 1029 0750  C2 0767     	JP NZ,.L82
+ 1030 0753  3E 01       	ld a,1
+ 1031 0755  32 18BA     	ld (minimax),a
+ 1032 0758  CD 0933     	call setspur
+ 1033 075B  CD 0979     	call setlw
+ 1034 075E  CD 09B4     	call setdichte
+ 1035 0761  CD 09D7     	call setsek
+ 1036                   ;1 	elseif a='3' 	; 8 Zoll
+ 1037 0764  C3 07FF     	JP .L81
+ 1038 0767              .L82:
+ 1039 0767  FE 33       	CP '3' 
+ 1040 0769  C2 0793     	JP NZ,.L83
+ 1041 076C  3E 01       	ld a,1
+ 1042 076E  32 18BA     	ld (minimax),a
+ 1043 0771  21 0080     	ld hl,128 	; 128 Bytes pro Sektor
+ 1044 0774  22 18BC     	ld (anzbyte),hl
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  19
+UF122N  Z80
+
+ 1045 0777  3E 00       	ld a,0
+ 1046 0779  32 18BF     	ld (dichte),a 	; SD
+ 1047 077C  3E 1B       	ld a,27 	; Gaplaenge
+ 1048 077E  32 18C0     	ld (gaplen),a
+ 1049 0781  3E 00       	ld a,0
+ 1050 0783  32 18C2     	ld (kopf),a 	; einseitig
+ 1051 0786  3E 1A       	ld a,26 	; Sektorenzahl
+ 1052 0788  32 18C3     	ld (sektoren),a
+ 1053 078B  3E 4D       	ld a,77 	; 0..76
+ 1054 078D  32 18C1     	ld (spuren),a 	; Spurenanzahl
+ 1055                   ;1 	elseif a='4' 	; ECMA 70
+ 1056 0790  C3 07FF     	JP .L81
+ 1057 0793              .L83:
+ 1058 0793  FE 34       	CP '4' 
+ 1059 0795  C2 07C6     	JP NZ,.L84
+ 1060 0798  AF          	xor a
+ 1061 0799  32 18BA     	ld (minimax),a 	; rev 1.1, loeschen
+ 1062 079C  3E 01       	ld a,1
+ 1063 079E  32 18BB     	ld (ecma),a 	; Spezialformat SD erste Spur
+ 1064 07A1  32 18C6     	ld (sideflag),a 	; wenn rueckseite dann mit Bit
+ 1065                   		; rest in ecma doppelt
+ 1066 07A4  21 0100     	ld hl,256 	; rest DD
+ 1067 07A7  22 18BC     	ld (anzbyte),hl
+ 1068 07AA  3E 01       	ld a,1
+ 1069 07AC  32 18BF     	ld (dichte),a 	; DD
+ 1070 07AF  3E 00       	ld a,0
+ 1071 07B1  32 18C2     	ld (kopf),a 	; nur einseitig
+ 1072 07B4  3E 10       	ld a,16 	; Sektorenzahl
+ 1073 07B6  32 18C3     	ld (sektoren),a
+ 1074 07B9  3E 36       	ld a,54
+ 1075 07BB  32 18C0     	ld (gaplen),a 	; STD Gap
+ 1076 07BE  3E 28       	ld a,40 	; und 40 Spuren
+ 1077 07C0  32 18C1     	ld (spuren),a
+ 1078                   ;1 	elseif a='5' 	; NDR spezial
+ 1079 07C3  C3 07FF     	JP .L81
+ 1080 07C6              .L84:
+ 1081 07C6  FE 35       	CP '5' 
+ 1082 07C8  C2 07F7     	JP NZ,.L85
+ 1083 07CB  3E 00       	ld a,0 	; Mini
+ 1084 07CD  32 18BA     	ld (minimax),a
+ 1085 07D0  21 0400     	ld hl,1024 	; Anzahl Bytes
+ 1086 07D3  22 18BC     	ld (anzbyte),hl
+ 1087 07D6  3E 01       	ld a,1 	; DD
+ 1088 07D8  32 18BF     	ld (dichte),a
+ 1089 07DB  3E 36       	ld a,54 	; Gaplaenge 3
+ 1090 07DD  32 18C0     	ld (gaplen),a
+ 1091 07E0  3E 05       	ld a,5
+ 1092 07E2  32 18C3     	ld (sektoren),a
+ 1093 07E5  3E 01       	ld a,1
+ 1094 07E7  32 18C2     	ld (kopf),a 	; Doppelseitig
+ 1095 07EA  3E 01       	ld a,1
+ 1096 07EC  32 18C6     	ld (sideflag),a 	; und mit Side-Bit
+ 1097 07EF  3E 50       	ld a,80 	; Spuren 0..79
+ 1098 07F1  32 18C1     	ld (spuren),a
+ 1099                   ;1 	elseif a='6' 	; ENDE
+ 1100 07F4  C3 07FF     	JP .L81
+ 1101 07F7              .L85:
+ 1102 07F7  FE 36       	CP '6' 
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  20
+UF122N  Z80
+
+ 1103 07F9  C2 07FF     	JP NZ,.L86
+ 1104 07FC  C3 091F     	jp exit
+ 1105                   ;1 	endif
+ 1106 07FF              .L86:
+ 1107 07FF              .L81:
+ 1108                   		;
+ 1109 07FF  21 14FA     	ld hl,menue7 	; FLO-Typ
+ 1110 0802  CD 0B99     	call print
+ 1111                   ;1 	repeat
+ 1112 0805              .L87:
+ 1113 0805  CD 0106     	call ci
+ 1114                   ;1 	until a in ['1'..'3',0dh]
+ 1115 0808  FE 35       	CP '4'+1
+ 1116 080A  30 05       	JR NC,.L89
+ 1117 080C  FE 31       	CP '1'+0
+ 1118 080E  D2 0816     	JP NC,.L88
+ 1119 0811              .L89:
+ 1120 0811  FE 0D       	CP 0dh
+ 1121 0813  C2 0805     	JP NZ,.L87
+ 1122 0816              .L88:
+ 1123                   ;1 	if a='2'
+ 1124 0816  FE 32       	CP '2'
+ 1125 0818  C2 0820     	JP NZ,.L90
+ 1126 081B  3E 01       	ld a,1 	; flo1, maxi
+ 1127                   ;1 	elseif a='3'
+ 1128 081D  C3 0841     	JP .L91
+ 1129 0820              .L90:
+ 1130 0820  FE 33       	CP '3'
+ 1131 0822  C2 082A     	JP NZ,.L92
+ 1132 0825  3E 02       	ld a,2 	; flo2, mini
+ 1133                   ;1 	else
+ 1134 0827  C3 0841     	JP .L93
+ 1135 082A              .L92:
+ 1136                   	; v1.22
+ 1137 082A  FE 34       	CP '4'
+ 1138 082C  C2 0838     	JP NZ,L0838
+ 1139 082F  3E 01       	LD A,01h
+ 1140 0831  32 18B9     	LD (flotyp),A
+ 1141                   
+ 1142 0834  AF          	xor a  	; FLO2 mini/maxi
+ 1143 0835  C3 0841     	JP .L91
+ 1144                   	
+ 1145 0838              L0838:	
+ 1146 0838  FE 31       	CP '1'
+ 1147 083A  C2 0841     	JP NZ,.L91
+ 1148 083D  AF          	XOR A
+ 1149 083E  32 18B9     	LD (flotyp),A
+ 1150                   	
+ 1151                   ;1 	endif
+ 1152 0841              .L93:
+ 1153 0841              .L91:
+ 1154 0841  32 18B8     	ld (user),a 	; ablegen
+ 1155                   		;
+ 1156 0844              inner::		; Schleife bei Laufwerksbestimmung
+ 1157 0844  21 13EA     	ld hl,menue6 	; Laufwerk eingeben
+ 1158 0847  CD 0B99     	call print
+ 1159                   ;1 	repeat
+ 1160 084A              .L94:
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  21
+UF122N  Z80
+
+ 1161 084A  CD 0106     	call ci 	; 0..9
+ 1162                   ;1 	until a in ['0'..'9']
+ 1163 084D  FE 3A       	CP '9'+1
+ 1164 084F  D2 084A     	JP NC,.L94
+ 1165 0852  FE 30       	CP '0'+0
+ 1166 0854  DA 084A     	JP C,.L94
+ 1167 0857              .L95:
+ 1168                   ;1 	if a in ['1'..'8']
+ 1169 0857  FE 39       	CP '8'+1
+ 1170 0859  D2 08C6     	JP NC,.L96
+ 1171 085C  FE 31       	CP '1'+0
+ 1172 085E  DA 08C6     	JP C,.L96
+ 1173 0861              .L97:
+ 1174                   ;2 	if a='1'
+ 1175 0861  FE 31       	CP '1'
+ 1176 0863  C2 086B     	JP NZ,.L98
+ 1177 0866  3E 01       	ld a,1
+ 1178                   ;2 	elseif a='2'
+ 1179 0868  C3 08AE     	JP .L99
+ 1180 086B              .L98:
+ 1181 086B  FE 32       	CP '2'
+ 1182 086D  C2 0875     	JP NZ,.L100
+ 1183 0870  3E 02       	ld a,2
+ 1184                   ;2 	elseif a='3'
+ 1185 0872  C3 08AE     	JP .L99
+ 1186 0875              .L100:
+ 1187 0875  FE 33       	CP '3'
+ 1188 0877  C2 087F     	JP NZ,.L101
+ 1189 087A  3E 04       	ld a,4
+ 1190                   ;2 	elseif a='4'
+ 1191 087C  C3 08AE     	JP .L99
+ 1192 087F              .L101:
+ 1193 087F  FE 34       	CP '4'
+ 1194 0881  C2 0889     	JP NZ,.L102
+ 1195 0884  3E 08       	ld a,8
+ 1196                   ;2 	elseif a='5'
+ 1197 0886  C3 08AE     	JP .L99
+ 1198 0889              .L102:
+ 1199 0889  FE 35       	CP '5'
+ 1200 088B  C2 0893     	JP NZ,.L103
+ 1201 088E  3E 81       	ld a,81h
+ 1202                   ;2 	elseif a='6'
+ 1203 0890  C3 08AE     	JP .L99
+ 1204 0893              .L103:
+ 1205 0893  FE 36       	CP '6'
+ 1206 0895  C2 089D     	JP NZ,.L104
+ 1207 0898  3E 82       	ld a,82h
+ 1208                   ;2 	elseif a='7'
+ 1209 089A  C3 08AE     	JP .L99
+ 1210 089D              .L104:
+ 1211 089D  FE 37       	CP '7'
+ 1212 089F  C2 08A7     	JP NZ,.L105
+ 1213 08A2  3E 84       	ld a,84h
+ 1214                   ;2 	elseif a='8'
+ 1215 08A4  C3 08AE     	JP .L99
+ 1216 08A7              .L105:
+ 1217 08A7  FE 38       	CP '8'
+ 1218 08A9  C2 08AE     	JP NZ,.L106
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  22
+UF122N  Z80
+
+ 1219 08AC  3E 88       	ld a,88h
+ 1220                   ;2 	endif
+ 1221 08AE              .L106:
+ 1222 08AE              .L99:
+ 1223 08AE  32 18C4     	ld (laufwerk),a
+ 1224 08B1  3A 18C6     	ld a,(sideflag) 	; nur wenn Flag gesetzt.
+ 1225                   ;2 	if a<>0
+ 1226 08B4  B7          	OR A
+ 1227 08B5  CA 08C3     	JP Z,.L107
+ 1228 08B8  3A 18C4     	ld a,(laufwerk)
+ 1229 08BB  E6 80       	and 80h
+ 1230                   ;3 	if nz  	; 80h laden.
+ 1231 08BD  CA 08C3     	JP Z,.L108
+ 1232 08C0  32 18C5     	ld (sidesel),a 	; wenn Flag, dann Rueckseite mit side-bit
+ 1233                   ;3 	endif  	; fuer ECMA-70 wichtig.
+ 1234 08C3              .L108:
+ 1235                   ;2 	endif
+ 1236 08C3              .L107:
+ 1237                   ;1 	elseif a='9'
+ 1238 08C3  C3 08DF     	JP .L109
+ 1239 08C6              .L96:
+ 1240 08C6  FE 39       	CP '9'
+ 1241 08C8  C2 08D1     	JP NZ,.L110
+ 1242 08CB  C3 070E     	jp schleife 	; neue Parameter
+ 1243                   ;1 	elseif a='0'
+ 1244 08CE  C3 08DF     	JP .L109
+ 1245 08D1              .L110:
+ 1246 08D1  FE 30       	CP '0'
+ 1247 08D3  C2 08DC     	JP NZ,.L111
+ 1248 08D6  C3 091F     	jp exit 	; Ende
+ 1249                   ;1 	else
+ 1250 08D9  C3 08DF     	JP .L112
+ 1251 08DC              .L111:
+ 1252 08DC  C3 0844     	jp inner 	; wiederholen
+ 1253                   ;1 	endif
+ 1254 08DF              .L112:
+ 1255 08DF              .L109:
+ 1256                   		;
+ 1257                   		; Formatierer aufrufen, wenn bereit
+ 1258                   		; Controllwerte am Bildschirm ausgeben
+ 1259                   ;1 	repeat
+ 1260 08DF              .L113:
+ 1261 08DF  CD 0BA8     	call werteaus
+ 1262 08E2  21 0EDC     	ld hl,formtxt
+ 1263 08E5  CD 0B99     	call print
+ 1264 08E8  CD 0106     	call ci
+ 1265                   ;1 	until a in ['J','j','n','N',3]
+ 1266 08EB  FE 4A       	CP 'J'
+ 1267 08ED  CA 0904     	JP Z,.L114
+ 1268 08F0  FE 6A       	CP 'j'
+ 1269 08F2  CA 0904     	JP Z,.L114
+ 1270 08F5  FE 6E       	CP 'n'
+ 1271 08F7  CA 0904     	JP Z,.L114
+ 1272 08FA  FE 4E       	CP 'N'
+ 1273 08FC  CA 0904     	JP Z,.L114
+ 1274 08FF  FE 03       	CP 3
+ 1275 0901  C2 08DF     	JP NZ,.L113
+ 1276 0904              .L114:
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  23
+UF122N  Z80
+
+ 1277                   ;1 	if a in ['n','N']
+ 1278 0904  FE 6E       	CP 'n'
+ 1279 0906  CA 090E     	JP Z,.L116
+ 1280 0909  FE 4E       	CP 'N'
+ 1281 090B  C2 0911     	JP NZ,.L115
+ 1282 090E              .L116:
+ 1283 090E  C3 070E     	jp start 	; Neustarten, von vorne
+ 1284                   ;1 	endif
+ 1285 0911              .L115:
+ 1286                   ;1 	if a=3
+ 1287 0911  FE 03       	CP 3
+ 1288 0913  C2 0919     	JP NZ,.L117
+ 1289 0916  C3 091F     	jp exit 	; Abbruch CTRL-C
+ 1290                   ;1 	endif
+ 1291 0919              .L117:
+ 1292 0919  CD 0116     	call format
+ 1293                   		; Ende der Formatierung
+ 1294 091C  C3 0844     	jp inner 	; und von vorne, mit gleichen Parametern
+ 1295                   		;
+ 1296 091F              exit::
+ 1297 091F  21 1866     	ld hl,fimsg
+ 1298 0922  CD 0B99     	call print
+ 1299                   ;1 	repeat
+ 1300 0925              .L118:
+ 1301 0925  CD 0106     	call ci
+ 1302                   ;1 	until a=0dh
+ 1303 0928  FE 0D       	CP 0dh
+ 1304 092A  C2 0925     	JP NZ,.L118
+ 1305 092D  ED 46       	im 0  	; Savety bei FLO1, ggf IM0-Mode verwendet
+ 1306 092F  CD 0000     	call 0  	; daher ruecksetzen.
+ 1307 0932  C9          	ret
+ 1308 0933              setspur::
+ 1309 0933  21 10AE     	ld hl,menue3
+ 1310 0936  CD 0B99     	call print
+ 1311                   ;1 	repeat
+ 1312 0939              .L119:
+ 1313 0939  CD 0106     	call ci
+ 1314                   ;1 	until a in ['1'..'5']
+ 1315 093C  FE 36       	CP '5'+1
+ 1316 093E  D2 0939     	JP NC,.L119
+ 1317 0941  FE 31       	CP '1'+0
+ 1318 0943  DA 0939     	JP C,.L119
+ 1319 0946              .L120:
+ 1320                   ;1 	if a='1'
+ 1321 0946  FE 31       	CP '1'
+ 1322 0948  C2 0950     	JP NZ,.L121
+ 1323 094B  3E 23       	ld a,35
+ 1324                   ;1 	elseif a='2'
+ 1325 094D  C3 0975     	JP .L122
+ 1326 0950              .L121:
+ 1327 0950  FE 32       	CP '2'
+ 1328 0952  C2 095A     	JP NZ,.L123
+ 1329 0955  3E 28       	ld a,40
+ 1330                   ;1 	elseif a='3'
+ 1331 0957  C3 0975     	JP .L122
+ 1332 095A              .L123:
+ 1333 095A  FE 33       	CP '3'
+ 1334 095C  C2 0964     	JP NZ,.L124
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  24
+UF122N  Z80
+
+ 1335 095F  3E 46       	ld a,70
+ 1336                   ;1 	elseif a='4'
+ 1337 0961  C3 0975     	JP .L122
+ 1338 0964              .L124:
+ 1339 0964  FE 34       	CP '4'
+ 1340 0966  C2 096E     	JP NZ,.L125
+ 1341 0969  3E 4D       	ld a,77
+ 1342                   ;1 	elseif a='5'
+ 1343 096B  C3 0975     	JP .L122
+ 1344 096E              .L125:
+ 1345 096E  FE 35       	CP '5'
+ 1346 0970  C2 0975     	JP NZ,.L126
+ 1347 0973  3E 50       	ld a,80
+ 1348                   ;1 	endif
+ 1349 0975              .L126:
+ 1350 0975              .L122:
+ 1351 0975  32 18C1     	ld (spuren),a
+ 1352 0978  C9          	ret
+ 1353 0979              setlw::
+ 1354 0979  21 1104     	ld hl,menue4
+ 1355 097C  CD 0B99     	call print
+ 1356                   ;1 	repeat
+ 1357 097F              .L127:
+ 1358 097F  CD 0106     	call ci
+ 1359                   ;1 	until a in ['1'..'3']
+ 1360 0982  FE 34       	CP '3'+1
+ 1361 0984  D2 097F     	JP NC,.L127
+ 1362 0987  FE 31       	CP '1'+0
+ 1363 0989  DA 097F     	JP C,.L127
+ 1364 098C              .L128:
+ 1365                   ;1 	if a='1'
+ 1366 098C  FE 31       	CP '1'
+ 1367 098E  C2 0999     	JP NZ,.L129
+ 1368 0991  3E 00       	ld a,0  
+ 1369 0993  32 18C2     	ld (kopf),a
+ 1370                   ;1 	elseif a='2'
+ 1371 0996  C3 09B0     	JP .L130
+ 1372 0999              .L129:
+ 1373 0999  FE 32       	CP '2'
+ 1374 099B  C2 09A6     	JP NZ,.L131
+ 1375 099E  3E 01       	ld a,1
+ 1376 09A0  32 18C2     	ld (kopf),a
+ 1377                   ;1 	else
+ 1378 09A3  C3 09B0     	JP .L132
+ 1379 09A6              .L131:
+ 1380 09A6  3E 01       	ld a,1
+ 1381 09A8  32 18C2     	ld (kopf),a
+ 1382 09AB  3E 01       	ld a,1
+ 1383 09AD  32 18C6     	ld (sideflag),a 	; Seite 0 beginnt
+ 1384                   ;1 	endif
+ 1385 09B0              .L132:
+ 1386 09B0              .L130:
+ 1387 09B0  32 18C2     	ld (kopf),a 	; Anzahl der Koepfe-1
+ 1388 09B3  C9          	ret
+ 1389                   
+ 1390 09B4              setdichte::
+ 1391 09B4  21 1070     	ld hl,menue2
+ 1392 09B7  CD 0B99     	call print
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  25
+UF122N  Z80
+
+ 1393                   ;1 	repeat
+ 1394 09BA              .L133:
+ 1395 09BA  CD 0106     	call ci
+ 1396                   ;1 	until a in ['1'..'2']
+ 1397 09BD  FE 33       	CP '2'+1
+ 1398 09BF  D2 09BA     	JP NC,.L133
+ 1399 09C2  FE 31       	CP '1'+0
+ 1400 09C4  DA 09BA     	JP C,.L133
+ 1401 09C7              .L134:
+ 1402                   ;1 	if a='1'
+ 1403 09C7  FE 31       	CP '1'
+ 1404 09C9  C2 09D1     	JP NZ,.L135
+ 1405 09CC  3E 00       	ld a,0 	; einfache Dichte
+ 1406                   ;1 	else
+ 1407 09CE  C3 09D3     	JP .L136
+ 1408 09D1              .L135:
+ 1409 09D1  3E 01       	ld a,1 	; doppelte Dichte
+ 1410                   ;1 	endif
+ 1411 09D3              .L136:
+ 1412 09D3  32 18BF     	ld (dichte),a
+ 1413 09D6  C9          	ret
+ 1414 09D7              setsek::
+ 1415 09D7  3A 18BA     	ld a,(minimax)
+ 1416                   ;1 	if a=0  	; Mini
+ 1417 09DA  B7          	OR A
+ 1418 09DB  C2 0AB3     	JP NZ,.L137
+ 1419 09DE  3A 18BF     	ld a,(dichte)
+ 1420                   ;2 	if a=0 	; SD
+ 1421 09E1  B7          	OR A
+ 1422 09E2  C2 0A40     	JP NZ,.L138
+ 1423 09E5  21 1164     	ld hl,menue5a
+ 1424 09E8  CD 0B99     	call print
+ 1425                   ;3 	repeat
+ 1426 09EB              .L139:
+ 1427 09EB  CD 0106     	call ci
+ 1428                   ;3 	until a in ['1'..'3']
+ 1429 09EE  FE 34       	CP '3'+1
+ 1430 09F0  D2 09EB     	JP NC,.L139
+ 1431 09F3  FE 31       	CP '1'+0
+ 1432 09F5  DA 09EB     	JP C,.L139
+ 1433 09F8              .L140:
+ 1434                   ;3 	if a='1'
+ 1435 09F8  FE 31       	CP '1'
+ 1436 09FA  C2 0A10     	JP NZ,.L141
+ 1437 09FD  21 0080     	ld hl,128
+ 1438 0A00  22 18BC     	ld (anzbyte),hl
+ 1439 0A03  3E 10       	ld a,16
+ 1440 0A05  32 18C3     	ld (sektoren),a
+ 1441 0A08  3E 1B       	ld a,27
+ 1442 0A0A  32 18C0     	ld (gaplen),a
+ 1443                   ;3 	elseif a='2'
+ 1444 0A0D  C3 0A3D     	JP .L142
+ 1445 0A10              .L141:
+ 1446 0A10  FE 32       	CP '2'
+ 1447 0A12  C2 0A28     	JP NZ,.L143
+ 1448 0A15  21 0080     	ld hl,128
+ 1449 0A18  22 18BC     	ld (anzbyte),hl
+ 1450 0A1B  3E 12       	ld a,18
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  26
+UF122N  Z80
+
+ 1451 0A1D  32 18C3     	ld (sektoren),a
+ 1452 0A20  3E 0A       	ld a,10
+ 1453 0A22  32 18C0     	ld (gaplen),a
+ 1454                   ;3 	elseif a='3'
+ 1455 0A25  C3 0A3D     	JP .L142
+ 1456 0A28              .L143:
+ 1457 0A28  FE 33       	CP '3'
+ 1458 0A2A  C2 0A3D     	JP NZ,.L144
+ 1459 0A2D  21 0100     	ld hl,256
+ 1460 0A30  22 18BC     	ld (anzbyte),hl
+ 1461 0A33  3E 0A       	ld a,10
+ 1462 0A35  32 18C3     	ld (sektoren),a
+ 1463 0A38  3E 10       	ld a,16
+ 1464 0A3A  32 18C0     	ld (gaplen),a
+ 1465                   ;3 	endif
+ 1466 0A3D              .L144:
+ 1467 0A3D              .L142:
+ 1468                   ;2 	else  	; DD
+ 1469 0A3D  C3 0AB0     	JP .L145
+ 1470 0A40              .L138:
+ 1471 0A40  21 11E8     	ld hl,menue5b
+ 1472 0A43  CD 0B99     	call print
+ 1473                   ;3 	repeat
+ 1474 0A46              .L146:
+ 1475 0A46  CD 0106     	call ci
+ 1476                   ;3 	until a in ['1'..'4']
+ 1477 0A49  FE 35       	CP '4'+1
+ 1478 0A4B  D2 0A46     	JP NC,.L146
+ 1479 0A4E  FE 31       	CP '1'+0
+ 1480 0A50  DA 0A46     	JP C,.L146
+ 1481 0A53              .L147:
+ 1482                   ;3 	if a='1'
+ 1483 0A53  FE 31       	CP '1'
+ 1484 0A55  C2 0A6B     	JP NZ,.L148
+ 1485 0A58  21 0100     	ld hl,256
+ 1486 0A5B  22 18BC     	ld (anzbyte),hl
+ 1487 0A5E  3E 10       	ld a,16
+ 1488 0A60  32 18C3     	ld (sektoren),a
+ 1489 0A63  3E 36       	ld a,54
+ 1490 0A65  32 18C0     	ld (gaplen),a
+ 1491                   ;3 	elseif a='2'
+ 1492 0A68  C3 0AB0     	JP .L149
+ 1493 0A6B              .L148:
+ 1494 0A6B  FE 32       	CP '2'
+ 1495 0A6D  C2 0A83     	JP NZ,.L150
+ 1496 0A70  21 0200     	ld hl,512
+ 1497 0A73  22 18BC     	ld (anzbyte),hl
+ 1498 0A76  3E 09       	ld a,9
+ 1499 0A78  32 18C3     	ld (sektoren),a
+ 1500 0A7B  3E 36       	ld a,54
+ 1501 0A7D  32 18C0     	ld (gaplen),a
+ 1502                   ;3 	elseif a='3'
+ 1503 0A80  C3 0AB0     	JP .L149
+ 1504 0A83              .L150:
+ 1505 0A83  FE 33       	CP '3'
+ 1506 0A85  C2 0A9B     	JP NZ,.L151
+ 1507 0A88  21 0200     	ld hl,512
+ 1508 0A8B  22 18BC     	ld (anzbyte),hl
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  27
+UF122N  Z80
+
+ 1509 0A8E  3E 0A       	ld a,10
+ 1510 0A90  32 18C3     	ld (sektoren),a
+ 1511 0A93  3E 28       	ld a,40
+ 1512 0A95  32 18C0     	ld (gaplen),a
+ 1513                   ;3 	elseif a='4'
+ 1514 0A98  C3 0AB0     	JP .L149
+ 1515 0A9B              .L151:
+ 1516 0A9B  FE 34       	CP '4'
+ 1517 0A9D  C2 0AB0     	JP NZ,.L152
+ 1518 0AA0  21 0400     	ld hl,1024
+ 1519 0AA3  22 18BC     	ld (anzbyte),hl
+ 1520 0AA6  3E 05       	ld a,5
+ 1521 0AA8  32 18C3     	ld (sektoren),a
+ 1522 0AAB  3E 36       	ld a,54
+ 1523 0AAD  32 18C0     	ld (gaplen),a
+ 1524                   ;3 	endif
+ 1525 0AB0              .L152:
+ 1526 0AB0              .L149:
+ 1527                   ;2 	endif
+ 1528 0AB0              .L145:
+ 1529                   ;1 	else  	; Maxi
+ 1530 0AB0  C3 0B98     	JP .L153
+ 1531 0AB3              .L137:
+ 1532 0AB3  3A 18BF     	ld a,(dichte)
+ 1533                   ;2 	if a=0 	; SD
+ 1534 0AB6  B7          	OR A
+ 1535 0AB7  C2 0AF8     	JP NZ,.L154
+ 1536 0ABA  21 1296     	ld hl,menue5c
+ 1537 0ABD  CD 0B99     	call print
+ 1538                   ;3 	repeat
+ 1539 0AC0              .L155:
+ 1540 0AC0  CD 0106     	call ci
+ 1541                   ;3 	until a in ['1'..'2']
+ 1542 0AC3  FE 33       	CP '2'+1
+ 1543 0AC5  D2 0AC0     	JP NC,.L155
+ 1544 0AC8  FE 31       	CP '1'+0
+ 1545 0ACA  DA 0AC0     	JP C,.L155
+ 1546 0ACD              .L156:
+ 1547                   ;3 	if a='1'
+ 1548 0ACD  FE 31       	CP '1'
+ 1549 0ACF  C2 0AE5     	JP NZ,.L157
+ 1550 0AD2  21 0080     	ld hl,128
+ 1551 0AD5  22 18BC     	ld (anzbyte),hl
+ 1552 0AD8  3E 1A       	ld a,26
+ 1553 0ADA  32 18C3     	ld (sektoren),a
+ 1554 0ADD  3E 1B       	ld a,27
+ 1555 0ADF  32 18C0     	ld (gaplen),a
+ 1556                   ;3 	else
+ 1557 0AE2  C3 0AF5     	JP .L158
+ 1558 0AE5              .L157:
+ 1559 0AE5  21 0100     	ld hl,256
+ 1560 0AE8  22 18BC     	ld (anzbyte),hl
+ 1561 0AEB  3E 0F       	ld a,15
+ 1562 0AED  32 18C3     	ld (sektoren),a
+ 1563 0AF0  3E 1B       	ld a,27
+ 1564 0AF2  32 18C0     	ld (gaplen),a
+ 1565                   ;3 	endif
+ 1566 0AF5              .L158:
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  28
+UF122N  Z80
+
+ 1567                   ;2 	else   	; DD
+ 1568 0AF5  C3 0B98     	JP .L159
+ 1569 0AF8              .L154:
+ 1570 0AF8  21 12EE     	ld hl,menue5d
+ 1571 0AFB  CD 0B99     	call print
+ 1572                   ;3 	repeat
+ 1573 0AFE              .L160:
+ 1574 0AFE  CD 0106     	call ci
+ 1575                   ;3 	until a in ['1'..'6']
+ 1576 0B01  FE 37       	CP '6'+1
+ 1577 0B03  D2 0AFE     	JP NC,.L160
+ 1578 0B06  FE 31       	CP '1'+0
+ 1579 0B08  DA 0AFE     	JP C,.L160
+ 1580 0B0B              .L161:
+ 1581                   ;3 	if a='1'
+ 1582 0B0B  FE 31       	CP '1'
+ 1583 0B0D  C2 0B23     	JP NZ,.L162
+ 1584 0B10  21 0100     	ld hl,256
+ 1585 0B13  22 18BC     	ld (anzbyte),hl
+ 1586 0B16  3E 1A       	ld a,26
+ 1587 0B18  32 18C3     	ld (sektoren),a
+ 1588 0B1B  3E 36       	ld a,54
+ 1589 0B1D  32 18C0     	ld (gaplen),a
+ 1590                   ;3 	elseif a='2'
+ 1591 0B20  C3 0B98     	JP .L163
+ 1592 0B23              .L162:
+ 1593 0B23  FE 32       	CP '2'
+ 1594 0B25  C2 0B3B     	JP NZ,.L164
+ 1595 0B28  21 0200     	ld hl,512
+ 1596 0B2B  22 18BC     	ld (anzbyte),hl
+ 1597 0B2E  3E 0E       	ld a,14
+ 1598 0B30  32 18C3     	ld (sektoren),a
+ 1599 0B33  3E 36       	ld a,54
+ 1600 0B35  32 18C0     	ld (gaplen),a
+ 1601                   ;3 	elseif a='3'
+ 1602 0B38  C3 0B98     	JP .L163
+ 1603 0B3B              .L164:
+ 1604 0B3B  FE 33       	CP '3'
+ 1605 0B3D  C2 0B53     	JP NZ,.L165
+ 1606 0B40  21 0200     	ld hl,512
+ 1607 0B43  22 18BC     	ld (anzbyte),hl
+ 1608 0B46  3E 0F       	ld a,15
+ 1609 0B48  32 18C3     	ld (sektoren),a
+ 1610 0B4B  3E 36       	ld a,54
+ 1611 0B4D  32 18C0     	ld (gaplen),a
+ 1612                   ;3 	elseif a='4'
+ 1613 0B50  C3 0B98     	JP .L163
+ 1614 0B53              .L165:
+ 1615 0B53  FE 34       	CP '4'
+ 1616 0B55  C2 0B6B     	JP NZ,.L166
+ 1617 0B58  21 0200     	ld hl,512
+ 1618 0B5B  22 18BC     	ld (anzbyte),hl
+ 1619 0B5E  3E 10       	ld a,16
+ 1620 0B60  32 18C3     	ld (sektoren),a
+ 1621 0B63  3E 28       	ld a,40
+ 1622 0B65  32 18C0     	ld (gaplen),a
+ 1623                   ;3 	elseif a='5'
+ 1624 0B68  C3 0B98     	JP .L163
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  29
+UF122N  Z80
+
+ 1625 0B6B              .L166:
+ 1626 0B6B  FE 35       	CP '5'
+ 1627 0B6D  C2 0B83     	JP NZ,.L167
+ 1628 0B70  21 0400     	ld hl,1024
+ 1629 0B73  22 18BC     	ld (anzbyte),hl
+ 1630 0B76  3E 08       	ld a,8
+ 1631 0B78  32 18C3     	ld (sektoren),a
+ 1632 0B7B  3E 36       	ld a,54
+ 1633 0B7D  32 18C0     	ld (gaplen),a
+ 1634                   ;3 	elseif a='6'
+ 1635 0B80  C3 0B98     	JP .L163
+ 1636 0B83              .L167:
+ 1637 0B83  FE 36       	CP '6'
+ 1638 0B85  C2 0B98     	JP NZ,.L168
+ 1639 0B88  21 0400     	ld hl,1024
+ 1640 0B8B  22 18BC     	ld (anzbyte),hl
+ 1641 0B8E  3E 09       	ld a,9
+ 1642 0B90  32 18C3     	ld (sektoren),a
+ 1643 0B93  3E 28       	ld a,40
+ 1644 0B95  32 18C0     	ld (gaplen),a
+ 1645                   ;3 	endif
+ 1646 0B98              .L168:
+ 1647 0B98              .L163:
+ 1648                   ;2 	endif
+ 1649 0B98              .L159:
+ 1650                   ;1 	endif
+ 1651 0B98              .L153:
+ 1652 0B98  C9          	ret
+ 1653 0B99              print::
+ 1654 0B99  7E          	ld a,(hl)
+ 1655                   ;1 	while a<>0 
+ 1656 0B9A              .L169:
+ 1657 0B9A  B7          	OR A
+ 1658 0B9B  CA 0BA7     	JP Z,.L170
+ 1659 0B9E  4F          	ld c,a
+ 1660 0B9F  CD 0103     	call co
+ 1661 0BA2  23          	inc hl
+ 1662 0BA3  7E          	ld a,(hl)
+ 1663                   ;1 	endwhile
+ 1664 0BA4  C3 0B9A     	JP .L169
+ 1665 0BA7              .L170:
+ 1666 0BA7  C9          	ret
+ 1667                   
+ 1668 0BA8              werteaus:		; Conrolle, Werte ausgeben
+ 1669 0BA8  0E 1A       	ld c,1ah
+ 1670 0BAA  CD 0103     	call co 	; Bildschirm loeschen
+ 1671 0BAD  3A 18BA     	ld a,(minimax)
+ 1672                   ;1 	if a=0  	; 0=Mini
+ 1673 0BB0  B7          	OR A
+ 1674 0BB1  C2 0BBA     	JP NZ,.L171
+ 1675 0BB4  21 0D76     	ld hl,tmini
+ 1676                   ;1 	else
+ 1677 0BB7  C3 0BBD     	JP .L172
+ 1678 0BBA              .L171:
+ 1679 0BBA  21 0D86     	ld hl,tmaxi
+ 1680                   ;1 	endif
+ 1681 0BBD              .L172:
+ 1682 0BBD  CD 0B99     	call print
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  30
+UF122N  Z80
+
+ 1683 0BC0  3A 18B8     	ld a,(user)
+ 1684                   ;1 	if a=0  	; FLO 2
+ 1685 0BC3  B7          	OR A
+ 1686 0BC4  C2 0BDA     	JP NZ,.L173
+ 1687                   	
+ 1688                   	; v1.22
+ 1689 0BC7  3A 18B9     	LD A,(flotyp)
+ 1690 0BCA  B7          	OR A
+ 1691 0BCB  C2 0BD4     	JP NZ,L0BD4
+ 1692 0BCE  21 0D96     	LD HL,tflo2
+ 1693 0BD1  C3 0BD7     	JP L0BD7
+ 1694                   	
+ 1695 0BD4              L0BD4:	
+ 1696 0BD4  21 0DBD     	ld hl,tflo1c
+ 1697 0BD7              L0BD7:
+ 1698                   ;1 	elseif a=1
+ 1699 0BD7  C3 0BE8     	JP .L174
+ 1700 0BDA              .L173:
+ 1701 0BDA  FE 01       	CP 1
+ 1702 0BDC  C2 0BE5     	JP NZ,.L175
+ 1703 0BDF  21 0DA3     	ld hl,tflo1a
+ 1704                   ;1 	else a=2
+ 1705 0BE2  C3 0BE8     	JP .L176
+ 1706 0BE5              .L175:
+ 1707 0BE5  21 0DB0     	ld hl,tflo1b
+ 1708                   ;1 	endif
+ 1709 0BE8              .L176:
+ 1710 0BE8              .L174:
+ 1711 0BE8  CD 0B99     	call print
+ 1712 0BEB  3A 18BF     	ld a,(dichte)
+ 1713                   ;1 	if a=0  	; 0=SD
+ 1714 0BEE  B7          	OR A
+ 1715 0BEF  C2 0BF8     	JP NZ,.L177
+ 1716 0BF2  21 0DCA     	ld hl,tfm
+ 1717                   ;1 	else
+ 1718 0BF5  C3 0BFB     	JP .L178
+ 1719 0BF8              .L177:
+ 1720 0BF8  21 0DCF     	ld hl,tmfm
+ 1721                   ;1 	endif
+ 1722 0BFB              .L178:
+ 1723 0BFB  3A 18BB     	ld a,(ecma)
+ 1724                   ;1 	if a=1
+ 1725 0BFE  FE 01       	CP 1
+ 1726 0C00  C2 0C06     	JP NZ,.L179
+ 1727 0C03  21 0DD5     	ld hl,tecma 	; Sonderfall, Ecma-Format
+ 1728                   ;1 	endif
+ 1729 0C06              .L179:
+ 1730 0C06  CD 0B99     	call print
+ 1731 0C09  CD 0D50     	call crlf
+ 1732 0C0C  CD 0D50     	call crlf
+ 1733 0C0F  21 0DDD     	ld hl,tspuren
+ 1734 0C12  CD 0B99     	call print
+ 1735 0C15  3A 18C1     	ld a,(spuren)
+ 1736 0C18  6F          	ld l,a
+ 1737 0C19  26 00       	ld h,0
+ 1738 0C1B  CD 02AE     	call printhl 	; Anzahl Spuren
+ 1739 0C1E  CD 0D50     	call crlf
+ 1740 0C21  21 0DF1     	ld hl,tsektoren
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  31
+UF122N  Z80
+
+ 1741 0C24  CD 0B99     	call print
+ 1742 0C27  3A 18C3     	ld a,(sektoren)
+ 1743 0C2A  6F          	ld l,a
+ 1744 0C2B  26 00       	ld h,0
+ 1745 0C2D  CD 02AE     	call printhl 	; Anzahl Sektoren
+ 1746 0C30  CD 0D50     	call crlf
+ 1747 0C33  21 0E05     	ld hl,tbytes
+ 1748 0C36  CD 0B99     	call print
+ 1749 0C39  2A 18BC     	ld hl,(anzbyte)
+ 1750 0C3C  CD 02AE     	call printhl 	; Bytes pro Sektor
+ 1751 0C3F  CD 0D50     	call crlf
+ 1752                   		;
+ 1753 0C42  21 0E19     	ld hl,tlaufwerk
+ 1754 0C45  CD 0B99     	call print
+ 1755 0C48  3A 18C4     	ld a,(laufwerk)
+ 1756 0C4B  E6 0F       	and 0fh 	; 1,2,4,8
+ 1757                   ;1 	if a=1
+ 1758 0C4D  FE 01       	CP 1
+ 1759 0C4F  C2 0C57     	JP NZ,.L180
+ 1760 0C52  0E 41       	ld c,'A'
+ 1761                   ;1 	elseif a=2
+ 1762 0C54  C3 0C77     	JP .L181
+ 1763 0C57              .L180:
+ 1764 0C57  FE 02       	CP 2
+ 1765 0C59  C2 0C61     	JP NZ,.L182
+ 1766 0C5C  0E 42       	ld c,'B'
+ 1767                   ;1 	elseif a=4
+ 1768 0C5E  C3 0C77     	JP .L181
+ 1769 0C61              .L182:
+ 1770 0C61  FE 04       	CP 4
+ 1771 0C63  C2 0C6B     	JP NZ,.L183
+ 1772 0C66  0E 43       	ld c,'C'
+ 1773                   ;1 	elseif a=8
+ 1774 0C68  C3 0C77     	JP .L181
+ 1775 0C6B              .L183:
+ 1776 0C6B  FE 08       	CP 8
+ 1777 0C6D  C2 0C75     	JP NZ,.L184
+ 1778 0C70  0E 44       	ld c,'D'
+ 1779                   ;1 	else
+ 1780 0C72  C3 0C77     	JP .L185
+ 1781 0C75              .L184:
+ 1782 0C75  0E 3F       	ld c,'?'
+ 1783                   ;1 	endif
+ 1784 0C77              .L185:
+ 1785 0C77              .L181:
+ 1786 0C77  CD 0103     	call co
+ 1787 0C7A  CD 0D50     	call crlf
+ 1788 0C7D  CD 0D50     	call crlf
+ 1789                   		; 
+ 1790 0C80  3A 18C2     	ld a,(kopf)
+ 1791                   ;1 	if a=1  	; zweiseitig
+ 1792 0C83  FE 01       	CP 1  
+ 1793 0C85  C2 0C9E     	JP NZ,.L186
+ 1794 0C88  3A 18C6     	ld a,(sideflag)
+ 1795                   ;2 	if a=0 	; ohne SSO
+ 1796 0C8B  B7          	OR A
+ 1797 0C8C  C2 0C95     	JP NZ,.L187
+ 1798 0C8F  21 0E7D     	ld hl,tzweiseitig
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  32
+UF122N  Z80
+
+ 1799                   ;2 	else  	; mit SSO
+ 1800 0C92  C3 0C98     	JP .L188
+ 1801 0C95              .L187:
+ 1802 0C95  21 0E9C     	ld hl,tzweisso
+ 1803                   ;2 	endif
+ 1804 0C98              .L188:
+ 1805 0C98  CD 0B99     	call print
+ 1806                   ;1 	else  	; einseitig
+ 1807 0C9B  C3 0CC2     	JP .L189
+ 1808 0C9E              .L186:
+ 1809 0C9E  3A 18C4     	ld a,(laufwerk) 
+ 1810 0CA1  E6 80       	and 80h
+ 1811                   ;2 	if z  	; vorderseite
+ 1812 0CA3  C2 0CAF     	JP NZ,.L190
+ 1813 0CA6  21 0E23     	ld hl,teinseitig
+ 1814 0CA9  CD 0B99     	call print
+ 1815                   ;2 	else  	; rueckseite
+ 1816 0CAC  C3 0CC2     	JP .L191
+ 1817 0CAF              .L190:
+ 1818 0CAF  3A 18C6     	ld a,(sideflag)
+ 1819                   ;3 	if a=0 	; ohne sso
+ 1820 0CB2  B7          	OR A
+ 1821 0CB3  C2 0CBC     	JP NZ,.L192
+ 1822 0CB6  21 0E3F     	ld hl,trueckseite
+ 1823                   ;3 	else  	; sso
+ 1824 0CB9  C3 0CBF     	JP .L193
+ 1825 0CBC              .L192:
+ 1826 0CBC  21 0E5A     	ld hl,truecksso
+ 1827                   ;3 	endif
+ 1828 0CBF              .L193:
+ 1829 0CBF  CD 0B99     	call print
+ 1830                   ;2 	endif
+ 1831 0CC2              .L191:
+ 1832                   ;1 	endif
+ 1833 0CC2              .L189:
+ 1834 0CC2  CD 0D50     	call crlf 
+ 1835 0CC5  CD 0D50     	call crlf
+ 1836                   		; Kapazitaet ausrechnen
+ 1837 0CC8  21 0D57     	ld hl,tkap
+ 1838 0CCB  CD 0B99     	call print
+ 1839 0CCE  3A 18C3     	ld a,(sektoren)
+ 1840 0CD1  6F          	ld l,a
+ 1841 0CD2  26 00       	ld h,0
+ 1842 0CD4  3A 18C1     	ld a,(spuren)
+ 1843 0CD7  5F          	ld e,a
+ 1844 0CD8  16 00       	ld d,0
+ 1845 0CDA  CD 0D33     	call mulhlde 	; sektoren*tracks
+ 1846 0CDD  3A 18C2     	ld a,(kopf)
+ 1847                   ;1 	if a=1
+ 1848 0CE0  FE 01       	CP 1
+ 1849 0CE2  C2 0CEB     	JP NZ,.L194
+ 1850 0CE5  11 0002     	ld de,2
+ 1851 0CE8  CD 0D33     	call mulhlde 	; wenn zweiseitig, dann doppelt
+ 1852                   ;1 	endif
+ 1853 0CEB              .L194:
+ 1854 0CEB  ED 5B 18BC  	ld de,(anzbyte) 	; de=1024,512,256,128
+ 1855                   		; de=400h,200h,100h,80h
+ 1856                   ;1 	if d=0
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  33
+UF122N  Z80
+
+ 1857 0CEF  7A          	LD A,d
+ 1858 0CF0  B7          	OR A
+ 1859 0CF1  C2 0D01     	JP NZ,.L195
+ 1860                   ;2 	do b,3 	; div 8
+ 1861 0CF4  06 03       	LD b,3 
+ 1862 0CF6              .L196:
+ 1863 0CF6  CB 2C       	sra h
+ 1864 0CF8  CB 1D       	rr l
+ 1865                   ;2 	enddo
+ 1866 0CFA  05          	DEC B
+ 1867 0CFB  C2 0CF6     	JP NZ,.L196
+ 1868                   ;1 	elseif d=1
+ 1869 0CFE  C3 0D26     	JP .L197
+ 1870 0D01              .L195:
+ 1871 0D01  7A          	LD A,d
+ 1872 0D02  FE 01       	CP 1
+ 1873 0D04  C2 0D12     	JP NZ,.L198
+ 1874 0D07  CB 2C       	sra h  	; div 4
+ 1875 0D09  CB 1D       	rr l
+ 1876 0D0B  CB 2C       	sra h
+ 1877 0D0D  CB 1D       	rr l
+ 1878                   ;1 	elseif d=2
+ 1879 0D0F  C3 0D26     	JP .L197
+ 1880 0D12              .L198:
+ 1881 0D12  7A          	LD A,d
+ 1882 0D13  FE 02       	CP 2
+ 1883 0D15  C2 0D1F     	JP NZ,.L199
+ 1884 0D18  CB 2C       	sra h  	; div 2
+ 1885 0D1A  CB 1D       	rr l
+ 1886                   ;1 	elseif d=4
+ 1887 0D1C  C3 0D26     	JP .L197
+ 1888 0D1F              .L199:
+ 1889 0D1F  7A          	LD A,d
+ 1890 0D20  FE 04       	CP 4
+ 1891 0D22  C2 0D26     	JP NZ,.L200
+ 1892 0D25  00          	nop  	; hl = KBytes
+ 1893                   ;1 	endif
+ 1894 0D26              .L200:
+ 1895 0D26              .L197:
+ 1896 0D26  CD 02AE     	call printhl 	; ausgeben
+ 1897 0D29  21 0D6E     	ld hl,tkap1
+ 1898 0D2C  CD 0B99     	call print
+ 1899 0D2F  CD 0D50     	call crlf
+ 1900 0D32  C9          	ret
+ 1901                   
+ 1902 0D33              mulhlde:		; fuer Kapazitaetsbestimmung
+ 1903                   		; hl*de -> hl
+ 1904 0D33  3E 10       	ld a,16
+ 1905 0D35  D5          	push de
+ 1906 0D36  C1          	pop bc
+ 1907 0D37  11 0000     	ld de,0
+ 1908 0D3A  EB          	ex de,hl
+ 1909 0D3B              mullp:
+ 1910 0D3B  F5          	push af
+ 1911 0D3C  CB 43       	bit 0,e
+ 1912                   ;1 	if nz
+ 1913 0D3E  CA 0D42     	JP Z,.L201
+ 1914 0D41  09          	add hl,bc
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  34
+UF122N  Z80
+
+ 1915                   ;1 	endif
+ 1916 0D42              .L201:
+ 1917 0D42  CB 2C       	sra h
+ 1918 0D44  CB 1D       	rr l
+ 1919 0D46  CB 1A       	rr d
+ 1920 0D48  CB 1B       	rr e
+ 1921 0D4A  F1          	pop af
+ 1922 0D4B  3D          	dec a
+ 1923 0D4C  20 ED       	jr nz,mullp
+ 1924 0D4E  EB          	ex de,hl 	; nur lsb nach hl
+ 1925 0D4F  C9          	ret
+ 1926                   
+ 1927 0D50              crlf:
+ 1928 0D50  21 1738     	ld hl,tcrlf
+ 1929 0D53  CD 0B99     	call print
+ 1930 0D56  C9          	ret
+ 1931 0D57              tkap:
+ 1932 0D57  53 70 65 69 	defb 'Speicherkapazitaet :  ',0
+ 1933 0D6E              tkap1:
+ 1934 0D6E  20 4B 42 79 	defb ' KBytes',0
+ 1935 0D76              tmini:
+ 1936 0D76  4D 69 6E 69 	defb 'Mini-Laufwerk  ',0
+ 1937 0D86              tmaxi:
+ 1938 0D86  4D 61 78 69 	defb 'Maxi-Laufwerk  ',0
+ 1939 0D96              tflo2:
+ 1940 0D96  46 4C 4F 32 	defb 'FLO2 (C0h)  ',0
+ 1941 0DA3              tflo1a:
+ 1942 0DA3  46 4C 4F 31 	defb 'FLO1 (40h)  ',0
+ 1943 0DB0              tflo1b:
+ 1944 0DB0  46 4C 4F 31 	defb 'FLO1 (30h)  ',0
+ 1945 0DBD              tflo1c:
+ 1946 0DBD  46 4C 4F 31 	defb 'FLO1 (C0h)  ',0
+ 1947 0DCA              tfm:
+ 1948 0DCA  46 4D 20 20 	defb 'FM  ',0
+ 1949 0DCF              tmfm:
+ 1950 0DCF  4D 46 4D 20 	defb 'MFM  ',0
+ 1951 0DD5              tecma:
+ 1952 0DD5  45 43 4D 41 	defb 'ECMA70 ',0
+ 1953 0DDD              tspuren:
+ 1954 0DDD  41 6E 7A 61 	defb 'Anzahl Spuren    = ',0
+ 1955 0DF1              tsektoren:
+ 1956 0DF1  41 6E 7A 61 	defb 'Anzahl Sektoren  = ',0
+ 1957 0E05              tbytes:
+ 1958 0E05  42 79 74 65 	defb 'Bytes/pro Sektor = ',0
+ 1959 0E19              tlaufwerk:
+ 1960 0E19  4C 61 75 66 	defb 'Laufwerk ',0
+ 1961 0E23              teinseitig:
+ 1962 0E23  56 6F 72 64 	defb 'Vorderseite wird formatiert',0
+ 1963 0E3F              trueckseite:
+ 1964 0E3F  52 75 65 63 	defb 'Rueckseite wird formatiert',0
+ 1965 0E5A              truecksso:
+ 1966 0E5A  52 75 65 63 	defb 'Rueckseite wird mit SSO formatiert',0
+ 1967 0E7D              tzweiseitig:
+ 1968 0E7D  62 65 69 64 	defb 'beide Seiten werden formatiert',0
+ 1969 0E9C              tzweisso:
+ 1970 0E9C  62 65 69 64 	defb 'beide Seiten werden formatiert',0dh,0ah
+ 1971 0EBC  53 65 69 74 	defb 'Seite 1 mit SSO, Seite 0 normal',0
+ 1972 0EDC              formtxt::
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  35
+UF122N  Z80
+
+ 1973 0EDC  0D 0A       	defb 0dh,0ah
+ 1974 0EDE  41 43 48 54 	defb 'ACHTUNG Diskette wird formatiert',0dh,0ah
+ 1975 0F00  53 74 61 72 	defb 'Start = "J"',0dh,0ah
+ 1976 0F0D  00          	defb 0
+ 1977 0F0E              headtxt::
+ 1978 0F0E  1A 0D 0A    	defb 1ah,0dh,0ah
+ 1979 0F11  20 55 6E 69 	defb ' Universal Formatierer  V 1.22 , Rolf-Dieter Klein / JS ',0dh,0ah
+ 1980 0F4B  20 28 43 29 	defb ' (C) 1984, Muenchen ',0dh,0ah
+ 1981 0F61  0D 0A       	defb 0dh,0ah
+ 1982 0F63  20 2D 2D 20 	defb ' --   Bitte Systemdiskette herausnehmen    -- ',0dh,0ah
+ 1983 0F93  20 2D 2D 20 	defb ' -- und zu formatierende Diskette einlegen -- ',0dh,0ah
+ 1984 0FC3  0D 0A       	defb 0dh,0ah
+ 1985 0FC5  4D 69 6E 69 	defb 'Minilaufwerke (5 1/4") = 1',0dh,0ah
+ 1986 0FE1  4D 61 78 69 	defb 'Maxilaufwerke (8"    ) = 2',0dh,0ah
+ 1987 0FFD  53 74 64 20 	defb 'Std  8" SD SD 77 Spur  = 3',0dh,0ah
+ 1988 1019  45 43 4D 41 	defb 'ECMA 70 DD SD 40 Spur  = 4',0dh,0ah
+ 1989 1035  4E 44 52 2D 	defb 'NDR- DD DS 80 Spur     = 5',0dh,0ah
+ 1990 1051  45 4E 44 45 	defb 'ENDE                   = 6',0dh,0ah
+ 1991 106D  0D 0A 00    	defb 0dh,0ah,0
+ 1992 1070              menue2::
+ 1993 1070  1A 0D 0A    	defb 1ah,0dh,0ah
+ 1994 1073  65 69 6E 66 	defb 'einfache Schreibdichte = 1',0dh,0ah
+ 1995 108F  64 6F 70 70 	defb 'doppelte Schreibdichte = 2',0dh,0ah
+ 1996 10AB  0D 0A 00    	defb 0dh,0ah,0
+ 1997 10AE              menue3::
+ 1998 10AE  1A 0D 0A    	defb 1ah,0dh,0ah
+ 1999 10B1  33 35 20 53 	defb '35 Spuren  = 1',0dh,0ah
+ 2000 10C1  34 30 20 53 	defb '40 Spuren  = 2',0dh,0ah
+ 2001 10D1  37 30 20 53 	defb '70 Spuren  = 3',0dh,0ah
+ 2002 10E1  37 37 20 53 	defb '77 Spuren  = 4',0dh,0ah
+ 2003 10F1  38 30 20 53 	defb '80 Spuren  = 5',0dh,0ah
+ 2004 1101  0D 0A 00    	defb 0dh,0ah,0
+ 2005 1104              menue4::
+ 2006 1104  1A 0D 0A    	defb 1ah,0dh,0ah
+ 2007 1107  45 69 6E 73 	defb 'Einseitiges Laufwerk     = 1',0dh,0ah
+ 2008 1125  44 6F 70 70 	defb 'Doppeltseitiges Laufwerk = 2',0dh,0ah
+ 2009 1143  44 6F 70 70 	defb 'Doppeltseitig und SSO    = 3',0dh,0ah
+ 2010 1161  0D 0A 00    	defb 0dh,0ah,0
+ 2011 1164              menue5a::		; einfache Dichte, Minifloppy
+ 2012 1164  1A 0D 0A    	defb 1ah,0dh,0ah
+ 2013 1167  31 32 38 20 	defb '128 Bytes pro Sektor  (16 pro Track) = 1',0dh,0ah
+ 2014 1191  31 32 38 20 	defb '128 Bytes pro Sektor  (18 pro Track) = 2',0dh,0ah
+ 2015 11BB  32 35 36 20 	defb '256 Bytes pro Sektor  (10 pro Track) = 3',0dh,0ah
+ 2016 11E5  0D 0A 00    	defb 0dh,0ah,0
+ 2017 11E8              menue5b::		; doppelte Dichte, Minifloppy
+ 2018 11E8  1A 0D 0A    	defb 1ah,0dh,0ah
+ 2019 11EB  32 35 36 20 	defb '256 Bytes pro Sektor  (16 pro Track) = 1',0dh,0ah
+ 2020 1215  35 31 32 20 	defb '512 Bytes pro Sektor  (9 pro Track)  = 2',0dh,0ah
+ 2021 123F  35 31 32 20 	defb '512 Bytes pro Sektor  (10 pro Track) = 3',0dh,0ah
+ 2022 1269  31 30 32 34 	defb '1024 Bytes pro Sektor (5 pro Track)  = 4',0dh,0ah
+ 2023 1293  0D 0A 00    	defb 0dh,0ah,0
+ 2024 1296              menue5c::		; einfache Dichte Maxifloppy
+ 2025 1296  1A 0D 0A    	defb 1ah,0dh,0ah
+ 2026 1299  31 32 38 20 	defb '128 Bytes pro Sektor (26 pro Track) = 1',0dh,0ah
+ 2027 12C2  32 35 36 20 	defb '256 Bytes pro Sektor (15 pro Track) = 2',0dh,0ah
+ 2028 12EB  0D 0A 00    	defb 0dh,0ah,0
+ 2029 12EE              menue5d::		; doppelte Dichte Maxifloppy
+ 2030 12EE  1A 0D 0A    	defb 1ah,0dh,0ah
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  36
+UF122N  Z80
+
+ 2031 12F1  32 35 36 20 	defb '256 Bytes pro Sektor (26 pro Track) = 1',0dh,0ah
+ 2032 131A  35 31 32 20 	defb '512 Bytes pro Sektor (14 pro Track) = 2',0dh,0ah
+ 2033 1343  35 31 32 20 	defb '512 Bytes pro Sektor (15 pro Track) = 3',0dh,0ah
+ 2034 136C  35 31 32 20 	defb '512 Bytes pro Sektor (16 pro Track) = 4',0dh,0ah
+ 2035 1395  31 30 32 34 	defb '1024 Bytes pro Sektor (8 pro Track) = 5',0dh,0ah
+ 2036 13BE  31 30 32 34 	defb '1024 Bytes pro Sektor (9 pro Track) = 6',0dh,0ah
+ 2037 13E7  0D 0A 00    	defb 0dh,0ah,0
+ 2038 13EA              menue6::
+ 2039 13EA  1A 0D 0A    	defb 1ah,0dh,0ah
+ 2040 13ED  4C 61 75 66 	defb 'Laufwerk              A = 1',0dh,0ah
+ 2041 140A  4C 61 75 66 	defb 'Laufwerk              B = 2',0dh,0ah
+ 2042 1427  4C 61 75 66 	defb 'Laufwerk              C = 3',0dh,0ah
+ 2043 1444  4C 61 75 66 	defb 'Laufwerk              D = 4',0dh,0ah
+ 2044 1461  4C 61 75 66 	defb 'Laufwerk A Rueckseite A = 5',0dh,0ah
+ 2045 147E  4C 61 75 66 	defb 'Laufwerk B Rueckseite B = 6',0dh,0ah
+ 2046 149B  4C 61 75 66 	defb 'Laufwerk C Rueckseite C = 7',0dh,0ah
+ 2047 14B8  4C 61 75 66 	defb 'Laufwerk D Rueckseite D = 8',0dh,0ah
+ 2048 14D5  4E 45 55 53 	defb 'NEUSTART    = 9',0dh,0ah
+ 2049 14E6  45 4E 44 45 	defb 'ENDE        = 0',0dh,0ah
+ 2050 14F7  0D 0A 00    	defb 0dh,0ah,0
+ 2051 14FA              menue7:
+ 2052 14FA  1A 0D 0A    	defb 1ah,0dh,0ah
+ 2053 14FD  46 4C 4F 32 	defb 'FLO2-Maxi/Mini (0C0h) = 1',0dh,0ah
+ 2054 1518  46 4C 4F 31 	defb 'FLO1-Maxi (40h)       = 2',0dh,0ah
+ 2055 1533  46 4C 4F 31 	defb 'FLO1-Mini (30h)       = 3',0dh,0ah
+ 2056 154E  46 4C 4F 31 	defb 'FLO1-Maxi/Mini (0C0h) = 4',0dh,0ah
+ 2057 1569  0D 0A 00    	defb 0dh,0ah,0
+ 2058 156C              fmsg:
+ 2059 156C  1A 0D 0A    	defb 1ah,0dh,0ah
+ 2060 156F  44 69 73 6B 	defb 'Diskette wird formatiert ... bitte warten ',0dh,0ah
+ 2061 159B  0D 0A 00    	defb 0dh,0ah,0
+ 2062 159E              f6msg:
+ 2063 159E  0D 0A       	defb 0dh,0ah
+ 2064 15A0  53 63 68 72 	defb 'Schreibschutz gesetzt',0dh,0ah
+ 2065 15B7  4E 65 75 73 	defb 'Neustart = Taste W druecken',0dh,0ah,0
+ 2066 15D5              f5msg:
+ 2067 15D5  0D 0A       	defb 0dh,0ah
+ 2068 15D7  52 65 63 6F 	defb 'Record Typ ist falsch',0dh,0ah
+ 2069 15EE  4E 65 75 73 	defb 'Neustart = Taste W druecken',0dh,0ah,0
+ 2070 160C              f4msg:
+ 2071 160C  0D 0A       	defb 0dh,0ah
+ 2072 160E  52 65 63 6F 	defb 'Record nicht gefunden',0dh,0ah
+ 2073 1625  4E 65 75 73 	defb 'Neustart = Taste W druecken',0dh,0ah,0
+ 2074 1643              f3msg:
+ 2075 1643  0D 0A       	defb 0dh,0ah
+ 2076 1645  43 52 43 20 	defb 'CRC Fehler aufgetreten',0dh,0ah
+ 2077 165D  4E 65 75 73 	defb 'Neustart = Taste W druecken',0dh,0ah,0
+ 2078 167B              f2msg:
+ 2079 167B  0D 0A       	defb 0dh,0ah
+ 2080 167D  43 50 55 20 	defb 'CPU zu langsam fuer gewaehltes Format-- Datenverlust',0dh,0ah
+ 2081 16B3  68 6F 65 68 	defb 'hoeherer Takt erforderlich',0dh,0ah
+ 2082 16CF  4E 65 75 73 	defb 'Neustart = Taste W druecken',0dh,0ah,0
+ 2083 16ED              f0msg:
+ 2084 16ED  0D 0A       	defb 0dh,0ah
+ 2085 16EF  46 65 68 6C 	defb 'Fehler aufgetreten. Neustart = Taste W druecken',0dh,0ah,0
+ 2086 1721              tkmsg:
+ 2087 1721  0D 0A       	defb 0dh,0ah
+ 2088 1723  54 72 61 63 	defb 'Track = ',0
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  37
+UF122N  Z80
+
+ 2089 172C              skmsg:
+ 2090 172C  2C 20 53 65 	defb ', Sektor = ',0
+ 2091 1738              tcrlf:
+ 2092 1738  0D 0A 00    	defb 0dh,0ah,0
+ 2093 173B              rmsg:
+ 2094 173B  0D 0A       	defb 0dh,0ah
+ 2095 173D  4C 61 75 66 	defb 'Laufwerk nicht READY ... bitte pruefen:',0dh,0ah
+ 2096 1766  20 31 2E 20 	defb ' 1. Diskette falschherum eingelegt',0dh,0ah
+ 2097 178A  20 32 2E 20 	defb ' 2. Laufwerkstuere nicht geschlossen',0dh,0ah
+ 2098 17B0  20 33 2E 20 	defb ' 3. falsche Laufwerksnummer angegeben',0dh,0ah
+ 2099 17D7  20 34 2E 20 	defb ' 4. Laufwerksmotor dreht sich nicht',0dh,0ah
+ 2100 17FC  20 35 2E 20 	defb ' 5. READY-Leitung nicht ok',0dh,0ah 
+ 2101 1818  0D 0A       	defb 0dh,0ah
+ 2102 181A  4E 65 75 73 	defb 'Neustart = Taste W druecken',0dh,0ah,0
+ 2103 1838              vmsg:
+ 2104 1838  0D 0A       	defb 0dh,0ah
+ 2105 183A  44 69 73 6B 	defb 'Diskette wird geprueft ... bitte warten',0dh,0ah
+ 2106 1863  0D 0A 00    	defb 0dh,0ah,0
+ 2107 1866              fimsg:
+ 2108 1866  1A 0D 0A    	defb 1ah,0dh,0ah
+ 2109 1869  53 79 73 74 	defb 'Systemdiskette in Laufwerk A einlegen,',0dh,0ah
+ 2110 1891  64 61 6E 6E 	defb 'dann CR (carriage return) druecken.',0dh,0ah,0
+ 2111                   
+ 2112 18B7  00          	defb 0	; v1.22
+ 2113                   	
+ 2114 18B8  00          user::	defb 0  	; NDR=1, MC+Term1=2, sonst=3
+ 2115 18B9  00          flotyp:	defb 0    	; 0=flo2, 1=flo1  max, 2=flo1 min
+ 2116 18BA  00          minimax::	defb 0  	; 0=Mini 1=Maxi
+ 2117 18BB  00          ecma::	defb 0  	; 1=ECMA70 Format (SD,128 auf TK0)
+ 2118 18BC  0000        anzbyte::	defw 0  	; Anzahl der Bytes pro Sektor
+ 2119 18BE  E5          filler::	defb 0e5h 	; Fuellbyte std=E5
+ 2120 18BF  00          dichte::	defb 0  	; 0=einfache Dichte, 1=doppelte Dichte
+ 2121 18C0  00          gaplen::	defb 0  	; Gap 3 Laenge zwischen Sektoren
+ 2122 18C1  00          spuren::	defb 0  	; Anzahl der Spuren
+ 2123 18C2  00          kopf::	defb 0  	; 0=einseitig, 1=zweiseitig
+ 2124 18C3  00          sektoren::	defb 0  	; Anzahl der Sektoren pro Spur
+ 2125 18C4  00          laufwerk::	defb 0  	; 1,2,4,8 = Laufwerkscode
+ 2126                   		; 81,82,84,88 = Rueckseite
+ 2127 18C5  00          sidesel::	defb 0  	;0=Seite 0,SSO, 80h=Seite 1,SSO
+ 2128 18C6  00          sideflag::	defb 0  	; 0=SSO nicht verwenden
+ 2129                   		;
+ 2130 18C7  00          akttrk::	defb 0  	; aktuelle Spur
+ 2131 18C8  00          aktsek::	defb 0  	; aktueller Sektor
+ 2132                   		;
+ 2133 18C9              formtab::		; Formatierbereich, dorthin wird
+ 2134                   		; ein Track gelegt.
+ 2135                   
+ 2136                   	end start
+ 0 Error(s) Detected.
+ 6089 Absolute Bytes. 335 Symbols Detected.
+ 	; 0=einfache Dichte, 1=doppelte Dic
