@@ -64,7 +64,7 @@ INTR:	POP AF  	; spez. Int-Routine
 ; Universal Formatierer
 
 FORMAT:	LD HL,FMSG 
-	CALL PRNTMSG
+	CALL PRNMSG
 	IN A,(FLOA0) 	; ggf. bei gemischtem Betrieb auch
 	IN A,(FLOB0)   	; andere Ports loeschen
 	IN A,(FLO0) 	; alle Interrupts loeschen
@@ -135,7 +135,7 @@ FORM4:	LD C,'F'
 	; verify
 	
 	LD HL,VMSG
-	CALL PRNTMSG
+	CALL PRNMSG
 	CALL HOME	; set head to track 0
 	XOR A
 	LD (CURTRK),A  	; start with track 0
@@ -251,13 +251,13 @@ ERRCHK:	OR A
 	; TRACK, Spur ausgeben
 	PUSH AF 	; save error code
 	LD HL,TKMSG
-	CALL PRNTMSG
+	CALL PRNMSG
 	LD A,(CURTRK)
 	LD L,A
 	LD H,0 
 	CALL PRNTHL
 	LD HL,SKMSG
-	CALL PRNTMSG
+	CALL PRNMSG
 	LD A,(CURSEC)
 	LD L,A
 	LD H,0
@@ -308,7 +308,7 @@ ERRC5:	; check bit 7
 	; bit 7, write protected
 	LD HL,F6MSG 	; dominant is write proteced error
 
-ERRC6:	CALL PRNTMSG
+ERRC6:	CALL PRNMSG
 
 ERRC7:	; wait for 'W' or 'w'
 	CALL CONIN
@@ -320,7 +320,7 @@ ERRC7:	; wait for 'W' or 'w'
 ERRC8:	JP START 	; no stack adjust needed
 	
 ;-----------------------------------------------------------------------------
-; PRNTMSG decimal value in HL
+; PRNMSG decimal value in HL
 	
 PRNTHL:	XOR A
 	PUSH AF
@@ -361,6 +361,7 @@ PRNTH4:	;output
 	POP AF
 	OR A
 	RET Z
+	
 	LD C,A
 	CALL CONOUT
 	JR PRNTH4
@@ -667,7 +668,7 @@ HOME1:	; retry loop
 	
 	; error
 	LD HL,RMSG	; not ready
-	CALL PRNTMSG
+	CALL PRNMSG
 
 HOME2:	; wait for 'W' / 'w'
 	CALL CONIN
@@ -706,7 +707,7 @@ HOME5:	; retry loop
 	
 	; error
 	LD HL,RMSG	; not ready
-	CALL PRNTMSG
+	CALL PRNMSG
 
 HOME6:	; wait for 'W' / 'w'
 	CALL CONIN
@@ -742,7 +743,7 @@ HOME9:	; retry loop
 
 	; error
 	LD HL,RMSG	; not ready
-	CALL PRNTMSG
+	CALL PRNMSG
 
 HOME10:	; wait for 'W' / 'w'
 	CALL CONIN
@@ -759,7 +760,7 @@ HOME12:	; finished
 ;-----------------------------------------------------------------------------
 ; Ausfuehrung FLO2
 
-REXEC:	CALL SETUP
+REXEC:	CALL SETCTR	; setup controller
 	LD A,0BH 	; Rstore ohne Verify
 	OUT (FLO0),A
 	HALT  		; UEBER INT zurueck
@@ -767,7 +768,7 @@ REXEC:	CALL SETUP
 ;-----------------------------------------------------------------------------
 ; Ausfuehrung FLO1 Maxi
 
-RAEXEC:	CALL SETUP
+RAEXEC:	CALL SETCTR	; setup controller
 	LD A,0BH 	; Rstore ohne Verify
 	OUT (FLOA0),A
 	HALT  		; UEBER INT zurueck
@@ -775,7 +776,7 @@ RAEXEC:	CALL SETUP
 ;-----------------------------------------------------------------------------
 ; Ausfuehrung FLO1 Mini
 
-RBEXEC:	CALL SETUP
+RBEXEC:	CALL SETCTR	; setup controller
 	LD A,0BH 	; Rstore ohne Verify
 	OUT (FLOB0),A
 	HALT  		; UEBER INT zurueck
@@ -792,7 +793,8 @@ STEPIN:	CALL DELAY 	; settle head
 ;-----------------------------------------------------------------------------
 
 STPEXEC:
-	CALL SETUP 	; Laufwerk und Dichte
+ 	; Laufwerk und Dichte
+	CALL SETCTR	; setup controller
 	LD A,(USER)
 ;1 	IF A=0
 	OR A
@@ -818,8 +820,9 @@ STPEXEC:
 .L53:
 	HALT 
 
-READ:
-	LD B,2
+;-----------------------------------------------------------------------------
+
+READ:	LD B,2
 READ1:
 	PUSH BC
 	EI
@@ -848,14 +851,19 @@ READ1:
 .L57:
 	AND 00111100B 	; =0 dann ok
 	RET Z
+	
 	DJNZ READ1 	; max Retry
 	RET
+
+;-----------------------------------------------------------------------------
+
 READEX:
-	CALL SETUP 	; Dichtecode setzen, Head ist down.
+	CALL SETCTR 	; Dichtecode setzen, Head ist down.
 	LD A,(USER)
 ;1 	IF A=0
 	OR A
 	JP NZ,.L60
+
 	LD A,(CURSEC)
 	OUT (FLO2),A 	; Sektor definieren
 	LD HL,FORMTAB 	; dorthin Daten legen 
@@ -871,6 +879,7 @@ RED1:
 	IN A,(FLO4)
 	RLCA
 	JP NC,RED1 	; warten bis DRQ-da ist
+	
 	INI  	; DATEN ablegen
 	JP RED1 	; bis alle Daten gelesen, dann Interrupt 
 ;1 	ELSEIF A=1 	; flo 1 maxi
@@ -922,8 +931,10 @@ RBED1:
 .L61:
 	RET 
 
-SETUP::
-	PUSH BC
+;-----------------------------------------------------------------------------
+; Setup controller
+
+SETCTR:	PUSH BC
 	LD A,(DRIVE) 	; Laufwerkscode
 	LD B,A 
 	LD A,(DENSITY)
@@ -1014,8 +1025,9 @@ FRMTRK:	CALL DELAY
 	AND 44H
 	RET
 
-FMT::
-	CALL SETUP 	; Dichte einstellen etc., auf Port FLO4
+;-----------------------------------------------------------------------------
+
+FMT:	CALL SETCTR 	; Dichte einstellen etc., auf Port FLO4
 	LD A,(USER)
 ;1 	IF A=0  	; FLO 2
 	OR A
@@ -1088,7 +1100,7 @@ START:
 MAINLOOP:
 
 	LD HL,HEADTXT	; Programm start message and format type
-	CALL PRNTMSG
+	CALL PRNMSG
 
 	; --- format ---
 	
@@ -1116,10 +1128,10 @@ MAIN2:	PUSH AF
 	; Format 1: Mini 5 1/4"
 	XOR A		; 0 = Mini
 	LD (MINMAX),A
-	CALL SETSPUR
-	CALL SETLW
-	CALL SETDICHTE
-	CALL SETSEK
+	CALL SETTRK
+	CALL SETDRV
+	CALL SETDEN
+	CALL SETSEC
 	JP MAIN8
 	
 MAIN3:	CP '2' 
@@ -1128,10 +1140,10 @@ MAIN3:	CP '2'
 	; Format 2: Maxi 8"
 	LD A,1		; 1 = Maxi
 	LD (MINMAX),A
-	CALL SETSPUR
-	CALL SETLW
-	CALL SETDICHTE
-	CALL SETSEK
+	CALL SETTRK
+	CALL SETDRV
+	CALL SETDEN
+	CALL SETSEC
 	JP MAIN8
 
 MAIN4:	CP '3'
@@ -1208,7 +1220,7 @@ MAIN7:	CP '6'
 	; --- FLO type ---
 
 MAIN8:	LD HL,MENUE7 	; FLO type
-	CALL PRNTMSG
+	CALL PRNMSG
 
 MAIN9:	; wait for 1..3
 	CALL CONIN
@@ -1256,7 +1268,7 @@ MAIN15:	LD (USER),A
 	; --- drive ---
 
 MAIN16:	LD HL,MENUE6 	; drive
-	CALL PRNTMSG
+	CALL PRNMSG
 
 MAIN17:	; wait for 0..9
 	CALL CONIN
@@ -1358,10 +1370,10 @@ MAIN29:	JP MAIN16 	; -> inner loop, mit gleichen Parametern
 	;---------------------------------------------------------------------
 	; call formatter, when ready output control values
 
-MAIN30:	CALL WERTEAUS
+MAIN30:	CALL PRNPRM
 
 	LD HL,FORMTXT
-	CALL PRNTMSG
+	CALL PRNMSG
 	
 	; wait for 'J' / 'j'
 	CALL CONIN
@@ -1395,7 +1407,7 @@ MAIN34:	CALL FORMAT
 	JP MAIN16 	; -> inner loop, mit gleichen Parametern
 		
 MAIN35:	LD HL,FIMSG	; end messaghe (insert system-disk)
-	CALL PRNTMSG
+	CALL PRNMSG
 
 MAIN36:	; wait for CR
 	CALL CONIN
@@ -1407,10 +1419,10 @@ MAIN36:	; wait for CR
 	RET
 
 ;-----------------------------------------------------------------------------
-	
-SETSPUR::
-	LD HL,MENUE3
-	CALL PRNTMSG
+; Track settings menu
+
+SETTRK:	LD HL,MENUE3
+	CALL PRNMSG
 ;1 	REPEAT
 .L119:
 	CALL CONIN
@@ -1455,10 +1467,11 @@ SETSPUR::
 	RET
 	
 ;-----------------------------------------------------------------------------
+; Drive settings menu
+
+SETDRV:	LD HL,MENUE4
+	CALL PRNMSG
 	
-SETLW::
-	LD HL,MENUE4
-	CALL PRNTMSG
 ;1 	REPEAT
 .L127:
 	CALL CONIN
@@ -1494,10 +1507,10 @@ SETLW::
 	RET
 
 ;-----------------------------------------------------------------------------
+; Setup density settings
 
-SETDICHTE::
-	LD HL,MENUE2
-	CALL PRNTMSG
+SETDEN:	LD HL,MENUE2
+	CALL PRNMSG
 ;1 	REPEAT
 .L133:
 	CALL CONIN
@@ -1521,9 +1534,9 @@ SETDICHTE::
 	RET
 	
 ;-----------------------------------------------------------------------------
-	
-SETSEK::
-	LD A,(MINMAX)
+; Sector settings menu
+
+SETSEC:	LD A,(MINMAX)
 ;1 	IF A=0  	; Mini
 	OR A
 	JP NZ,.L137
@@ -1532,7 +1545,7 @@ SETSEK::
 	OR A
 	JP NZ,.L138
 	LD HL,MENUE5A
-	CALL PRNTMSG
+	CALL PRNMSG
 ;3 	REPEAT
 .L139:
 	CALL CONIN
@@ -1580,7 +1593,7 @@ SETSEK::
 	JP .L145
 .L138:
 	LD HL,MENUE5B
-	CALL PRNTMSG
+	CALL PRNMSG
 ;3 	REPEAT
 .L146:
 	CALL CONIN
@@ -1645,7 +1658,7 @@ SETSEK::
 	OR A
 	JP NZ,.L154
 	LD HL,MENUE5C
-	CALL PRNTMSG
+	CALL PRNMSG
 ;3 	REPEAT
 .L155:
 	CALL CONIN
@@ -1679,7 +1692,7 @@ SETSEK::
 	JP .L159
 .L154:
 	LD HL,MENUE5D
-	CALL PRNTMSG
+	CALL PRNMSG
 ;3 	REPEAT
 .L160:
 	CALL CONIN
@@ -1763,27 +1776,27 @@ SETSEK::
 	RET
 	
 ;-----------------------------------------------------------------------------
+; Print 0-terminated message, address in HL
 	
-PRNTMSG::
-	LD A,(HL)
-;1 	WHILE A<>0 
-.L169:
-	OR A
-	JP Z,.L170
+PRNMSG:	LD A,(HL)
+
+PRNTM1:	OR A
+	JP Z,PRNTM2
+	
 	LD C,A
 	CALL CONOUT
 	INC HL
 	LD A,(HL)
-;1 	ENDWHILE
-	JP .L169
-.L170:
-	RET
+	JP PRNTM1
+
+PRNTM2:	RET
 
 ;-----------------------------------------------------------------------------
+; Print floppy parameters
 
-WERTEAUS:		; Conrolle, Werte ausgeben
-	LD C,1AH
-	CALL CONOUT 	; Bildschirm loeschen
+PRNPRM:	LD C,1AH	; clear screen
+	CALL CONOUT
+
 	LD A,(MINMAX)
 ;1 	IF A=0  	; 0=Mini
 	OR A
@@ -1795,7 +1808,7 @@ WERTEAUS:		; Conrolle, Werte ausgeben
 	LD HL,TMAXI
 ;1 	ENDIF
 .L172:
-	CALL PRNTMSG
+	CALL PRNMSG
 	LD A,(USER)
 ;1 	IF A=0  	; FLO 2
 	OR A
@@ -1824,7 +1837,7 @@ L0BD7:
 ;1 	ENDIF
 .L176:
 .L174:
-	CALL PRNTMSG
+	CALL PRNMSG
 	LD A,(DENSITY)
 ;1 	IF A=0  	; 0=SD
 	OR A
@@ -1843,31 +1856,31 @@ L0BD7:
 	LD HL,TECMA 	; Sonderfall, Ecma-Format
 ;1 	ENDIF
 .L179:
-	CALL PRNTMSG
+	CALL PRNMSG
 	CALL CRLF
 	CALL CRLF
 	LD HL,TSPUREN
-	CALL PRNTMSG
+	CALL PRNMSG
 	LD A,(TRKCNT)
 	LD L,A
 	LD H,0
 	CALL PRNTHL 	; Anzahl Spuren
 	CALL CRLF
 	LD HL,TSEKTOREN
-	CALL PRNTMSG
+	CALL PRNMSG
 	LD A,(SECCNT)
 	LD L,A
 	LD H,0
 	CALL PRNTHL 	; Anzahl SECCNT
 	CALL CRLF
 	LD HL,TBYTES
-	CALL PRNTMSG
+	CALL PRNMSG
 	LD HL,(BYTCNT)
 	CALL PRNTHL 	; Bytes pro Sektor
 	CALL CRLF
 		;
 	LD HL,TLAUFWERK
-	CALL PRNTMSG
+	CALL PRNMSG
 	LD A,(DRIVE)
 	AND 0FH 	; 1,2,4,8
 ;1 	IF A=1
@@ -1922,7 +1935,7 @@ L0BD7:
 	LD HL,TZWEISSO
 ;2 	ENDIF
 .L188:
-	CALL PRNTMSG
+	CALL PRNMSG
 ;1 	ELSE  	; EINSEItig
 	JP .L189
 .L186:
@@ -1931,7 +1944,7 @@ L0BD7:
 ;2 	IF Z  	; VORDERseite
 	JP NZ,.L190
 	LD HL,TEINSEITIG
-	CALL PRNTMSG
+	CALL PRNMSG
 ;2 	ELSE  	; RUECKSeite
 	JP .L191
 .L190:
@@ -1948,7 +1961,7 @@ L0BD7:
 	LD HL,TRUECKSSO
 ;3 	ENDIF
 .L193:
-	CALL PRNTMSG
+	CALL PRNMSG
 ;2 	ENDIF
 .L191:
 ;1 	ENDIF
@@ -1957,7 +1970,7 @@ L0BD7:
 	CALL CRLF
 		; KAPAZItaet ausrechnen
 	LD HL,TKAP
-	CALL PRNTMSG
+	CALL PRNMSG
 	LD A,(SECCNT)
 	LD L,A
 	LD H,0
@@ -2019,43 +2032,43 @@ L0BD7:
 .L197:
 	CALL PRNTHL 	; ausgeben
 	LD HL,TKAP1
-	CALL PRNTMSG
+	CALL PRNMSG
 	CALL CRLF
 	RET
 	
 ;-----------------------------------------------------------------------------
+; HL = HL * DE
+; for capacity calculation
 
-MULHLDE:		; fuer Kapazitaetsbestimmung
-		; HL*DE -> hl
+MULHLDE:
 	LD A,16
 	PUSH DE
 	POP BC
 	LD DE,0
 	EX DE,HL
-MULLP:
-	PUSH AF
+
+MULHL1:	PUSH AF
 	BIT 0,E
-;1 	IF NZ
-	JP Z,.L201
+	JP Z,MULHL2
+	
 	ADD HL,BC
-;1 	ENDIF
-.L201:
-	SRA H
+
+MULHL2:	SRA H
 	RR L
 	RR D
 	RR E
 	POP AF
 	DEC A
-	JR NZ,MULLP
-	EX DE,HL 	; nur lsb nach hl
+	JR NZ,MULHL1
+	
+	EX DE,HL 	; LSB to HL
 	RET
 	
 ;-----------------------------------------------------------------------------
+; Print CR/LF
 
-
-CRLF:
-	LD HL,TCRLF
-	CALL PRNTMSG
+CRLF:	LD HL,TCRLF
+	CALL PRNMSG
 	RET
 
 ;-----------------------------------------------------------------------------
