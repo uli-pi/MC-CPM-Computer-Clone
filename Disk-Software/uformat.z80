@@ -9,7 +9,7 @@
 	;*                 wiederhergestellt                                 *
 	;* 22.06.2026 *dg* Quellcode ueberarbeitet und dokumentiert          *
 	;*                 Binaer identisch zur Version 1.22                 *
-	;*                 Work in progress...                                  *
+	;*                 Work in progress...                               *
 	;*********************************************************************
 
 	; arbeitet unabhaengig vom CP/M - Betriebsystem.
@@ -823,113 +823,112 @@ STPEXEC:
 ;-----------------------------------------------------------------------------
 
 READ:	LD B,2
-READ1:
-	PUSH BC
+
+READ1:	PUSH BC
 	EI
 	CALL READEX
 	DI
 	POP BC  	; Fehlerzaehler
 	LD A,(USER)
-;1 	IF A=0
 	OR A
-	JP NZ,.L56
-	IN A,(FLO0) 	; Status beim Lesen pruefen
-;1 	ELSEIF A=1
-	JP .L57
-.L56:
-	CP 1
-	JP NZ,.L58
-	IN A,(FLOA0)
-;1 	ELSEIF A=2
-	JP .L57
-.L58:
-	CP 2
-	JP NZ,.L59
-	IN A,(FLOB0)
-;1 	ENDIF
-.L59:
-.L57:
-	AND 00111100B 	; =0 dann ok
-	RET Z
+	JP NZ,READ2
 	
-	DJNZ READ1 	; max Retry
+	; FLO2
+	IN A,(FLO0) 	; Status beim Lesen pruefen
+	JP READ4
+	
+READ2:	CP 1
+	JP NZ,READ3
+	
+	; FLO1 Maxi
+	IN A,(FLOA0)
+	JP READ4
+	
+READ3:	CP 2
+	JP NZ,READ4
+	
+	; FLO1 Mini
+	IN A,(FLOB0)
+
+READ4:	AND 00111100B
+	RET Z		; -> ok
+	
+	DJNZ READ1 	; -> retry
 	RET
 
 ;-----------------------------------------------------------------------------
 
-READEX:
-	CALL SETCTR 	; Dichtecode setzen, Head ist down.
+READEX:	CALL SETCTR 	; Dichtecode setzen, Head ist down.
 	LD A,(USER)
-;1 	IF A=0
 	OR A
-	JP NZ,.L60
+	JP NZ,READX2
 
+	; FLO2
 	LD A,(CURSEC)
 	OUT (FLO2),A 	; Sektor definieren
 	LD HL,FORMTAB 	; dorthin Daten legen 
 	LD C,FLO3 	; Datenport
 	LD A,(SIDESEL) 	; fuer Side-Control
 	AND 80H
-	RLCA  	; BIT 0
-	RLCA  	; BIT 1
+	RLCA  		; BIT 0
+	RLCA  		; BIT 1
 	AND 00000010B 	; 1=Seite 1
 	ADD A,88H 	; kein Delay abwarten, head ist down
 	OUT (FLO0),A 	; und Befehl geben
-RED1:
-	IN A,(FLO4)
+
+READX1:	IN A,(FLO4)
 	RLCA
-	JP NC,RED1 	; warten bis DRQ-da ist
-	
-	INI  	; DATEN ablegen
-	JP RED1 	; bis alle Daten gelesen, dann Interrupt 
-;1 	ELSEIF A=1 	; flo 1 maxi
-	JP .L61
-.L60:
-	CP 1 
-	JP NZ,.L62
+	JP NC,READX1 	; warten bis DRQ-da ist
+	INI  		; DATEN ablegen
+	JP READX1 	; bis alle Daten gelesen, dann Interrupt 
+	JP READX6
+
+READX2:	CP 1 
+	JP NZ,READX4
+
+	; FLO1 Maxi
 	LD A,(CURSEC)
 	OUT (FLOA2),A 	; Sektor definieren
 	LD HL,FORMTAB 	; dorthin Daten legen 
 	LD C,FLOA3 	; Datenport
 	LD A,(SIDESEL) 	; fuer Side-Control
 	AND 80H
-	RLCA  	; BIT 0
-	RLCA  	; BIT 1
+	RLCA  		; BIT 0
+	RLCA  		; BIT 1
 	AND 00000010B 	; 1=Seite 1
 	ADD A,88H 	; kein Delay abwarten, head ist down
 	OUT (FLOA0),A 	; und Befehl geben
-RAED1:
-	IN A,(FLOA4)
+
+READX3:	IN A,(FLOA4)
 	RLCA
-	JP NC,RAED1 	; warten bis DRQ-da ist
-	INI  	; DATEN ablegen
-	JP RAED1 	; bis alle Daten gelesen, dann Interrupt 
-;1 	ELSEIF A=2 	; flo1 Mini
-	JP .L61
-.L62:
-	CP 2 
-	JP NZ,.L63
+	JP NC,READX3 	; warten bis DRQ-da ist
+	INI  		; DATEN ablegen
+	JP READX3 	; bis alle Daten gelesen, dann Interrupt 
+	JP READX6
+	
+READX4:	CP 2 
+	JP NZ,READX6
+	
+	; FLO1 Mini
 	LD A,(CURSEC) 
 	OUT (FLOB2),A 	; Sektor definieren
 	LD HL,FORMTAB 	; dorthin Daten legen 
 	LD C,FLOB3 	; Datenport
 	LD A,(SIDESEL) 	; fuer Side-Control
 	AND 80H
-	RLCA  	; BIT 0
-	RLCA  	; BIT 1
+	RLCA  		; BIT 0
+	RLCA  		; BIT 1
 	AND 00000010B 	; 1=Seite 1
 	ADD A,88H 	; kein Delay abwarten, head ist down
 	OUT (FLOB0),A 	; und Befehl geben
-RBED1:
-	IN A,(FLOB4)
+
+READX5:	IN A,(FLOB4)
 	RLCA
-	JP NC,RBED1 	; warten bis DRQ-da ist
-	INI  	; DATEN ablegen
-	JP RBED1 	; bis alle Daten gelesen, dann Interrupt 
-;1 	ENDIF
-.L63:
-.L61:
-	RET 
+	JP NC,READX5 	; warten bis DRQ-da ist
+	INI  		; DATEN ablegen
+	JP READX5 	; bis alle Daten gelesen, dann Interrupt 
+
+READX6:	RET 
 
 ;-----------------------------------------------------------------------------
 ; Setup controller
@@ -938,62 +937,61 @@ SETCTR:	PUSH BC
 	LD A,(DRIVE) 	; Laufwerkscode
 	LD B,A 
 	LD A,(DENSITY)
-;1 	IF A=0   	; SD
 	OR A
-	JP NZ,.L64
+	JP NZ,SETCT1	; -> DD
+
+	; SD
 	LD A,B
 	OR 10H
 	LD B,A
-;1 	ENDIF
-.L64:
-	LD A,(MINMAX)
-;1 	IF A=0   	; Mini
+
+SETCT1:	LD A,(MINMAX)
 	OR A
-	JP NZ,.L65
+	JP NZ,SETCT2
+	
 	LD A,B
 	OR 20H
 	LD B,A
-;1 	ENDIF
-.L65:
-	LD A,(USER)
-;1 	IF A=0   	; FLO2
+	
+SETCT2:	LD A,(USER)
 	OR A
-	JP NZ,.L66
-	; V1.22
+	JP NZ,SETCT5
+	
+	; FLO2
 	LD A,(FLOTYP)
 	CP 01H
-	JP NZ,L0653
+	JP NZ,SETCT3
 	
 	LD A,B  	; OK Code fertig
 	XOR 10H
-	JP L0654
-L0653:
-	LD A,B
-L0654:
-	POP BC
-	OUT (FLO4),A	;
-;1 	ELSEIF A=1  	; MAXI
-	JP .L67
-.L66:
-	CP 1  
-	JP NZ,.L68
+	JP SETCT4
+
+SETCT3:	LD A,B
+
+SETCT4:	POP BC
+	OUT (FLO4),A
+	JP SETCT7
+
+SETCT5:	CP 1  
+	JP NZ,SETCT6
+	
+	; FLO1 Maxi
 	LD A,B
 	POP BC
 	XOR 10H  	; DENSE invertiert bei FLO1
 	OUT (FLOA4),A
-;1 	ELSEIF A=2
-	JP .L67
-.L68:
-	CP 2
-	JP NZ,.L69
+	JP SETCT7
+
+SETCT6:	CP 2
+	JP NZ,SETCT7
+	
+	; FLO1 Mini
 	LD A,B
 	POP BC
 	XOR 10H  	; DENSE invertiert bei FLO1
 	OUT (FLOB4),A
-;1 	ENDIF
-.L69:
-.L67:
-	RET
+
+SETCT7:	RET
 	
 ;-----------------------------------------------------------------------------
 ; Format track
@@ -1003,35 +1001,37 @@ FRMTRK:	CALL DELAY
 	CALL FMT
 	DI
 	LD A,(USER)
-;1 	IF A=0
 	OR A
-	JP NZ,.L70
+	JP NZ,FRMTR1
+	
+	; FLO2
 	IN A,(FLO0) 	; pruefen auf Schreibschutz, Datalost
-;1 	ELSEIF A=1
-	JP .L71
-.L70:
-	CP 1
-	JP NZ,.L72
+	JP FRMTR3
+
+FRMTR1:	CP 1
+	JP NZ,FRMTR2
+	
+	; FLOW1 Maxi
 	IN A,(FLOA0)
-;1 	ELSEIF A=2
-	JP .L71
-.L72:
-	CP 2
-	JP NZ,.L73
+	JP FRMTR3
+
+FRMTR2:	CP 2
+	JP NZ,FRMTR3
+	
+	; FLO1 Mini
 	IN A,(FLOB0)
-;1 	ENDIF
-.L73:
-.L71:
-	AND 44H
+
+FRMTR3:	AND 44H
 	RET
 
 ;-----------------------------------------------------------------------------
 
-FMT:	CALL SETCTR 	; Dichte einstellen etc., auf Port FLO4
+FMT:	CALL SETCTR 	; set density etc. at Port 4
 	LD A,(USER)
-;1 	IF A=0  	; FLO 2
 	OR A
-	JP NZ,.L74
+	JP NZ,FMT2
+
+	; FLO 2
 	LD HL,FORMTAB 	; Startadresse 
 	LD C,FLO3 	; Datenport
 	LD A,(SIDESEL) 	; Side-Flag setzen, fuer SSO-Ausgang
@@ -1041,17 +1041,19 @@ FMT:	CALL SETCTR 	; Dichte einstellen etc., auf Port FLO4
 	AND 00000010B 	; 1=Seite 1
 	OR 0F4H 	; Formatier-Befehl+nicht documentierter
 	OUT (FLO0),A 	; Side-Select-Befehl fuer SSO
-FMTLP::
-	IN A,(FLO4) 	; drq int head
-	RLCA  	; BIT 7 ins carry
-	JP NC,FMTLP 	; 0=warten 1=fertig i
-	OUTI  	; UND BYte ausgeben
-	JP FMTLP 	; durch INT wird die Routine gestoppt.
-;1 	ELSEIF A=1 	; FLO1 maxi
-	JP .L75
-.L74:
-	CP 1 
-	JP NZ,.L76
+
+FMT1:	; format loop
+	IN A,(FLO4) 	; DRQ int head
+	RLCA  		; BIT 7 ins carry
+	JP NC,FMT1 	; 0=warten 1=fertig i
+	OUTI  		; UND BYte ausgeben
+	JP FMT1 	; durch INT wird die Routine gestoppt.
+	JP FMT6
+
+FMT2:	CP 1 
+	JP NZ,FMT4
+	
+	; FLO1 Maxi
 	LD HL,FORMTAB 	; Startadresse 
 	LD C,FLOA3 	; Datenport
 	LD A,(SIDESEL) 	; Side-Flag setzen, fuer SSO-Ausgang
@@ -1061,36 +1063,37 @@ FMTLP::
 	AND 00000010B 	; 1=Seite 1
 	OR 0F4H 	; Formatier-Befehl+nicht documentierter
 	OUT (FLOA0),A 	; Side-Select-Befehl fuer SSO
-FAMTLP::
+
+FMT3:	; format loop
 	IN A,(FLOA4) 	; drq int head
-	RLCA  	; BIT 7 ins carry
-	JP NC,FAMTLP 	; 0=warten 1=fertig i
-	OUTI  	; UND BYte ausgeben
-	JP FAMTLP 	; durch INT wird die Routine gestoppt.
-;1 	ELSEIF A=2 	; FLO1 mini
-	JP .L75
-.L76:
-	CP 2 
-	JP NZ,.L77
+	RLCA  		; BIT 7 ins carry
+	JP NC,FMT3 	; 0=warten 1=fertig i
+	OUTI  		; UND BYte ausgeben
+	JP FMT3 	; durch INT wird die Routine gestoppt.
+	JP FMT6
+
+FMT4:	CP 2 
+	JP NZ,FMT6
+	
+	; FLO1 Mini
 	LD HL,FORMTAB 	; Startadresse 
 	LD C,FLOB3 	; Datenport
 	LD A,(SIDESEL) 	; Side-Flag setzen, fuer SSO-Ausgang
 	AND 80H 	; wenn USESSO auf 80h gesetzt wird
-	RLCA  	; BIT 0
-	RLCA  	; BIT 1
+	RLCA  		; BIT 0
+	RLCA  		; BIT 1
 	AND 00000010B 	; 1=Seite 1
 	OR 0F4H 	; Formatier-Befehl+nicht documentierter
 	OUT (FLOB0),A 	; Side-Select-Befehl fuer SSO
-FBMTLP::
+
+FMT5:	; format loop
 	IN A,(FLOB4) 	; drq int head
-	RLCA  	; BIT 7 ins carry
-	JP NC,FBMTLP 	; 0=warten 1=fertig i
-	OUTI  	; UND BYte ausgeben
-	JP FBMTLP 	; durch INT wird die Routine gestoppt.
-;1 	ENDIF
-.L77:
-.L75:
-	RET
+	RLCA  		; BIT 7 ins carry
+	JP NC,FMT5 	; 0=warten 1=fertig i
+	OUTI  		; UND BYte ausgeben
+	JP FMT5 	; durch INT wird die Routine gestoppt.
+
+FMT6:	RET
 
 ;-----------------------------------------------------------------------------
 ; Main input loop
@@ -1102,7 +1105,7 @@ MAINLOOP:
 	LD HL,HEADTXT	; Programm start message and format type
 	CALL PRNMSG
 
-	; --- format ---
+	; --- disk format selection ---
 	
 MAIN1:	; wait for 1..6
 	CALL CONIN
@@ -1126,24 +1129,26 @@ MAIN2:	PUSH AF
 	JP NZ,MAIN3
 	
 	; Format 1: Mini 5 1/4"
+	; MINMAX = 0
 	XOR A		; 0 = Mini
 	LD (MINMAX),A
-	CALL SETTRK
-	CALL SETDRV
-	CALL SETDEN
-	CALL SETSEC
+	CALL SELTRK
+	CALL SELSID
+	CALL SELDEN
+	CALL SELSEC
 	JP MAIN8
 	
 MAIN3:	CP '2' 
 	JP NZ,MAIN4
 	
 	; Format 2: Maxi 8"
+	; MINMAX = 1
 	LD A,1		; 1 = Maxi
 	LD (MINMAX),A
-	CALL SETTRK
-	CALL SETDRV
-	CALL SETDEN
-	CALL SETSEC
+	CALL SELTRK
+	CALL SELSID
+	CALL SELDEN
+	CALL SELSEC
 	JP MAIN8
 
 MAIN4:	CP '3'
@@ -1196,7 +1201,7 @@ MAIN6:	CP '5'
 	; Format 5: NDR- DD DS 80 Spur
 	LD A,0 		; MINI
 	LD (MINMAX),A
-	LD HL,1024 	; Anzahl Bytes
+	LD HL,1024 	; bytes per sector
 	LD (BYTCNT),HL
 	LD A,1 		; DD
 	LD (DENSITY),A
@@ -1217,7 +1222,7 @@ MAIN7:	CP '6'
 	
 	JP MAIN35	; -> exit
 	
-	; --- FLO type ---
+	; --- FLO type selection ---
 
 MAIN8:	LD HL,MENUE7 	; FLO type
 	CALL PRNMSG
@@ -1236,6 +1241,8 @@ MAIN11:	CP '2'
 	JP NZ,MAIN12
 	
 	; FLO type 2: FLO1 Maxi (40h)
+	; FLOTYP = 0
+	; USER = 1
 	LD A,1 	; FLO1, maxi
 	JP MAIN15
 	
@@ -1244,12 +1251,16 @@ MAIN12:	CP '3'
 
 	; FLO type 3: FLO1 Mini (30h)
 	LD A,2 	; FLO2, mini
+	; FLOTYP = 0
+	; USER = 0
 	JP MAIN15
 	
 MAIN13:	CP '4'
 	JP NZ,MAIN14
 	
 	; FLO type 4: FLO1-Maxi/Mini (0C0h)
+	; FLOTYP = 1
+	; USER = 0
 	LD A,01H
 	LD (FLOTYP),A
 	XOR A  	; FLO2 Mini/maxi
@@ -1259,13 +1270,14 @@ MAIN14:	CP '1'
 	JP NZ,MAIN15
 	
 	; FLO type 1: FLO2-Maxi/Mini (0C0h)
+	; FLOTYP = 0
+	; USER = 0
 	XOR A
 	LD (FLOTYP),A
 	
 MAIN15:	LD (USER),A
 
-
-	; --- drive ---
+	; --- drive selection ---
 
 MAIN16:	LD HL,MENUE6 	; drive
 	CALL PRNMSG
@@ -1419,9 +1431,9 @@ MAIN36:	; wait for CR
 	RET
 
 ;-----------------------------------------------------------------------------
-; Track settings menu
+; Track selection menu (35/40/70/77/80)
 
-SETTRK:	LD HL,MENUE3
+SELTRK:	LD HL,MENUE3
 	CALL PRNMSG
 ;1 	REPEAT
 .L119:
@@ -1467,9 +1479,9 @@ SETTRK:	LD HL,MENUE3
 	RET
 	
 ;-----------------------------------------------------------------------------
-; Drive settings menu
+; Side selection menu (SS/DS/SSO)
 
-SETDRV:	LD HL,MENUE4
+SELSID:	LD HL,MENUE4
 	CALL PRNMSG
 	
 ;1 	REPEAT
@@ -1507,9 +1519,9 @@ SETDRV:	LD HL,MENUE4
 	RET
 
 ;-----------------------------------------------------------------------------
-; Setup density settings
+; Density selection menu
 
-SETDEN:	LD HL,MENUE2
+SELDEN:	LD HL,MENUE2
 	CALL PRNMSG
 ;1 	REPEAT
 .L133:
@@ -1534,9 +1546,13 @@ SETDEN:	LD HL,MENUE2
 	RET
 	
 ;-----------------------------------------------------------------------------
-; Sector settings menu
+; Sector selection menu
+;	256 bytes / 16 per track)
+;	512 bytes / 9 per track)
+;	512 bytes / 10 per track)
+;	1024 bytes / 5 per track)
 
-SETSEC:	LD A,(MINMAX)
+SELSEC:	LD A,(MINMAX)
 ;1 	IF A=0  	; Mini
 	OR A
 	JP NZ,.L137
