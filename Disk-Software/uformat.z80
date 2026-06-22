@@ -1,2107 +1,2284 @@
 	.z80
-		;*********************************************
-		;* Universal Formatierer fuer Mini/Maxi      *
-		;* Rev 1.22 (C) 1984 Rolf-Dieter Klein / JS  *
-		;* FLO2-Baugruppe / MC/ NDR/                 *
-		;* FLO1-Baugruppe MC                         *
-		;*********************************************
-	flo0 equ 0c0h 	; FLO2-Mini/Maxi.
-	flo1 equ 0c1h
-	flo2 equ 0c2h
-	flo3 equ 0c3h
-	flo4 equ 0c4h
-		;
-	floa0 equ 040h 	; FLO1-Maxi
-	floa1 equ 041h
-	floa2 equ 042h
-	floa3 equ 043h
-	floa4 equ 044h
-		;
-	flob0 equ 030h 	; FLO1-Mini
-	flob1 equ 031h
-	flob2 equ 032h
-	flob3 equ 033h
-	flob4 equ 034h
-		;
-		; arbeitet unabhaengig vom CP/M - Betriebsystem.
-	jp start 	; Hauptprogr.
 
-co::	jp 0f009h 	; Ausgabe eines Zeichens in C
+	;*********************************************************************
+	;* Universal Formatierer fuer Mini/Maxi                              *
+	;* Rev 1.22 (C) 1984 Rolf-Dieter Klein / JS                          *
+	;* FLO2-Baugruppe / MC/ NDR/                                         *
+	;* FLO1-Baugruppe MC                                                 *
+	;* 31.05.2026 *dg* Quellcode der Version 1.22 aus COM-Datei          *
+	;*                 wiederhergestellt                                 *
+	;* 22.06.2026 *dg* Quellcode ueberarbeitet und dokumentiert          *
+	;*                 Binaer identisch zur Version 1.22                 *
+	;*                 Work in progress...                                  *
+	;*********************************************************************
 
-ci::	; v1.22
-	call 0f003h 	; Eingabe eines Zeichens nach A
-	and 7Fh
-	ret
+	; arbeitet unabhaengig vom CP/M - Betriebsystem.
+	; verwendet den Monitor
 
-int::
-	pop af  	; spez. Int-Routine
-	in a,(floa0)
-	in a,(flob0)
-	in a,(flo0) 	; Status flo ist wichtig
-	ei
-	reti  	; ok fertig
+; IO ADDESSES FLO2 MINI/Maxi
+FLO0	EQU 0C0H
+FLO1	EQU 0C1H
+FLO2	EQU 0C2H
+FLO3	EQU 0C3H
+FLO4	EQU 0C4H
 
-format::		; Universal Formatierer
-	ld hl,fmsg 
-	call print
-	in a,(floa0) 	; ggf. bei gemischtem Betrieb auch
-	in a,(flob0)   	; andere Ports loeschen
-	in a,(flo0) 	; alle Interrupts loeschen
-		;
-	im 1  	; Mode 1, RST-7 verwenden
-	ld a,0c3h 	; Sprungvektor setzen
-	ld (38h),a
-	ld hl,int
-	ld (39h),hl 	; auf Interruptroutine
-		; 
-	call rstore 	; Auf Spur 0 bringen
-		;
-	xor a
-	ld (akttrk),a  	; Start bei Spur 0
-	ld a,(spuren) 	; Anzahl Spuren
-	ld b,a
-loop::
-	push bc
-	call ecmachk 	; falls Spur 0, und ecma70
-	call gentrack 	; Spur generieren
-	call form 	; und formatierenŠ	call errchk
-	ld a,(kopf)
-;1 	if a=1  	; Seite 1 auch
-	CP 1  
-	JP NZ,.L1
-	ld a,(laufwerk) 	; Rueckseite setzen
-	or 80h  	; aber kein Side-sel
-	ld (laufwerk),a
-	ld a,(sideflag)
-;2 	if a<>0
-	OR A
-	JP Z,.L2
-	ld a,80h
-	ld (sidesel),a 	; setzen
-;2 	endif
-.L2:
-	call gentrack
-	call form
-	call errchk
-	ld a,(laufwerk)
-	and 7fh
-	ld (laufwerk),a   
-	xor a
-	ld (sidesel),a
-;1 	endif
-.L1:
-	ld a,(akttrk)
-	inc a
-	ld (akttrk),a
-	ld b,a
-	ld a,(spuren)
-;1 	if a<>b
-	CP b
-	JP Z,.L3
-	call stepin
-;1 	endif
-.L3:
-	ld c,'F'
-	call co 	; Meldung FFFFF ausgeben bei jeder Spur ein F
-	pop bc
-	djnz loop
-		; Verify
-	ld hl,vmsg
-	call print
-	call rstore
-	xor a
-	ld (akttrk),a  	; Start bei Spur 0
-	ld a,(spuren) 	; Anzahl Spuren
-	ld b,a
-loop1::
-	push bc
-	call ecmachk
-	call verify
-	ld a,(kopf)
-;1 	if a=1
+; IO ADDESSES FLO1 MAXI
+FLOA0	EQU 040H
+FLOA1	EQU 041H
+FLOA2	EQU 042H
+FLOA3	EQU 043H
+FLOA4	EQU 044H
+
+; IO ADDESSES FLO1 MINI
+FLOB0	EQU 030H
+FLOB1	EQU 031H
+FLOB2	EQU 032H
+FLOB3	EQU 033H
+FLOB4	EQU 034H
+
+;-----------------------------------------------------------------------------
+
+	JP START 	; Hauptprogramm
+
+;-----------------------------------------------------------------------------
+
+CONOUT:	JP 0F009H 	; Ausgabe eines Zeichens in C
+
+;-----------------------------------------------------------------------------
+
+CONIN:	CALL 0F003H 	; Eingabe eines Zeichens nach A
+	AND 7FH
+	RET
+
+;-----------------------------------------------------------------------------
+; Interrupt routine
+
+INTR:	POP AF  	; spez. Int-Routine
+	IN A,(FLOA0)
+	IN A,(FLOB0)
+	IN A,(FLO0) 	; Status FLO ist wichtig
+	EI
+	RETI  		; fertig
+
+;-----------------------------------------------------------------------------
+; Universal Formatierer
+
+FORMAT:	LD HL,FMSG 
+	CALL PRNTMSG
+	IN A,(FLOA0) 	; ggf. bei gemischtem Betrieb auch
+	IN A,(FLOB0)   	; andere Ports loeschen
+	IN A,(FLO0) 	; alle Interrupts loeschen
+
+	IM 1  		; MODE 1, RST-7 verwenden
+	LD A,0C3H 	; Sprungvektor setzen (JP)
+	LD (38H),A
+	LD HL,INTR
+	LD (39H),HL 	; auf Interruptroutine
+
+	; --- format ---
+
+	CALL HOME 	; set head to track 0
+
+	XOR A
+	LD (CURTRK),A  	; start with track 0
+	LD A,(TRKCNT) 	; number of tracks
+	LD B,A
+
+FORM1:	; loop
+	PUSH BC
+	CALL ECMACHK 	; check if track 0 and ECMA70
+	CALL GENTRK 	; create track
+	CALL FRMTRK 	; format track
+	CALL ERRCHK
+	
+	LD A,(SSDS)
 	CP 1
-	JP NZ,.L4
-	ld a,(laufwerk)
-	or 80h
-	ld (laufwerk),a
-	ld a,(sideflag)
-;2 	if a<>0
+	JP NZ,FORM3	; single sided
+	
+	; double-sided
+	LD A,(DRIVE)	; Rueckseite setzen
+	OR 80H  	; aber kein Side-sel
+	LD (DRIVE),A
+	
+	LD A,(USESSO)
 	OR A
-	JP Z,.L5Š	ld a,80h
-	ld (sidesel),a 	; setzen
-;2 	endif
-.L5:
-	call verify
-	ld a,(laufwerk)
-	and 7fh
-	ld (laufwerk),a 
-	xor a
-	ld (sidesel),a 	; wieder Seite 0
-;1 	endif
-.L4:
-	ld a,(akttrk)
-	inc a
-	ld (akttrk),a
-	ld b,a
-	ld a,(spuren)
-;1 	if a<>b
-	CP b
-	JP Z,.L6
-	call stepin
-;1 	endif
-.L6:
-	ld c,'V' 
-	call co 	; VVVVV fuer Verify
-	pop bc
-	djnz loop1
-	call rstore 	; und am Schluss auf 0 zurueck
-	ret
+	JP Z,FORM2	; -> no SSO
+	
+	; SSO
+	LD A,80H
+	LD (SIDESEL),A 	; setzen
 
-ecmachk:
-	ld a,(ecma)
-	or a
-	ret z  	; 0=kein ECMA70 Format
-	xor a
-	ld (minimax),a 	; immer Minilaufwerk
-	ld a,(akttrk) 	; = Spur 0, dann SD-Formatieren
-;1 	if a=0
+FORM2:	CALL GENTRK
+	CALL FRMTRK
+	CALL ERRCHK
+	LD A,(DRIVE)
+	AND 7FH
+	LD (DRIVE),A   
+	XOR A
+	LD (SIDESEL),A
+
+FORM3:	LD A,(CURTRK)
+	INC A
+	LD (CURTRK),A
+	LD B,A
+	LD A,(TRKCNT)
+	CP B
+	JP Z,FORM4	; AKTRK = TRKCNT
+	
+	CALL STEPIN
+	
+FORM4:	LD C,'F'
+	CALL CONOUT 	; Meldung FFFFF ausgeben bei jeder Spur ein F
+	POP BC
+	DJNZ FORM1	; -> loop
+
+	; verify
+	
+	LD HL,VMSG
+	CALL PRNTMSG
+	CALL HOME	; set head to track 0
+	XOR A
+	LD (CURTRK),A  	; start with track 0
+	LD A,(TRKCNT) 	; number of tracks
+	LD B,A
+
+FORM5:	; loop
+	PUSH BC
+	CALL ECMACHK
+	CALL VERIFY
+	LD A,(SSDS)
+	CP 1
+	JP NZ,FORM7	; -> single-sided
+
+	; double-sided
+	LD A,(DRIVE)
+	OR 80H
+	LD (DRIVE),A
+	LD A,(USESSO)
 	OR A
-	JP NZ,.L7
-	ld hl,128
-	ld (anzbyte),hl
-	ld a,0 	; erste Spur einfache Dichte
-	ld (dichte),a 	;
-	ld a,0
-	ld (kopf),a 	; 16 x SD , 40 Spuren
-	ld a,16
-	ld (sektoren),a
-	ld a,27
-	ld (gaplen),a
-	ld a,40
-	ld (spuren),a
-;1 	else
-	JP .L8
-.L7:
-	ld hl,256 	; rest DD
-	ld (anzbyte),hl
-	ld a,1
-	ld (dichte),a 	; DD
-	ld a,0
-	ld (kopf),a 	; nur einseitig
-	ld a,16 	; Sektorenzahl
-	ld (sektoren),a
-	ld a,54
-	ld (gaplen),a 	; STD GapŠ	ld a,40 	; und 40 Spuren
-	ld (spuren),a
-;1 	endif
-.L8:
-	ret
-errchk:		; allgemeine Fehlerpruefroutine
-	or a
-	ret z  	; =0, Status ok
-		; Track, Spur ausgeben
-	push af 	; Fehlercode retten
-	ld hl,tkmsg
-	call print
-	ld a,(akttrk)
-	ld l,a
-	ld h,0 
-	call printhl
-	ld hl,skmsg
-	call print
-	ld a,(aktsek)
-	ld l,a
-	ld h,0
-	call printhl
-	call crlf
-		;
-	pop af  	; Fehlercode zurueck
-	bit 2,a
-	ld hl,f0msg 	; error
-;1 	if nz
-	JP Z,.L9
-	ld hl,f2msg
-;1 	endif
-.L9:
-	bit 3,a
-;1 	if nz
-	JP Z,.L10
-	ld hl,f3msg
-;1 	endif
-.L10:
-	bit 4,a
-;1 	if nz
-	JP Z,.L11
-	ld hl,f4msg
-;1 	endif
-.L11:
-	bit 5,a
-;1 	if nz
-	JP Z,.L12
-	ld hl,f5msg
-;1 	endif
-.L12:
-	bit 6,a
-;1 	if nz
-	JP Z,.L13
-	ld hl,f6msg
-;1 	endif
-.L13:
-;1 	if nz
-	JP Z,.L14
-	ld hl,f6msg 	; dominant ist Fehler, Writeprot.
-;1 	endif
-.L14:
-	call print
-;1 	repeat
-.L15:
-	call ci
-;1 	until a in ['W','w']
+	JP Z,FORM6	; -> no SSO
+	
+	; SSO
+	LD A,80H
+	LD (SIDESEL),A 	; setzen
+
+FORM6:	CALL VERIFY
+	LD A,(DRIVE)
+	AND 7FH
+	LD (DRIVE),A 
+	XOR A
+	LD (SIDESEL),A 	; wieder Seite 0
+
+FORM7:	LD A,(CURTRK)
+	INC A
+	LD (CURTRK),A
+	LD B,A
+	LD A,(TRKCNT)
+	CP B
+	JP Z,FORM8	; -> TRKCNT = CURTRK
+
+	CALL STEPIN
+
+FORM8:	LD C,'V' 
+	CALL CONOUT 	; VVVVV fuer Verify
+	POP BC
+	DJNZ FORM5	; -> loop
+	
+	CALL HOME 	; set head to track 0
+	RET
+	
+;-----------------------------------------------------------------------------
+; Set ECMA70 format
+
+ECMACHK:
+	LD A,(ECMA)	; 1=ECMA70
+	OR A
+	RET Z  		; no ECMA70
+	
+	XOR A
+	LD (MINMAX),A 	; always mini drive
+	
+	LD A,(CURTRK)
+	OR A
+	JP NZ,ECMAC1	; -> not track 0
+	
+	; track 0, format single-density
+	LD HL,128
+	LD (BYTCNT),HL
+	
+	LD A,0 		; single density
+	LD (DENSITY),A 	;
+	LD A,0		; single-sided
+	LD (SSDS),A
+	LD A,16		; 16 sectors
+	LD (SECCNT),A
+	LD A,27
+	LD (GAPLEN),A
+	LD A,40		; 40 tracks
+	LD (TRKCNT),A
+	JP ECMAC2
+	
+ECMAC1:	; not track 0, format double density
+	LD HL,256
+	LD (BYTCNT),HL
+	
+	LD A,1		; double density
+	LD (DENSITY),A
+	LD A,0 		; single-sided
+	LD (SSDS),A
+	LD A,16 	; 16 sectors
+	LD (SECCNT),A
+	LD A,54
+	LD (GAPLEN),A 	; STD Gap
+	LD A,40 	; 40 tracks
+	LD (TRKCNT),A
+
+ECMAC2:	RET
+
+;-----------------------------------------------------------------------------
+; General error check routine
+
+; error code in A
+;   bit 2 = CPU to slow
+;   bit 3 = CRC error
+;   bit 4 = record not found
+;   bit 5 = wrong record type
+;   bit 6 = write protected
+
+ERRCHK:	OR A
+	RET Z  	; =0? -> Status ok
+	
+	; TRACK, Spur ausgeben
+	PUSH AF 	; save error code
+	LD HL,TKMSG
+	CALL PRNTMSG
+	LD A,(CURTRK)
+	LD L,A
+	LD H,0 
+	CALL PRNTHL
+	LD HL,SKMSG
+	CALL PRNTMSG
+	LD A,(CURSEC)
+	LD L,A
+	LD H,0
+	CALL PRNTHL
+	CALL CRLF
+
+	POP AF  	; restore error code
+	
+	; check bit 2
+	BIT 2,A
+	LD HL,F0MSG 	; error message
+	JP Z,ERRC1	; -> bit 2 not set
+	
+	; bit 2, CPU too slow
+	LD HL,F2MSG
+
+ERRC1:	; check bit 3
+	BIT 3,A
+	JP Z,ERRC2	; -> bit 3 not set
+
+	; bit 3, CRC errror
+	LD HL,F3MSG
+
+ERRC2:	; check bit 4
+	BIT 4,A
+	JP Z,ERRC3	; -> bit 4 not set
+	
+	; bit 4, record not found
+	LD HL,F4MSG
+	
+ERRC3:	; check bit 5
+	BIT 5,A
+	JP Z,ERRC4	; -> bit 5 not set
+
+	; bit 5, wrong record type
+	LD HL,F5MSG
+
+ERRC4:	; check bit 6
+	BIT 6,A
+	JP Z,ERRC5	; -> bit 6 not set
+
+	; bit 6, write protected
+	LD HL,F6MSG
+	
+ERRC5:	; check bit 7
+	JP Z,ERRC6
+	
+	; bit 7, write protected
+	LD HL,F6MSG 	; dominant is write proteced error
+
+ERRC6:	CALL PRNTMSG
+
+ERRC7:	; wait for 'W' or 'w'
+	CALL CONIN
 	CP 'W'
-	JP Z,.L16
-	CP 'w'Š	JP NZ,.L15
-.L16:
-	jp start 	; Stack adjust nicht noetig 
-printhl:		; dezimale Ausgabe
-	xor a
-	push af
-aus1:
-	ld a,16
-	ld bc,10 	; div 10
-	ld de,0 	; Rest
-	ex de,hl
-divlp:
-	push af
-	sla e
-	rl d
-	rl l
-	rl h
-	set 0,e
-	xor a
-	sbc hl,bc
-;1 	if c
-	JP NC,.L17
-	add hl,bc
-	res 0,e
-;1 	endif
-.L17:
-	pop af
-	dec a
-	jr nz,divlp
-	ex de,hl 	; hl=erg, de=rest
-		;
-	ld a,e
-	or 30h
-	push af
-	ld a,h
-	or l
-	jr nz,aus1
-aus2:
-	pop af
-	or a
-	ret z
-	ld c,a
-	call co
-	jr aus2
-gentrack::		; neue Spur erzeugen
-	ld ix,formtab 	; Startadresse Formattabelle 
-		; header ausgeben
-	ld a,(dichte) 	; je nach dichte
-;1 	if a=0
+	JP Z,ERRC8
+	CP 'w'
+	JP NZ,ERRC7
+
+ERRC8:	JP START 	; no stack adjust needed
+	
+;-----------------------------------------------------------------------------
+; PRNTMSG decimal value in HL
+	
+PRNTHL:	XOR A
+	PUSH AF
+
+PRNTH1:	; digit loop
+	LD A,16
+	LD BC,10 	; div 10
+	LD DE,0 	; Rest
+	EX DE,HL
+	
+PRNTH2:	; division loop
+	PUSH AF
+	SLA E
+	RL D
+	RL L
+	RL H
+	SET 0,E
+	XOR A
+	SBC HL,BC
+	JP NC,PRNTH3
+	
+	ADD HL,BC
+	RES 0,E
+	
+PRNTH3:	POP AF
+	DEC A
+	JR NZ,PRNTH2
+	
+	EX DE,HL 	; HL=result, DE=remainder
+	LD A,E
+	OR 30H
+	PUSH AF
+	LD A,H
+	OR L
+	JR NZ,PRNTH1	; -> loop
+	
+PRNTH4:	;output
+	POP AF
 	OR A
-	JP NZ,.L18
-	ld b,16
-	ld c,0ffh 	; fuellbyte 
-;1 	else
-	JP .L19
-.L18:
-	ld b,32 	; bei doppelter Dichte
-	ld c,04eh
-;1 	endif
-.L19:
-;1 	do b
-.L20:
-	ld (ix+0),c
-	inc ix
-;1 	enddo  	; Header wird abgelegt
-	DEC BŠ	JP NZ,.L20
-		; Sektorenschleife
-	ld a,1
-	ld (aktsek),a 	; aktueller Sektor
-	ld a,(sektoren)
-	ld b,a
-;1 	do b
-.L21:
-	push bc
-		; ID-Feld aufbereiten
-	ld a,(dichte)
-;2 	if a=0 	; SD
+	RET Z
+	LD C,A
+	CALL CONOUT
+	JR PRNTH4
+	
+;-----------------------------------------------------------------------------
+; Create new track
+	
+GENTRK:	LD IX,FORMTAB 	; start of format table
+
+	; header
+	LD A,(DENSITY)
 	OR A
-	JP NZ,.L22
-;3 	do b,6
-	LD b,6
-.L23:
-	ld (ix+0),0
-	inc ix
-;3 	enddo
+	JP NZ,GENT1	; -> double-density
+
+	; single-density
+	LD B,16
+	LD C,0FFH 	; fuellbyte 
+	JP GENT2
+
+GENT1:	; double density
+	LD B,32
+	LD C,04EH
+	
+GENT2:
+GENT3:	LD (IX+0),C
+	INC IX
 	DEC B
-	JP NZ,.L23
-	ld (ix+0),0feh 	; ID-Adress-Mark
-	inc ix
-	ld a,(akttrk)
-	ld (ix+0),a  	; Track 0..n
-	inc ix
-	ld a,(sidesel) 	; fuer Side-Flag
-	and 80h  	;
-;3 	if a=0
+	JP NZ,GENT3
+
+	; create sectors
+	
+	LD A,1		; start with sector 1
+	LD (CURSEC),A 	; current sector
+	LD A,(SECCNT)
+	LD B,A
+
+GENT4:	; sector loop
+	PUSH BC
+	
+	; ID field
+	LD A,(DENSITY)
 	OR A
-	JP NZ,.L24
-	ld (ix+0),0  	; Seite 0
-;3 	else
-	JP .L25
-.L24:
-	ld (ix+0),1  	; Seite 1
-;3 	endif
-.L25:
-	inc ix
-	ld a,(aktsek)
-	ld (ix+0),a  	; Sektor 1..n
-	inc ix
-	ld hl,(anzbyte) 	; 128,256,512,1024
-	ld a,h  	; 0,1,2,4 da 80h,100h,200h,400h
-;3 	if a=4
+	JP NZ,GENT11	; -> double density
+
+	; --- single density ---
+	
+	LD B,6
+
+GENT5:	LD (IX+0),0
+	INC IX
+	DEC B
+	JP NZ,GENT5
+	
+	LD (IX+0),0FEH 	; ID address marc
+	INC IX
+	LD A,(CURTRK)	; track number 0..n
+	LD (IX+0),A
+	INC IX
+
+	LD A,(SIDESEL) 	; side
+	AND 80H  	;
+	OR A
+	JP NZ,GENT6	; -> side 1
+
+	; side 0
+	LD (IX+0),0  	; Seite 0
+	JP GENT7
+
+GENT6:	; side 1
+	LD (IX+0),1  	; Seite 1
+
+GENT7:	INC IX
+	LD A,(CURSEC)
+	LD (IX+0),A  	; Sector 1..n
+	INC IX
+	LD HL,(BYTCNT)	; sector size (128,256,512,1024)
+	LD A,H  	; 0,1,2,4 da 80h,100h,200h,400h
 	CP 4
-	JP NZ,.L26
-	ld a,3
-;3 	endif
-.L26:
-	ld (ix+0),a  	; 0,1,2,3 Laengenkennung
-	inc ix
-	ld (ix+0),0f7h 	; und CRC erzeugen
-	inc ix
-;3 	do b,11
-	LD b,11
-.L27:
-	ld (ix+0),0ffh
-	inc ix
-;3 	enddo
+	JP NZ,GENT8	; -> not 4
+	
+	; A=4
+	LD A,3
+
+GENT8:	LD (IX+0),A  	; Laengenkennung (0,1,2,3)
+	INC IX
+	LD (IX+0),0F7H 	; create CRC
+	INC IX
+
+	LD B,11
+GENT9:	LD (IX+0),0FFH
+	INC IX
 	DEC B
-	JP NZ,.L27
-;3 	do b,6
-	LD b,6
-.L28:
-	ld (ix+0),0
-	inc ixŠ;3 	enddo
+	JP NZ,GENT9
+	
+	LD B,6
+GENT10:	LD (IX+0),0
+	INC IX
 	DEC B
-	JP NZ,.L28
-	ld (ix+0),0fbh 	; Data Mark
-	inc ix
-;2 	else  	; DD
-	JP .L29
-.L22:
-;3 	do b,12
-	LD b,12
-.L30:
-	ld (ix+0),0
-	inc ix
-;3 	enddo
+	JP NZ,GENT10
+	
+	LD (IX+0),0FBH 	; data mark
+	INC IX
+	JP GENT20
+
+	; --- double density ---
+
+GENT11:	LD B,12
+GENT12:	LD (IX+0),0
+	INC IX
 	DEC B
-	JP NZ,.L30
-;3 	do b,3
-	LD b,3
-.L31:
-	ld (ix+0),0f5h
-	inc ix
-;3 	enddo
+	JP NZ,GENT12
+	
+	LD B,3
+GENT13:	LD (IX+0),0F5H
+	INC IX
 	DEC B
-	JP NZ,.L31
-	ld (ix+0),0feh 	; ID-Adress-Mark
-	inc ix
-	ld a,(akttrk)
-	ld (ix+0),a  	; Track 0..n
-	inc ix
-	ld a,(sidesel) 	; fuer Side-Sel SSO
-	and 80h
-;3 	if a=0
+	JP NZ,GENT13
+	
+	LD (IX+0),0FEH 	; ID address mark
+	INC IX
+	LD A,(CURTRK)
+	LD (IX+0),A  	; track 0..n
+	INC IX
+	LD A,(SIDESEL) 	; for side-sel SSO
+	AND 80H
 	OR A
-	JP NZ,.L32
-	ld (ix+0),0  	; Seite 0
-;3 	else
-	JP .L33
-.L32:
-	ld (ix+0),1  	; Seite 1
-;3 	endif
-.L33:
-	inc ix
-	ld a,(aktsek)
-	ld (ix+0),a  	; Sektor 1..n
-	inc ix
-	ld hl,(anzbyte) 	; 128,256,512,1024
-	ld a,h  	; 0,1,2,4 da 80h,100h,200h,400h
-;3 	if a=4
+	JP NZ,GENT14	; -> side 1
+
+	; side 0
+	LD (IX+0),0  	; side 0
+	JP GENT15
+	
+GENT14:	LD (IX+0),1  	; side 1
+
+GENT15:	INC IX
+	LD A,(CURSEC)
+	LD (IX+0),A  	; sector 1..n
+	INC IX
+	LD HL,(BYTCNT)	; sector size (128,256,512,1024)
+	LD A,H  	; 0,1,2,4 da 80h,100h,200h,400h
 	CP 4
-	JP NZ,.L34
-	ld a,3
-;3 	endif
-.L34:
-	ld (ix+0),a  	; 0,1,2,3 Laengenkennung
-	inc ix
-	ld (ix+0),0f7h 	; und CRC erzeugen
-	inc ix
-;3 	do b,22
-	LD b,22
-.L35:
-	ld (ix+0),04eh
-	inc ix
-;3 	enddo
+	JP NZ,GENT16
+	
+	; A=4
+	LD A,3
+
+GENT16:	LD (IX+0),A  	; 0,1,2,3 Laengenkennung
+	INC IX
+	LD (IX+0),0F7H 	; create CRC
+	INC IX
+	
+	LD B,22
+GENT17:	LD (IX+0),04EH
+	INC IX
 	DEC B
-	JP NZ,.L35
-;3 	do b,12
-	LD b,12
-.L36:
-	ld (ix+0),0Š	inc ix
-;3 	enddo
+	JP NZ,GENT17
+
+	LD B,12
+GENT18:	LD (IX+0),0
+	INC IX
 	DEC B
-	JP NZ,.L36
-;3 	do b,3
-	LD b,3
-.L37:
-	ld (ix+0),0f5h
-	inc ix
-;3 	enddo
+	JP NZ,GENT18
+	
+	LD B,3
+GENT19:	LD (IX+0),0F5H
+	INC IX
 	DEC B
-	JP NZ,.L37
-	ld (ix+0),0fbh 	; Data Mark
-	inc ix
-;2 	endif
-.L29:
-		; Datenblock ablegen
-	ld a,(filler) 	; Datenbyte
-	ld c,a
-	ld hl,(anzbyte) 	; 128,256,512,1024
-;2 	do hl
-.L38:
-	ld (ix+0),c
-	inc ix
-;2 	enddo
+	JP NZ,GENT19
+	
+	LD (IX+0),0FBH 	; data mark
+	INC IX
+
+	; write data block
+
+GENT20:	LD A,(FILLER) 	; data byte
+	LD C,A
+	LD HL,(BYTCNT) ; 128,256,512,1024
+
+GENT21:	LD (IX+0),C
+	INC IX
 	DEC HL
 	LD A,H
 	OR L
-	JP NZ,.L38
-		;
-	ld (ix+0),0f7h 	; CRC ablegen danach
-	inc ix
-	ld a,(dichte)
-;2 	if a=0
+	JP NZ,GENT21
+	
+	LD (IX+0),0F7H 	; write CRC
+	INC IX
+	LD A,(DENSITY)
 	OR A
-	JP NZ,.L39
-	ld c,0ffh  	; Datenbyte SD
-;2 	else
-	JP .L40
-.L39:
-	ld c,04eh  	; Datenbyte DD
-;2 	endif
-.L40:
-	ld a,(gaplen)
-	ld b,a  	; Gap 3 ablegen
-;2 	do b
-.L41:
-	ld (ix+0),c
-	inc ix
-;2 	enddo
+	JP NZ,GENT22	; -> double density
+	
+	; single density
+	LD C,0FFH  	; Datenbyte SD
+	JP GENT23
+
+GENT22:	; double density
+	LD C,04EH  	; Datenbyte DD
+
+GENT23:	LD A,(GAPLEN)
+	LD B,A  	; store gap 3
+
+GENT24:	LD (IX+0),C
+	INC IX
 	DEC B
-	JP NZ,.L41
-		; alle Sektoren
-	ld a,(aktsek)
-	inc a
-	ld (aktsek),a 	; neue Sektorennummer
-	pop bc
-;1 	enddo
+	JP NZ,GENT24
+	
+	; next sector
+	LD A,(CURSEC)
+	INC A
+	LD (CURSEC),A 	; neue Sektorennummer
+	POP BC
 	DEC B
-	JP NZ,.L21
-		; fuellen bis ende
-	ld a,(dichte)
-;1 	if a=0  	; SD
+	JP NZ,GENT4	; -> sector loop
+	
+	; fill to the end
+	LD A,(DENSITY)
 	OR A
-	JP NZ,.L42
-	ld c,0ffh 	; Gap 4
-;1 	else  	; DDŠ	JP .L43
-.L42:
-	ld c,04eh
-;1 	endif
-.L43:
-;1 	do hl,1000 	; Sicherheitshalber grosse Zahl
-	LD hl,1000 
-.L44:
-	ld (ix+0),c   	; damit bis zum Indexpuls
-	inc ix 	; keine Fremdbytes kommen
-;1 	enddo
+	JP NZ,GENT25	; -> double-sided
+
+	; single-sided
+	LD C,0FFH 	; store gap 4
+	JP GENT26
+
+GENT25:	; double-sided
+	LD C,04EH
+
+GENT26:	LD HL,1000	; use big number to make shure there are no
+			; unwanted bytes till the index puls
+GENT27:	LD (IX+0),C
+	INC IX
 	DEC HL
 	LD A,H
 	OR L
-	JP NZ,.L44
-	ret
-verify::		; pruefen einer Spur
-	call wai  	; Head Settle Time
-	ld a,1   	; beruecksichtigen
-	ld (aktsek),a
-	ld a,(sektoren)
-	ld b,a
-;1 	do b
-.L45:
-	push bc
-	call read  	; einfach einlesen
-	call errchk  	; =0 dann ok, sonst Meldung ausgeben
-	ld a,(aktsek)
-	inc a
-	ld (aktsek),a
-	pop bc
-;1 	enddo
+	JP NZ,GENT27
+	
+	RET
+	
+;-----------------------------------------------------------------------------
+; Verify a track, test-read read all sectors
+	
+VERIFY:	CALL DELAY  	; head settle time
+
+	LD A,1
+	LD (CURSEC),A
+	LD A,(SECCNT)
+
+	LD B,A
+	
+VERIF1:	PUSH BC
+	CALL READ  	; simply read
+	CALL ERRCHK  	; 0=ok, otherwise message
+	
+	LD A,(CURSEC)
+	INC A
+	LD (CURSEC),A
+	
+	POP BC
 	DEC B
-	JP NZ,.L45
-	ret
+	JP NZ,VERIF1
+	
+	RET
+	
+;-----------------------------------------------------------------------------
+; Delay loop 40ms..10ms (???)
 
-wai::
-	push bc 	; Warteschleife 40ms.. 10ms
-	ld bc,0d05h
-lp3::
-	dec bc
-	ld a,c
-	or b
-	jp nz,lp3
-	pop bc
-	ret
-rstore::		; Auf Spur 0 bringen
-	ld a,(user)
-	or a  	; FLO2
-	jp nz,rastore
-	ld hl,250 	; Versuche max
-r1st:
-	push  hl
-	in a,(flo0)
-	call wai
-	ei  	; Jetzt Int erlaubt
-	call rexec
-	di
-	pop hl
-	in a,(flo0) 	; Status pruefen
-	and 80h 	; <>0 dann nicht ready
-	jp z,r2st
-	dec hl
-	ld a,h
-	or l  	; Anzahl versucheŠ	jr nz,r1st
-		; FEHLER
-	ld hl,rmsg
-	call print
-;1 	repeat
-.L46:
-	call ci
-;1 	until a in ['W','w']
+DELAY:	PUSH BC
+	LD BC,0D05H
+
+DELAY1:	DEC BC
+	LD A,C
+	OR B
+	JP NZ,DELAY1
+	
+	POP BC
+	RET
+	
+;-----------------------------------------------------------------------------
+; Set head to track 0
+
+HOME:	LD A,(USER)
+	OR A  		; 0=FLO2
+	JP NZ,HOME4
+	
+	; FLO2
+	
+	LD HL,250 	; max retries
+	
+HOME1:	; retry loop
+	PUSH  HL
+	IN A,(FLO0)
+	CALL DELAY
+	EI  		; enable interrupts
+	CALL REXEC
+	DI
+	POP HL
+	IN A,(FLO0) 	; check status
+	AND 80H 	; <>0 dann nicht ready
+	JP Z,HOME12
+	
+	DEC HL
+	LD A,H
+	OR L  		
+	JR NZ,HOME1	; -> retry
+	
+	; error
+	LD HL,RMSG	; not ready
+	CALL PRNTMSG
+
+HOME2:	; wait for 'W' / 'w'
+	CALL CONIN
 	CP 'W'
-	JP Z,.L47
+	JP Z,HOME3
 	CP 'w'
-	JP NZ,.L46
-.L47:
-	jp start
-rastore:
-	cp 1  	; FLO1-Maxi
-	jp nz,rbstore
-	ld hl,250 	; Versuche max
-ra1st:
-	push  hl
-	in a,(floa0)
-	call wai
-	ei  	; Jetzt Int erlaubt
-	call raexec
-	di
-	pop hl
-	in a,(floa0) 	; Status pruefen
-	and 80h 	; <>0 dann nicht ready
-	jp z,r2st
-	dec hl
-	ld a,h
-	or l  	; Anzahl versuche
-	jr nz,ra1st
-		; FEHLER
-	ld hl,rmsg
-	call print
-;1 	repeat
-.L48:
-	call ci
-;1 	until a in ['W','w']
+	JP NZ,HOME2
+
+HOME3:	JP START
+	
+	;---------------------------------------------------------------------
+
+HOME4:	CP 1  		; 1=FLO1-Maxi
+	JP NZ,HOME8
+
+	; FLO1 Maxi
+	
+	LD HL,250 	; max retries
+	
+HOME5:	; retry loop
+	PUSH HL
+	IN A,(FLOA0)
+	CALL DELAY
+	EI  		; enable interrupts
+	CALL RAEXEC
+	DI
+	POP HL
+	IN A,(FLOA0) 	; check status
+	AND 80H
+	JP Z,HOME12	; -> 0=ready
+	
+	DEC HL
+	LD A,H
+	OR L
+	JR NZ,HOME5	; -> retry
+	
+	; error
+	LD HL,RMSG	; not ready
+	CALL PRNTMSG
+
+HOME6:	; wait for 'W' / 'w'
+	CALL CONIN
 	CP 'W'
-	JP Z,.L49
+	JP Z,HOME7
 	CP 'w'
-	JP NZ,.L48
-.L49:
-	jp start
-rbstore:
-	ld hl,250 	; Versuche max
-rb1st:
-	push  hl
-	in a,(flob0)
-	call wai
-	ei  	; Jetzt Int erlaubt
-	call rbexec 	; rev 1.2
-	di
-	pop hl
-	in a,(flob0) 	; Status pruefen
-	and 80h 	; <>0 dann nicht ready
-	jp z,r2st
-	dec hl
-	ld a,h
-	or l  	; Anzahl versuche
-	jr nz,rb1st
-		; FEHLER
-	ld hl,rmsgŠ	call print
-;1 	repeat
-.L50:
-	call ci
-;1 	until a in ['W','w']
+	JP NZ,HOME6
+
+HOME7:	JP START
+	
+	;---------------------------------------------------------------------
+	
+HOME8:	; FLO1-Mini (???)
+
+	LD HL,250 	; max retries
+
+HOME9:	; retry loop
+	PUSH  HL
+	IN A,(FLOB0)
+	CALL DELAY
+	EI  		; enable interrupts
+	CALL RBEXEC
+	DI
+	POP HL
+	IN A,(FLOB0) 	; check status
+	AND 80H
+	JP Z,HOME12	; -> 0=ready
+	
+	DEC HL
+	LD A,H
+	OR L
+	JR NZ,HOME9	; -> retry
+
+	; error
+	LD HL,RMSG	; not ready
+	CALL PRNTMSG
+
+HOME10:	; wait for 'W' / 'w'
+	CALL CONIN
 	CP 'W'
-	JP Z,.L51
+	JP Z,HOME11
 	CP 'w'
-	JP NZ,.L50
-.L51:
-	jp start
+	JP NZ,HOME10
 
-r2st:		; fertig
-	ret
+HOME11:	JP START
 
-rexec::		; Ausfuehrung
-	call setup
-	ld a,0bh 	; Rstore ohne Verify
-	out (flo0),a
-	halt  	; ueber INT zurueck
+HOME12:	; finished
+	RET
 
-raexec::		; Ausfuehrung
-	call setup
-	ld a,0bh 	; Rstore ohne Verify
-	out (floa0),a
-	halt  	; ueber INT zurueck
+;-----------------------------------------------------------------------------
+; Ausfuehrung FLO2
 
-rbexec::		; Ausfuehrung
-	call setup
-	ld a,0bh 	; Rstore ohne Verify
-	out (flob0),a
-	halt  	; ueber INT zurueck
+REXEC:	CALL SETUP
+	LD A,0BH 	; Rstore ohne Verify
+	OUT (FLO0),A
+	HALT  		; UEBER INT zurueck
 
-stepin::		; Step ausfuehren
-	call wai 	; aber erst nach Delay, sonst
-	ei     	; gehen Tracks verloren
-	call stpexec
-	di
-	ret
+;-----------------------------------------------------------------------------
+; Ausfuehrung FLO1 Maxi
 
-stpexec::
-	call setup 	; Laufwerk und Dichte
-	ld a,(user)
-;1 	if a=0
+RAEXEC:	CALL SETUP
+	LD A,0BH 	; Rstore ohne Verify
+	OUT (FLOA0),A
+	HALT  		; UEBER INT zurueck
+
+;-----------------------------------------------------------------------------
+; Ausfuehrung FLO1 Mini
+
+RBEXEC:	CALL SETUP
+	LD A,0BH 	; Rstore ohne Verify
+	OUT (FLOB0),A
+	HALT  		; UEBER INT zurueck
+
+;-----------------------------------------------------------------------------
+; Step ausfuehren
+
+STEPIN:	CALL DELAY 	; settle head
+	EI
+	CALL STPEXEC
+	DI
+	RET
+
+;-----------------------------------------------------------------------------
+
+STPEXEC:
+	CALL SETUP 	; Laufwerk und Dichte
+	LD A,(USER)
+;1 	IF A=0
 	OR A
 	JP NZ,.L52
-	ld a,5bh
-	out (flo0),a 	; Step ohne Verify
-;1 	elseif a=1
+	LD A,5BH
+	OUT (FLO0),A 	; Step ohne Verify
+;1 	ELSEIF A=1
 	JP .L53
 .L52:
 	CP 1
 	JP NZ,.L54
-	ld a,5bh
-	out (floa0),a
-;1 	elseif a=2
+	LD A,5BH
+	OUT (FLOA0),A
+;1 	ELSEIF A=2
 	JP .L53
 .L54:
 	CP 2
 	JP NZ,.L55
-	ld a,5bh 
-	out (flob0),a
-;1 	endif
+	LD A,5BH 
+	OUT (FLOB0),A
+;1 	ENDIF
 .L55:
 .L53:
-	halt 
-Šread:
-	ld b,2
-read1:
-	push bc
-	ei
-	call readex
-	di
-	pop bc  	; Fehlerzaehler
-	ld a,(user)
-;1 	if a=0
+	HALT 
+
+READ:
+	LD B,2
+READ1:
+	PUSH BC
+	EI
+	CALL READEX
+	DI
+	POP BC  	; Fehlerzaehler
+	LD A,(USER)
+;1 	IF A=0
 	OR A
 	JP NZ,.L56
-	in a,(flo0) 	; Status beim Lesen pruefen
-;1 	elseif a=1
+	IN A,(FLO0) 	; Status beim Lesen pruefen
+;1 	ELSEIF A=1
 	JP .L57
 .L56:
 	CP 1
 	JP NZ,.L58
-	in a,(floa0)
-;1 	elseif a=2
+	IN A,(FLOA0)
+;1 	ELSEIF A=2
 	JP .L57
 .L58:
 	CP 2
 	JP NZ,.L59
-	in a,(flob0)
-;1 	endif
+	IN A,(FLOB0)
+;1 	ENDIF
 .L59:
 .L57:
-	and 00111100b 	; =0 dann ok
-	ret z
-	djnz read1 	; max Retry
-	ret
-readex:
-	call setup 	; Dichtecode setzen, Head ist down.
-	ld a,(user)
-;1 	if a=0
+	AND 00111100B 	; =0 dann ok
+	RET Z
+	DJNZ READ1 	; max Retry
+	RET
+READEX:
+	CALL SETUP 	; Dichtecode setzen, Head ist down.
+	LD A,(USER)
+;1 	IF A=0
 	OR A
 	JP NZ,.L60
-	ld a,(aktsek)
-	out (flo2),a 	; Sektor definieren
-	ld hl,formtab 	; dorthin Daten legen 
-	ld c,flo3 	; Datenport
-	ld a,(sidesel) 	; fuer Side-Control
-	and 80h
-	rlca  	; bit 0
-	rlca  	; bit 1
-	and 00000010b 	; 1=Seite 1
-	add a,88h 	; kein Delay abwarten, head ist down
-	out (flo0),a 	; und Befehl geben
-red1:
-	in a,(flo4)
-	rlca
-	jp nc,red1 	; warten bis DRQ-da ist
-	ini  	; Daten ablegen
-	jp red1 	; bis alle Daten gelesen, dann Interrupt 
-;1 	elseif a=1 	; flo 1 maxi
+	LD A,(CURSEC)
+	OUT (FLO2),A 	; Sektor definieren
+	LD HL,FORMTAB 	; dorthin Daten legen 
+	LD C,FLO3 	; Datenport
+	LD A,(SIDESEL) 	; fuer Side-Control
+	AND 80H
+	RLCA  	; BIT 0
+	RLCA  	; BIT 1
+	AND 00000010B 	; 1=Seite 1
+	ADD A,88H 	; kein Delay abwarten, head ist down
+	OUT (FLO0),A 	; und Befehl geben
+RED1:
+	IN A,(FLO4)
+	RLCA
+	JP NC,RED1 	; warten bis DRQ-da ist
+	INI  	; DATEN ablegen
+	JP RED1 	; bis alle Daten gelesen, dann Interrupt 
+;1 	ELSEIF A=1 	; flo 1 maxi
 	JP .L61
 .L60:
 	CP 1 
 	JP NZ,.L62
-	ld a,(aktsek)
-	out (floa2),a 	; Sektor definieren
-	ld hl,formtab 	; dorthin Daten legen 
-	ld c,floa3 	; Datenport
-	ld a,(sidesel) 	; fuer Side-Control
-	and 80hŠ	rlca  	; bit 0
-	rlca  	; bit 1
-	and 00000010b 	; 1=Seite 1
-	add a,88h 	; kein Delay abwarten, head ist down
-	out (floa0),a 	; und Befehl geben
-raed1:
-	in a,(floa4)
-	rlca
-	jp nc,raed1 	; warten bis DRQ-da ist
-	ini  	; Daten ablegen
-	jp raed1 	; bis alle Daten gelesen, dann Interrupt 
-;1 	elseif a=2 	; flo1 Mini
+	LD A,(CURSEC)
+	OUT (FLOA2),A 	; Sektor definieren
+	LD HL,FORMTAB 	; dorthin Daten legen 
+	LD C,FLOA3 	; Datenport
+	LD A,(SIDESEL) 	; fuer Side-Control
+	AND 80H
+	RLCA  	; BIT 0
+	RLCA  	; BIT 1
+	AND 00000010B 	; 1=Seite 1
+	ADD A,88H 	; kein Delay abwarten, head ist down
+	OUT (FLOA0),A 	; und Befehl geben
+RAED1:
+	IN A,(FLOA4)
+	RLCA
+	JP NC,RAED1 	; warten bis DRQ-da ist
+	INI  	; DATEN ablegen
+	JP RAED1 	; bis alle Daten gelesen, dann Interrupt 
+;1 	ELSEIF A=2 	; flo1 Mini
 	JP .L61
 .L62:
 	CP 2 
 	JP NZ,.L63
-	ld a,(aktsek) 
-	out (flob2),a 	; Sektor definieren
-	ld hl,formtab 	; dorthin Daten legen 
-	ld c,flob3 	; Datenport
-	ld a,(sidesel) 	; fuer Side-Control
-	and 80h
-	rlca  	; bit 0
-	rlca  	; bit 1
-	and 00000010b 	; 1=Seite 1
-	add a,88h 	; kein Delay abwarten, head ist down
-	out (flob0),a 	; und Befehl geben
-rbed1:
-	in a,(flob4)
-	rlca
-	jp nc,rbed1 	; warten bis DRQ-da ist
-	ini  	; Daten ablegen
-	jp rbed1 	; bis alle Daten gelesen, dann Interrupt 
-;1 	endif
+	LD A,(CURSEC) 
+	OUT (FLOB2),A 	; Sektor definieren
+	LD HL,FORMTAB 	; dorthin Daten legen 
+	LD C,FLOB3 	; Datenport
+	LD A,(SIDESEL) 	; fuer Side-Control
+	AND 80H
+	RLCA  	; BIT 0
+	RLCA  	; BIT 1
+	AND 00000010B 	; 1=Seite 1
+	ADD A,88H 	; kein Delay abwarten, head ist down
+	OUT (FLOB0),A 	; und Befehl geben
+RBED1:
+	IN A,(FLOB4)
+	RLCA
+	JP NC,RBED1 	; warten bis DRQ-da ist
+	INI  	; DATEN ablegen
+	JP RBED1 	; bis alle Daten gelesen, dann Interrupt 
+;1 	ENDIF
 .L63:
 .L61:
-	ret 
+	RET 
 
-setup::
-	push bc
-	ld a,(laufwerk) 	; Laufwerkscode
-	ld b,a 
-	ld a,(dichte)
-;1 	if a=0   	; SD
+SETUP::
+	PUSH BC
+	LD A,(DRIVE) 	; Laufwerkscode
+	LD B,A 
+	LD A,(DENSITY)
+;1 	IF A=0   	; SD
 	OR A
 	JP NZ,.L64
-	ld a,b
-	or 10h
-	ld b,a
-;1 	endif
+	LD A,B
+	OR 10H
+	LD B,A
+;1 	ENDIF
 .L64:
-	ld a,(minimax)
-;1 	if a=0   	; Mini
+	LD A,(MINMAX)
+;1 	IF A=0   	; Mini
 	OR A
 	JP NZ,.L65
-	ld a,b
-	or 20h
-	ld b,a
-;1 	endif
+	LD A,B
+	OR 20H
+	LD B,A
+;1 	ENDIF
 .L65:
-	ld a,(user)
-;1 	if a=0   	; FLO2
+	LD A,(USER)
+;1 	IF A=0   	; FLO2
 	OR A
 	JP NZ,.L66
-	; v1.22
-	LD A,(flotyp)
-	CP 01h
+	; V1.22
+	LD A,(FLOTYP)
+	CP 01H
 	JP NZ,L0653
 	
-	ld a,b  	; OK Code fertig
-	XOR 10h
+	LD A,B  	; OK Code fertig
+	XOR 10H
 	JP L0654
 L0653:
-	LD a,b
+	LD A,B
 L0654:
-	pop bc
-	out (flo4),a	;
-;1 	elseif a=1  	; MAXI
+	POP BC
+	OUT (FLO4),A	;
+;1 	ELSEIF A=1  	; MAXI
 	JP .L67
 .L66:
 	CP 1  
 	JP NZ,.L68
-	ld a,b
-	pop bc
-	xor 10h  	; DENSE invertiert bei FLO1
-	out (floa4),a
-;1 	elseif a=2
+	LD A,B
+	POP BC
+	XOR 10H  	; DENSE invertiert bei FLO1
+	OUT (FLOA4),A
+;1 	ELSEIF A=2
 	JP .L67
 .L68:
 	CP 2
 	JP NZ,.L69
-	ld a,b
-	pop bc
-	xor 10h  	; DENSE invertiert bei FLO1
-	out (flob4),a
-;1 	endif
+	LD A,B
+	POP BC
+	XOR 10H  	; DENSE invertiert bei FLO1
+	OUT (FLOB4),A
+;1 	ENDIF
 .L69:
 .L67:
-	ret
-form::		; Formatieren einer Spur.
-	call wai
-	ei
-	call fmt
-	di
-	ld a,(user)
-;1 	if a=0
+	RET
+	
+;-----------------------------------------------------------------------------
+; Format track
+
+FRMTRK:	CALL DELAY
+	EI
+	CALL FMT
+	DI
+	LD A,(USER)
+;1 	IF A=0
 	OR A
 	JP NZ,.L70
-	in a,(flo0) 	; pruefen auf Schreibschutz, Datalost
-;1 	elseif a=1
+	IN A,(FLO0) 	; pruefen auf Schreibschutz, Datalost
+;1 	ELSEIF A=1
 	JP .L71
 .L70:
 	CP 1
 	JP NZ,.L72
-	in a,(floa0)
-;1 	elseif a=2
+	IN A,(FLOA0)
+;1 	ELSEIF A=2
 	JP .L71
 .L72:
 	CP 2
 	JP NZ,.L73
-	in a,(flob0)
-;1 	endif
+	IN A,(FLOB0)
+;1 	ENDIF
 .L73:
 .L71:
-	and 44h
-	ret
+	AND 44H
+	RET
 
-fmt::
-	call setup 	; Dichte einstellen etc., auf Port FLO4
-	ld a,(user)
-;1 	if a=0  	; FLO 2
+FMT::
+	CALL SETUP 	; Dichte einstellen etc., auf Port FLO4
+	LD A,(USER)
+;1 	IF A=0  	; FLO 2
 	OR A
 	JP NZ,.L74
-	ld hl,formtab 	; Startadresse 
-	ld c,flo3 	; Datenport
-	ld a,(sidesel) 	; Side-Flag setzen, fuer SSO-Ausgang
-	and 80h 	; wenn Sideflag auf 80h gesetzt wird
-	rlca  	; bit 0
-	rlca  	; bit 1
-	and 00000010b 	; 1=Seite 1
-	or 0f4h 	; Formatier-Befehl+nicht documentierter
-	out (flo0),a 	; Side-Select-Befehl fuer SSO
-fmtlp::
-	in a,(flo4) 	; drq int head
-	rlca  	; bit 7 ins carryŠ	jp nc,fmtlp 	; 0=warten 1=fertig i
-	outi  	; und Byte ausgeben
-	jp fmtlp 	; durch INT wird die Routine gestoppt.
-;1 	elseif a=1 	; FLO1 maxi
+	LD HL,FORMTAB 	; Startadresse 
+	LD C,FLO3 	; Datenport
+	LD A,(SIDESEL) 	; Side-Flag setzen, fuer SSO-Ausgang
+	AND 80H 	; wenn USESSO auf 80h gesetzt wird
+	RLCA  	; BIT 0
+	RLCA  	; BIT 1
+	AND 00000010B 	; 1=Seite 1
+	OR 0F4H 	; Formatier-Befehl+nicht documentierter
+	OUT (FLO0),A 	; Side-Select-Befehl fuer SSO
+FMTLP::
+	IN A,(FLO4) 	; drq int head
+	RLCA  	; BIT 7 ins carry
+	JP NC,FMTLP 	; 0=warten 1=fertig i
+	OUTI  	; UND BYte ausgeben
+	JP FMTLP 	; durch INT wird die Routine gestoppt.
+;1 	ELSEIF A=1 	; FLO1 maxi
 	JP .L75
 .L74:
 	CP 1 
 	JP NZ,.L76
-	ld hl,formtab 	; Startadresse 
-	ld c,floa3 	; Datenport
-	ld a,(sidesel) 	; Side-Flag setzen, fuer SSO-Ausgang
-	and 80h 	; wenn Sideflag auf 80h gesetzt wird
-	rlca  	; bit 0
-	rlca  	; bit 1
-	and 00000010b 	; 1=Seite 1
-	or 0f4h 	; Formatier-Befehl+nicht documentierter
-	out (floa0),a 	; Side-Select-Befehl fuer SSO
-famtlp::
-	in a,(floa4) 	; drq int head
-	rlca  	; bit 7 ins carry
-	jp nc,famtlp 	; 0=warten 1=fertig i
-	outi  	; und Byte ausgeben
-	jp famtlp 	; durch INT wird die Routine gestoppt.
-;1 	elseif a=2 	; FLO1 mini
+	LD HL,FORMTAB 	; Startadresse 
+	LD C,FLOA3 	; Datenport
+	LD A,(SIDESEL) 	; Side-Flag setzen, fuer SSO-Ausgang
+	AND 80H 	; wenn USESSO auf 80h gesetzt wird
+	RLCA  	; BIT 0
+	RLCA  	; BIT 1
+	AND 00000010B 	; 1=Seite 1
+	OR 0F4H 	; Formatier-Befehl+nicht documentierter
+	OUT (FLOA0),A 	; Side-Select-Befehl fuer SSO
+FAMTLP::
+	IN A,(FLOA4) 	; drq int head
+	RLCA  	; BIT 7 ins carry
+	JP NC,FAMTLP 	; 0=warten 1=fertig i
+	OUTI  	; UND BYte ausgeben
+	JP FAMTLP 	; durch INT wird die Routine gestoppt.
+;1 	ELSEIF A=2 	; FLO1 mini
 	JP .L75
 .L76:
 	CP 2 
 	JP NZ,.L77
-	ld hl,formtab 	; Startadresse 
-	ld c,flob3 	; Datenport
-	ld a,(sidesel) 	; Side-Flag setzen, fuer SSO-Ausgang
-	and 80h 	; wenn Sideflag auf 80h gesetzt wird
-	rlca  	; bit 0
-	rlca  	; bit 1
-	and 00000010b 	; 1=Seite 1
-	or 0f4h 	; Formatier-Befehl+nicht documentierter
-	out (flob0),a 	; Side-Select-Befehl fuer SSO
-fbmtlp::
-	in a,(flob4) 	; drq int head
-	rlca  	; bit 7 ins carry
-	jp nc,fbmtlp 	; 0=warten 1=fertig i
-	outi  	; und Byte ausgeben
-	jp fbmtlp 	; durch INT wird die Routine gestoppt.
-;1 	endif
+	LD HL,FORMTAB 	; Startadresse 
+	LD C,FLOB3 	; Datenport
+	LD A,(SIDESEL) 	; Side-Flag setzen, fuer SSO-Ausgang
+	AND 80H 	; wenn USESSO auf 80h gesetzt wird
+	RLCA  	; BIT 0
+	RLCA  	; BIT 1
+	AND 00000010B 	; 1=Seite 1
+	OR 0F4H 	; Formatier-Befehl+nicht documentierter
+	OUT (FLOB0),A 	; Side-Select-Befehl fuer SSO
+FBMTLP::
+	IN A,(FLOB4) 	; drq int head
+	RLCA  	; BIT 7 ins carry
+	JP NC,FBMTLP 	; 0=warten 1=fertig i
+	OUTI  	; UND BYte ausgeben
+	JP FBMTLP 	; durch INT wird die Routine gestoppt.
+;1 	ENDIF
 .L77:
 .L75:
-	ret
-start::
-		;
-schleife::		; Hauptwiederholschleife
-	ld hl,headtxt 	; wieder von vorne
-	call print
-		; 
-;1 	repeat
-.L78:
-	call ci
-;1 	until a in ['1'..'6']
-	CP '6'+1
-	JP NC,.L78
-	CP '1'+0
-	JP C,.L78
-.L79:
-	push af
-	xor a
-	ld (ecma),a 	; kein ECMA70,ist default.
-	ld (user),a 	; Savety 0=flo2
-	ld a,0e5hŠ	ld (filler),a 	; Filler ist normalerweise E5
-	xor a
-	ld (sidesel),a 	; std kein SSO verwenden
-	ld (sideflag),a 	; auch nicht bei Kopfwechsel 
-	pop af
-;1 	if a='1' 	; Mini
-	CP '1' 
-	JP NZ,.L80
-	xor a
-	ld (minimax),a
-	call setspur
-	call setlw
-	call setdichte
-	call setsek
-;1 	elseif a='2' 	; Maxi
-	JP .L81
-.L80:
-	CP '2' 
-	JP NZ,.L82
-	ld a,1
-	ld (minimax),a
-	call setspur
-	call setlw
-	call setdichte
-	call setsek
-;1 	elseif a='3' 	; 8 Zoll
-	JP .L81
-.L82:
-	CP '3' 
-	JP NZ,.L83
-	ld a,1
-	ld (minimax),a
-	ld hl,128 	; 128 Bytes pro Sektor
-	ld (anzbyte),hl
-	ld a,0
-	ld (dichte),a 	; SD
-	ld a,27 	; Gaplaenge
-	ld (gaplen),a
-	ld a,0
-	ld (kopf),a 	; einseitig
-	ld a,26 	; Sektorenzahl
-	ld (sektoren),a
-	ld a,77 	; 0..76
-	ld (spuren),a 	; Spurenanzahl
-;1 	elseif a='4' 	; ECMA 70
-	JP .L81
-.L83:
-	CP '4' 
-	JP NZ,.L84
-	xor a
-	ld (minimax),a 	; rev 1.1, loeschen
-	ld a,1
-	ld (ecma),a 	; Spezialformat SD erste Spur
-	ld (sideflag),a 	; wenn rueckseite dann mit Bit
-		; rest in ecma doppelt
-	ld hl,256 	; rest DD
-	ld (anzbyte),hl
-	ld a,1
-	ld (dichte),a 	; DD
-	ld a,0
-	ld (kopf),a 	; nur einseitig
-	ld a,16 	; Sektorenzahl
-	ld (sektoren),a
-	ld a,54Š	ld (gaplen),a 	; STD Gap
-	ld a,40 	; und 40 Spuren
-	ld (spuren),a
-;1 	elseif a='5' 	; NDR spezial
-	JP .L81
-.L84:
-	CP '5' 
-	JP NZ,.L85
-	ld a,0 	; Mini
-	ld (minimax),a
-	ld hl,1024 	; Anzahl Bytes
-	ld (anzbyte),hl
-	ld a,1 	; DD
-	ld (dichte),a
-	ld a,54 	; Gaplaenge 3
-	ld (gaplen),a
-	ld a,5
-	ld (sektoren),a
-	ld a,1
-	ld (kopf),a 	; Doppelseitig
-	ld a,1
-	ld (sideflag),a 	; und mit Side-Bit
-	ld a,80 	; Spuren 0..79
-	ld (spuren),a
-;1 	elseif a='6' 	; ENDE
-	JP .L81
-.L85:
-	CP '6' 
-	JP NZ,.L86
-	jp exit
-;1 	endif
-.L86:
-.L81:
-		;
-	ld hl,menue7 	; FLO-Typ
-	call print
-;1 	repeat
-.L87:
-	call ci
-;1 	until a in ['1'..'3',0dh]
-	CP '4'+1
-	JR NC,.L89
-	CP '1'+0
-	JP NC,.L88
-.L89:
-	CP 0dh
-	JP NZ,.L87
-.L88:
-;1 	if a='2'
-	CP '2'
-	JP NZ,.L90
-	ld a,1 	; flo1, maxi
-;1 	elseif a='3'
-	JP .L91
-.L90:
-	CP '3'
-	JP NZ,.L92
-	ld a,2 	; flo2, mini
-;1 	else
-	JP .L93
-.L92:
-	; v1.22
-	CP '4'
-	JP NZ,L0838
-	LD A,01h
-	LD (flotyp),A
+	RET
 
-	xor a  	; FLO2 mini/maxi
-	JP .L91
+;-----------------------------------------------------------------------------
+; Main input loop
 	
-L0838:	
-	CP '1'
-	JP NZ,.L91
-	XOR A
-	LD (flotyp),A
+START:
+
+MAINLOOP:
+
+	LD HL,HEADTXT	; Programm start message and format type
+	CALL PRNTMSG
+
+	; --- format ---
 	
-;1 	endif
-.L93:
-.L91:
-	ld (user),a 	; ablegen
-		;
-inner::		; Schleife bei Laufwerksbestimmung
-	ld hl,menue6 	; Laufwerk eingeben
-	call print
-;1 	repeat
-.L94:
-	call ci 	; 0..9Š;1 	until a in ['0'..'9']
-	CP '9'+1
-	JP NC,.L94
-	CP '0'+0
-	JP C,.L94
-.L95:
-;1 	if a in ['1'..'8']
-	CP '8'+1
-	JP NC,.L96
+MAIN1:	; wait for 1..6
+	CALL CONIN
+	CP '6'+1
+	JP NC,MAIN1
 	CP '1'+0
-	JP C,.L96
-.L97:
-;2 	if a='1'
+	JP C,MAIN1
+	
+MAIN2:	PUSH AF
+	XOR A
+	LD (ECMA),A 	; 0=no ECMA70 (default)
+	LD (USER),A 	; 0=FLO2
+	LD A,0E5H
+	LD (FILLER),A 	; Filler ist normalerweise E5
+	XOR A
+	LD (SIDESEL),A 	; no SSO (default)
+	LD (USESSO),A	; auch nicht bei Kopfwechsel 
+	POP AF
+	
+	CP '1' 
+	JP NZ,MAIN3
+	
+	; Format 1: Mini 5 1/4"
+	XOR A		; 0 = Mini
+	LD (MINMAX),A
+	CALL SETSPUR
+	CALL SETLW
+	CALL SETDICHTE
+	CALL SETSEK
+	JP MAIN8
+	
+MAIN3:	CP '2' 
+	JP NZ,MAIN4
+	
+	; Format 2: Maxi 8"
+	LD A,1		; 1 = Maxi
+	LD (MINMAX),A
+	CALL SETSPUR
+	CALL SETLW
+	CALL SETDICHTE
+	CALL SETSEK
+	JP MAIN8
+
+MAIN4:	CP '3'
+	JP NZ,MAIN5
+	
+	; Format 3: Std  8" SD SD 77 Spur
+	LD A,1
+	LD (MINMAX),A
+	LD HL,128 	; 128 Bytes pro Sektor
+	LD (BYTCNT),HL
+	LD A,0
+	LD (DENSITY),A 	; SD
+	LD A,27 	; Gaplaenge
+	LD (GAPLEN),A
+	LD A,0
+	LD (SSDS),A 	; single-sided
+	LD A,26 	; Sektorenzahl
+	LD (SECCNT),A
+	LD A,77 	; 0..76
+	LD (TRKCNT),A 	; Anzahl Spuren
+	JP MAIN8
+
+MAIN5:	CP '4' 
+	JP NZ,MAIN6
+
+	; Format 4: ECMA 70 DD SD 40 Spur
+	XOR A
+	LD (MINMAX),A 	; rev 1.1, loeschen
+	LD A,1
+	LD (ECMA),A 	; Spezialformat SD erste Spur
+	LD (USESSO),A 	; wenn rueckseite dann mit Bit
+			; REST In ecma doppelt
+	LD HL,256 	; rest DD
+	LD (BYTCNT),HL
+	LD A,1
+	LD (DENSITY),A 	; DD
+	LD A,0
+	LD (SSDS),A 	; single-sided
+	LD A,16 	; Sektorenzahl
+	LD (SECCNT),A
+	LD A,54
+	LD (GAPLEN),A 	; STD Gap
+	LD A,40 	; und 40 Spuren
+	LD (TRKCNT),A
+	JP MAIN8
+
+MAIN6:	CP '5' 
+	JP NZ,MAIN7
+
+	; Format 5: NDR- DD DS 80 Spur
+	LD A,0 		; MINI
+	LD (MINMAX),A
+	LD HL,1024 	; Anzahl Bytes
+	LD (BYTCNT),HL
+	LD A,1 		; DD
+	LD (DENSITY),A
+	LD A,54 	; Gaplaenge 3
+	LD (GAPLEN),A
+	LD A,5
+	LD (SECCNT),A
+	LD A,1
+	LD (SSDS),A 	; double-sided
+	LD A,1
+	LD (USESSO),A 	; und mit Side-Bit
+	LD A,80 	; Spuren 0..79
+	LD (TRKCNT),A
+	JP MAIN8
+	
+MAIN7:	CP '6' 
+	JP NZ,MAIN8
+	
+	JP MAIN35	; -> exit
+	
+	; --- FLO type ---
+
+MAIN8:	LD HL,MENUE7 	; FLO type
+	CALL PRNTMSG
+
+MAIN9:	; wait for 1..3
+	CALL CONIN
+	CP '4'+1
+	JR NC,MAIN10
+	CP '1'+0
+	JP NC,MAIN11
+	
+MAIN10:	CP 0DH
+	JP NZ,MAIN9
+
+MAIN11:	CP '2'
+	JP NZ,MAIN12
+	
+	; FLO type 2: FLO1 Maxi (40h)
+	LD A,1 	; FLO1, maxi
+	JP MAIN15
+	
+MAIN12:	CP '3'
+	JP NZ,MAIN13
+
+	; FLO type 3: FLO1 Mini (30h)
+	LD A,2 	; FLO2, mini
+	JP MAIN15
+	
+MAIN13:	CP '4'
+	JP NZ,MAIN14
+	
+	; FLO type 4: FLO1-Maxi/Mini (0C0h)
+	LD A,01H
+	LD (FLOTYP),A
+	XOR A  	; FLO2 Mini/maxi
+	JP MAIN15
+	
+MAIN14:	CP '1'
+	JP NZ,MAIN15
+	
+	; FLO type 1: FLO2-Maxi/Mini (0C0h)
+	XOR A
+	LD (FLOTYP),A
+	
+MAIN15:	LD (USER),A
+
+
+	; --- drive ---
+
+MAIN16:	LD HL,MENUE6 	; drive
+	CALL PRNTMSG
+
+MAIN17:	; wait for 0..9
+	CALL CONIN
+	CP '9'+1
+	JP NC,MAIN17
+	CP '0'+0
+	JP C,MAIN17
+	
+	; 1..8
+	CP '8'+1
+	JP NC,MAIN27
+	CP '1'+0
+	JP C,MAIN27
+
 	CP '1'
-	JP NZ,.L98
-	ld a,1
-;2 	elseif a='2'
-	JP .L99
-.L98:
-	CP '2'
-	JP NZ,.L100
-	ld a,2
-;2 	elseif a='3'
-	JP .L99
-.L100:
-	CP '3'
-	JP NZ,.L101
-	ld a,4
-;2 	elseif a='4'
-	JP .L99
-.L101:
-	CP '4'
-	JP NZ,.L102
-	ld a,8
-;2 	elseif a='5'
-	JP .L99
-.L102:
-	CP '5'
-	JP NZ,.L103
-	ld a,81h
-;2 	elseif a='6'
-	JP .L99
-.L103:
-	CP '6'
-	JP NZ,.L104
-	ld a,82h
-;2 	elseif a='7'
-	JP .L99
-.L104:
-	CP '7'
-	JP NZ,.L105
-	ld a,84h
-;2 	elseif a='8'
-	JP .L99
-.L105:
-	CP '8'
-	JP NZ,.L106
-	ld a,88h
-;2 	endif
-.L106:
-.L99:
-	ld (laufwerk),a
-	ld a,(sideflag) 	; nur wenn Flag gesetzt.
-;2 	if a<>0
+	JP NZ,MAIN18
+	
+	; drive 1: A
+	LD A,1
+	JP MAIN25
+
+MAIN18:	CP '2'
+	JP NZ,MAIN19
+	
+	; drive 2: B
+	LD A,2
+	JP MAIN25
+
+MAIN19:	CP '3'
+	JP NZ,MAIN20
+	
+	; drive 3: C
+	LD A,4
+	JP MAIN25
+	
+MAIN20:	CP '4'
+	JP NZ,MAIN21
+	
+	; drive 4: D
+	LD A,8
+	JP MAIN25
+	
+MAIN21:	CP '5'
+	JP NZ,MAIN22
+
+	; drive 5: A backside A
+	LD A,81H
+	JP MAIN25
+	
+MAIN22:	CP '6'
+	JP NZ,MAIN23
+
+	; drive 6: B backside B
+	LD A,82H
+	JP MAIN25
+	
+MAIN23:	CP '7'
+	JP NZ,MAIN24
+	
+	; drive 7: C backside C
+	LD A,84H
+	JP MAIN25
+	
+MAIN24:	CP '8'
+	JP NZ,MAIN25
+	
+	LD A,88H
+
+MAIN25:	LD (DRIVE),A
+	LD A,(USESSO)
 	OR A
-	JP Z,.L107
-	ld a,(laufwerk)
-	and 80h
-;3 	if nz  	; 80h laden.
-	JP Z,.L108
-	ld (sidesel),a 	; wenn Flag, dann Rueckseite mit side-bit
-;3 	endif  	; fuer ECMA-70 wichtig.Š.L108:
-;2 	endif
-.L107:
-;1 	elseif a='9'
-	JP .L109
-.L96:
-	CP '9'
-	JP NZ,.L110
-	jp schleife 	; neue Parameter
-;1 	elseif a='0'
-	JP .L109
-.L110:
-	CP '0'
-	JP NZ,.L111
-	jp exit 	; Ende
-;1 	else
-	JP .L112
-.L111:
-	jp inner 	; wiederholen
-;1 	endif
-.L112:
-.L109:
-		;
-		; Formatierer aufrufen, wenn bereit
-		; Controllwerte am Bildschirm ausgeben
-;1 	repeat
-.L113:
-	call werteaus
-	ld hl,formtxt
-	call print
-	call ci
-;1 	until a in ['J','j','n','N',3]
+	JP Z,MAIN26		; -> no SSO
+
+	; SSO
+	LD A,(DRIVE)
+	AND 80H
+	JP Z,MAIN26
+	
+	LD (SIDESEL),A 	; wenn Flag, dann Rueckseite mit side-bit
+			; FUER ECMA-70 wichtig.
+MAIN26:	JP MAIN30
+
+MAIN27:	CP '9'
+	JP NZ,MAIN28
+	
+	; '9'
+	JP MAINLOOP 	; neue Parameter
+	JP MAIN30
+	
+MAIN28:	CP '0'
+	JP NZ,MAIN29
+
+	; '0'
+	JP MAIN35 	; -> exit
+	JP MAIN30
+	
+MAIN29:	JP MAIN16 	; -> inner loop, mit gleichen Parametern
+
+	;---------------------------------------------------------------------
+	; call formatter, when ready output control values
+
+MAIN30:	CALL WERTEAUS
+
+	LD HL,FORMTXT
+	CALL PRNTMSG
+	
+	; wait for 'J' / 'j'
+	CALL CONIN
 	CP 'J'
-	JP Z,.L114
+	JP Z,MAIN31
 	CP 'j'
-	JP Z,.L114
+	JP Z,MAIN31
 	CP 'n'
-	JP Z,.L114
+	JP Z,MAIN31
 	CP 'N'
-	JP Z,.L114
-	CP 3
-	JP NZ,.L113
-.L114:
-;1 	if a in ['n','N']
-	CP 'n'
-	JP Z,.L116
+	JP Z,MAIN31
+	CP 3		; ctrl-c
+	JP NZ,MAIN30
+
+MAIN31:	CP 'n'
+	JP Z,MAIN32
 	CP 'N'
-	JP NZ,.L115
-.L116:
-	jp start 	; Neustarten, von vorne
-;1 	endif
-.L115:
-;1 	if a=3
-	CP 3
-	JP NZ,.L117
-	jp exit 	; Abbruch CTRL-C
-;1 	endif
-.L117:
-	call format
-		; Ende der Formatierung
-	jp inner 	; und von vorne, mit gleichen Parametern
-		;
-exit::
-	ld hl,fimsg
-	call print
-;1 	repeat
-.L118:
-	call ci
-;1 	until a=0dh
-	CP 0dh
-	JP NZ,.L118
-	im 0  	; Savety bei FLO1, ggf IM0-Mode verwendet
-	call 0  	; daher ruecksetzen.
-	retŠsetspur::
-	ld hl,menue3
-	call print
-;1 	repeat
+	JP NZ,MAIN33
+
+MAIN32:	JP START 	; Neustarten, von vorne
+
+MAIN33:	CP 3		; ctrl-c
+	JP NZ,MAIN34
+
+	; ctrl-c
+	JP MAIN35 	; Abbruch CTRL-C
+	
+MAIN34:	CALL FORMAT
+
+	; end of formatting
+	JP MAIN16 	; -> inner loop, mit gleichen Parametern
+		
+MAIN35:	LD HL,FIMSG	; end messaghe (insert system-disk)
+	CALL PRNTMSG
+
+MAIN36:	; wait for CR
+	CALL CONIN
+	CP 0DH
+	JP NZ,MAIN36
+	
+	IM 0  		; SAVETY bei FLO1, ggf IM0-Mode verwendet
+	CALL 0  	; daher ruecksetzen.
+	RET
+
+;-----------------------------------------------------------------------------
+	
+SETSPUR::
+	LD HL,MENUE3
+	CALL PRNTMSG
+;1 	REPEAT
 .L119:
-	call ci
-;1 	until a in ['1'..'5']
+	CALL CONIN
+;1 	UNTIL A IN ['1'..'5']
 	CP '5'+1
 	JP NC,.L119
 	CP '1'+0
 	JP C,.L119
 .L120:
-;1 	if a='1'
+;1 	IF A='1'
 	CP '1'
 	JP NZ,.L121
-	ld a,35
-;1 	elseif a='2'
+	LD A,35
+;1 	ELSEIF A='2'
 	JP .L122
 .L121:
 	CP '2'
 	JP NZ,.L123
-	ld a,40
-;1 	elseif a='3'
+	LD A,40
+;1 	ELSEIF A='3'
 	JP .L122
 .L123:
 	CP '3'
 	JP NZ,.L124
-	ld a,70
-;1 	elseif a='4'
+	LD A,70
+;1 	ELSEIF A='4'
 	JP .L122
 .L124:
 	CP '4'
 	JP NZ,.L125
-	ld a,77
-;1 	elseif a='5'
+	LD A,77
+;1 	ELSEIF A='5'
 	JP .L122
 .L125:
 	CP '5'
 	JP NZ,.L126
-	ld a,80
-;1 	endif
+	LD A,80
+;1 	ENDIF
 .L126:
 .L122:
-	ld (spuren),a
-	ret
-setlw::
-	ld hl,menue4
-	call print
-;1 	repeat
+	LD (TRKCNT),A
+	RET
+	
+;-----------------------------------------------------------------------------
+	
+SETLW::
+	LD HL,MENUE4
+	CALL PRNTMSG
+;1 	REPEAT
 .L127:
-	call ci
-;1 	until a in ['1'..'3']
+	CALL CONIN
+;1 	UNTIL A IN ['1'..'3']
 	CP '3'+1
 	JP NC,.L127
 	CP '1'+0
 	JP C,.L127
 .L128:
-;1 	if a='1'
+;1 	IF A='1'
 	CP '1'
 	JP NZ,.L129
-	ld a,0  
-	ld (kopf),a
-;1 	elseif a='2'
+	LD A,0  
+	LD (SSDS),A	; single-sided
+;1 	ELSEIF A='2'
 	JP .L130
 .L129:
 	CP '2'
 	JP NZ,.L131
-	ld a,1
-	ld (kopf),a
-;1 	else
+	LD A,1
+	LD (SSDS),A	; double-sided
+;1 	ELSE
 	JP .L132
 .L131:
-	ld a,1Š	ld (kopf),a
-	ld a,1
-	ld (sideflag),a 	; Seite 0 beginnt
-;1 	endif
+	LD A,1
+	LD (SSDS),A	; double-sided
+	LD A,1
+	LD (USESSO),A 	; Seite 0 beginnt
+;1 	ENDIF
 .L132:
 .L130:
-	ld (kopf),a 	; Anzahl der Koepfe-1
-	ret
+	LD (SSDS),A 	; single-sided=0, double-sided=1
+	RET
 
-setdichte::
-	ld hl,menue2
-	call print
-;1 	repeat
+;-----------------------------------------------------------------------------
+
+SETDICHTE::
+	LD HL,MENUE2
+	CALL PRNTMSG
+;1 	REPEAT
 .L133:
-	call ci
-;1 	until a in ['1'..'2']
+	CALL CONIN
+;1 	UNTIL A IN ['1'..'2']
 	CP '2'+1
 	JP NC,.L133
 	CP '1'+0
 	JP C,.L133
 .L134:
-;1 	if a='1'
+;1 	IF A='1'
 	CP '1'
 	JP NZ,.L135
-	ld a,0 	; einfache Dichte
-;1 	else
+	LD A,0 	; EINFAChe Dichte
+;1 	ELSE
 	JP .L136
 .L135:
-	ld a,1 	; doppelte Dichte
-;1 	endif
+	LD A,1 	; DOPPELte Dichte
+;1 	ENDIF
 .L136:
-	ld (dichte),a
-	ret
-setsek::
-	ld a,(minimax)
-;1 	if a=0  	; Mini
+	LD (DENSITY),A
+	RET
+	
+;-----------------------------------------------------------------------------
+	
+SETSEK::
+	LD A,(MINMAX)
+;1 	IF A=0  	; Mini
 	OR A
 	JP NZ,.L137
-	ld a,(dichte)
-;2 	if a=0 	; SD
+	LD A,(DENSITY)
+;2 	IF A=0 	; SD
 	OR A
 	JP NZ,.L138
-	ld hl,menue5a
-	call print
-;3 	repeat
+	LD HL,MENUE5A
+	CALL PRNTMSG
+;3 	REPEAT
 .L139:
-	call ci
-;3 	until a in ['1'..'3']
+	CALL CONIN
+;3 	UNTIL A IN ['1'..'3']
 	CP '3'+1
 	JP NC,.L139
 	CP '1'+0
 	JP C,.L139
 .L140:
-;3 	if a='1'
+;3 	IF A='1'
 	CP '1'
 	JP NZ,.L141
-	ld hl,128
-	ld (anzbyte),hl
-	ld a,16
-	ld (sektoren),a
-	ld a,27
-	ld (gaplen),a
-;3 	elseif a='2'
+	LD HL,128
+	LD (BYTCNT),HL
+	LD A,16
+	LD (SECCNT),A
+	LD A,27
+	LD (GAPLEN),A
+;3 	ELSEIF A='2'
 	JP .L142
 .L141:
 	CP '2'
 	JP NZ,.L143
-	ld hl,128
-	ld (anzbyte),hl
-	ld a,18Š	ld (sektoren),a
-	ld a,10
-	ld (gaplen),a
-;3 	elseif a='3'
+	LD HL,128
+	LD (BYTCNT),HL
+	LD A,18
+	LD (SECCNT),A
+	LD A,10
+	LD (GAPLEN),A
+;3 	ELSEIF A='3'
 	JP .L142
 .L143:
 	CP '3'
 	JP NZ,.L144
-	ld hl,256
-	ld (anzbyte),hl
-	ld a,10
-	ld (sektoren),a
-	ld a,16
-	ld (gaplen),a
-;3 	endif
+	LD HL,256
+	LD (BYTCNT),HL
+	LD A,10
+	LD (SECCNT),A
+	LD A,16
+	LD (GAPLEN),A
+;3 	ENDIF
 .L144:
 .L142:
-;2 	else  	; DD
+;2 	ELSE  	; DD
 	JP .L145
 .L138:
-	ld hl,menue5b
-	call print
-;3 	repeat
+	LD HL,MENUE5B
+	CALL PRNTMSG
+;3 	REPEAT
 .L146:
-	call ci
-;3 	until a in ['1'..'4']
+	CALL CONIN
+;3 	UNTIL A IN ['1'..'4']
 	CP '4'+1
 	JP NC,.L146
 	CP '1'+0
 	JP C,.L146
 .L147:
-;3 	if a='1'
+;3 	IF A='1'
 	CP '1'
 	JP NZ,.L148
-	ld hl,256
-	ld (anzbyte),hl
-	ld a,16
-	ld (sektoren),a
-	ld a,54
-	ld (gaplen),a
-;3 	elseif a='2'
+	LD HL,256
+	LD (BYTCNT),HL
+	LD A,16
+	LD (SECCNT),A
+	LD A,54
+	LD (GAPLEN),A
+;3 	ELSEIF A='2'
 	JP .L149
 .L148:
 	CP '2'
 	JP NZ,.L150
-	ld hl,512
-	ld (anzbyte),hl
-	ld a,9
-	ld (sektoren),a
-	ld a,54
-	ld (gaplen),a
-;3 	elseif a='3'
+	LD HL,512
+	LD (BYTCNT),HL
+	LD A,9
+	LD (SECCNT),A
+	LD A,54
+	LD (GAPLEN),A
+;3 	ELSEIF A='3'
 	JP .L149
 .L150:
 	CP '3'
 	JP NZ,.L151
-	ld hl,512
-	ld (anzbyte),hl
-	ld a,10
-	ld (sektoren),a
-	ld a,40
-	ld (gaplen),a
-;3 	elseif a='4'
+	LD HL,512
+	LD (BYTCNT),HL
+	LD A,10
+	LD (SECCNT),A
+	LD A,40
+	LD (GAPLEN),A
+;3 	ELSEIF A='4'
 	JP .L149
 .L151:
 	CP '4'
 	JP NZ,.L152
-	ld hl,1024
-	ld (anzbyte),hl
-	ld a,5Š	ld (sektoren),a
-	ld a,54
-	ld (gaplen),a
-;3 	endif
+	LD HL,1024
+	LD (BYTCNT),HL
+	LD A,5
+	LD (SECCNT),A
+	LD A,54
+	LD (GAPLEN),A
+;3 	ENDIF
 .L152:
 .L149:
-;2 	endif
+;2 	ENDIF
 .L145:
-;1 	else  	; Maxi
+;1 	ELSE  	; MAXI
 	JP .L153
 .L137:
-	ld a,(dichte)
-;2 	if a=0 	; SD
+	LD A,(DENSITY)
+;2 	IF A=0 	; SD
 	OR A
 	JP NZ,.L154
-	ld hl,menue5c
-	call print
-;3 	repeat
+	LD HL,MENUE5C
+	CALL PRNTMSG
+;3 	REPEAT
 .L155:
-	call ci
-;3 	until a in ['1'..'2']
+	CALL CONIN
+;3 	UNTIL A IN ['1'..'2']
 	CP '2'+1
 	JP NC,.L155
 	CP '1'+0
 	JP C,.L155
 .L156:
-;3 	if a='1'
+;3 	IF A='1'
 	CP '1'
 	JP NZ,.L157
-	ld hl,128
-	ld (anzbyte),hl
-	ld a,26
-	ld (sektoren),a
-	ld a,27
-	ld (gaplen),a
-;3 	else
+	LD HL,128
+	LD (BYTCNT),HL
+	LD A,26
+	LD (SECCNT),A
+	LD A,27
+	LD (GAPLEN),A
+;3 	ELSE
 	JP .L158
 .L157:
-	ld hl,256
-	ld (anzbyte),hl
-	ld a,15
-	ld (sektoren),a
-	ld a,27
-	ld (gaplen),a
-;3 	endif
+	LD HL,256
+	LD (BYTCNT),HL
+	LD A,15
+	LD (SECCNT),A
+	LD A,27
+	LD (GAPLEN),A
+;3 	ENDIF
 .L158:
-;2 	else   	; DD
+;2 	ELSE   	; DD
 	JP .L159
 .L154:
-	ld hl,menue5d
-	call print
-;3 	repeat
+	LD HL,MENUE5D
+	CALL PRNTMSG
+;3 	REPEAT
 .L160:
-	call ci
-;3 	until a in ['1'..'6']
+	CALL CONIN
+;3 	UNTIL A IN ['1'..'6']
 	CP '6'+1
 	JP NC,.L160
 	CP '1'+0
 	JP C,.L160
 .L161:
-;3 	if a='1'
+;3 	IF A='1'
 	CP '1'
 	JP NZ,.L162
-	ld hl,256
-	ld (anzbyte),hl
-	ld a,26
-	ld (sektoren),a
-	ld a,54
-	ld (gaplen),a
-;3 	elseif a='2'
+	LD HL,256
+	LD (BYTCNT),HL
+	LD A,26
+	LD (SECCNT),A
+	LD A,54
+	LD (GAPLEN),A
+;3 	ELSEIF A='2'
 	JP .L163
 .L162:
-	CP '2'Š	JP NZ,.L164
-	ld hl,512
-	ld (anzbyte),hl
-	ld a,14
-	ld (sektoren),a
-	ld a,54
-	ld (gaplen),a
-;3 	elseif a='3'
+	CP '2'
+	JP NZ,.L164
+	LD HL,512
+	LD (BYTCNT),HL
+	LD A,14
+	LD (SECCNT),A
+	LD A,54
+	LD (GAPLEN),A
+;3 	ELSEIF A='3'
 	JP .L163
 .L164:
 	CP '3'
 	JP NZ,.L165
-	ld hl,512
-	ld (anzbyte),hl
-	ld a,15
-	ld (sektoren),a
-	ld a,54
-	ld (gaplen),a
-;3 	elseif a='4'
+	LD HL,512
+	LD (BYTCNT),HL
+	LD A,15
+	LD (SECCNT),A
+	LD A,54
+	LD (GAPLEN),A
+;3 	ELSEIF A='4'
 	JP .L163
 .L165:
 	CP '4'
 	JP NZ,.L166
-	ld hl,512
-	ld (anzbyte),hl
-	ld a,16
-	ld (sektoren),a
-	ld a,40
-	ld (gaplen),a
-;3 	elseif a='5'
+	LD HL,512
+	LD (BYTCNT),HL
+	LD A,16
+	LD (SECCNT),A
+	LD A,40
+	LD (GAPLEN),A
+;3 	ELSEIF A='5'
 	JP .L163
 .L166:
 	CP '5'
 	JP NZ,.L167
-	ld hl,1024
-	ld (anzbyte),hl
-	ld a,8
-	ld (sektoren),a
-	ld a,54
-	ld (gaplen),a
-;3 	elseif a='6'
+	LD HL,1024
+	LD (BYTCNT),HL
+	LD A,8
+	LD (SECCNT),A
+	LD A,54
+	LD (GAPLEN),A
+;3 	ELSEIF A='6'
 	JP .L163
 .L167:
 	CP '6'
 	JP NZ,.L168
-	ld hl,1024
-	ld (anzbyte),hl
-	ld a,9
-	ld (sektoren),a
-	ld a,40
-	ld (gaplen),a
-;3 	endif
+	LD HL,1024
+	LD (BYTCNT),HL
+	LD A,9
+	LD (SECCNT),A
+	LD A,40
+	LD (GAPLEN),A
+;3 	ENDIF
 .L168:
 .L163:
-;2 	endif
+;2 	ENDIF
 .L159:
-;1 	endif
+;1 	ENDIF
 .L153:
-	ret
-print::
-	ld a,(hl)
-;1 	while a<>0 
+	RET
+	
+;-----------------------------------------------------------------------------
+	
+PRNTMSG::
+	LD A,(HL)
+;1 	WHILE A<>0 
 .L169:
 	OR A
 	JP Z,.L170
-	ld c,a
-	call co
-	inc hl
-	ld a,(hl)
-;1 	endwhileŠ	JP .L169
+	LD C,A
+	CALL CONOUT
+	INC HL
+	LD A,(HL)
+;1 	ENDWHILE
+	JP .L169
 .L170:
-	ret
+	RET
 
-werteaus:		; Conrolle, Werte ausgeben
-	ld c,1ah
-	call co 	; Bildschirm loeschen
-	ld a,(minimax)
-;1 	if a=0  	; 0=Mini
+;-----------------------------------------------------------------------------
+
+WERTEAUS:		; Conrolle, Werte ausgeben
+	LD C,1AH
+	CALL CONOUT 	; Bildschirm loeschen
+	LD A,(MINMAX)
+;1 	IF A=0  	; 0=Mini
 	OR A
 	JP NZ,.L171
-	ld hl,tmini
-;1 	else
+	LD HL,TMINI
+;1 	ELSE
 	JP .L172
 .L171:
-	ld hl,tmaxi
-;1 	endif
+	LD HL,TMAXI
+;1 	ENDIF
 .L172:
-	call print
-	ld a,(user)
-;1 	if a=0  	; FLO 2
+	CALL PRNTMSG
+	LD A,(USER)
+;1 	IF A=0  	; FLO 2
 	OR A
 	JP NZ,.L173
 	
-	; v1.22
-	LD A,(flotyp)
+	; V1.22
+	LD A,(FLOTYP)
 	OR A
 	JP NZ,L0BD4
-	LD HL,tflo2
+	LD HL,TFLO2
 	JP L0BD7
 	
 L0BD4:	
-	ld hl,tflo1c
+	LD HL,TFLO1C
 L0BD7:
-;1 	elseif a=1
+;1 	ELSEIF A=1
 	JP .L174
 .L173:
 	CP 1
 	JP NZ,.L175
-	ld hl,tflo1a
-;1 	else a=2
+	LD HL,TFLO1A
+;1 	ELSE A=2
 	JP .L176
 .L175:
-	ld hl,tflo1b
-;1 	endif
+	LD HL,TFLO1B
+;1 	ENDIF
 .L176:
 .L174:
-	call print
-	ld a,(dichte)
-;1 	if a=0  	; 0=SD
+	CALL PRNTMSG
+	LD A,(DENSITY)
+;1 	IF A=0  	; 0=SD
 	OR A
 	JP NZ,.L177
-	ld hl,tfm
-;1 	else
+	LD HL,TFM
+;1 	ELSE
 	JP .L178
 .L177:
-	ld hl,tmfm
-;1 	endif
+	LD HL,TMFM
+;1 	ENDIF
 .L178:
-	ld a,(ecma)
-;1 	if a=1
+	LD A,(ECMA)
+;1 	IF A=1
 	CP 1
 	JP NZ,.L179
-	ld hl,tecma 	; Sonderfall, Ecma-Format
-;1 	endif
+	LD HL,TECMA 	; Sonderfall, Ecma-Format
+;1 	ENDIF
 .L179:
-	call print
-	call crlf
-	call crlf
-	ld hl,tspuren
-	call print
-	ld a,(spuren)
-	ld l,a
-	ld h,0
-	call printhl 	; Anzahl Spuren
-	call crlf
-	ld hl,tsektoren
-	call print
-	ld a,(sektoren)
-	ld l,a
-	ld h,0Š	call printhl 	; Anzahl Sektoren
-	call crlf
-	ld hl,tbytes
-	call print
-	ld hl,(anzbyte)
-	call printhl 	; Bytes pro Sektor
-	call crlf
+	CALL PRNTMSG
+	CALL CRLF
+	CALL CRLF
+	LD HL,TSPUREN
+	CALL PRNTMSG
+	LD A,(TRKCNT)
+	LD L,A
+	LD H,0
+	CALL PRNTHL 	; Anzahl Spuren
+	CALL CRLF
+	LD HL,TSEKTOREN
+	CALL PRNTMSG
+	LD A,(SECCNT)
+	LD L,A
+	LD H,0
+	CALL PRNTHL 	; Anzahl SECCNT
+	CALL CRLF
+	LD HL,TBYTES
+	CALL PRNTMSG
+	LD HL,(BYTCNT)
+	CALL PRNTHL 	; Bytes pro Sektor
+	CALL CRLF
 		;
-	ld hl,tlaufwerk
-	call print
-	ld a,(laufwerk)
-	and 0fh 	; 1,2,4,8
-;1 	if a=1
+	LD HL,TLAUFWERK
+	CALL PRNTMSG
+	LD A,(DRIVE)
+	AND 0FH 	; 1,2,4,8
+;1 	IF A=1
 	CP 1
 	JP NZ,.L180
-	ld c,'A'
-;1 	elseif a=2
+	LD C,'A'
+;1 	ELSEIF A=2
 	JP .L181
 .L180:
 	CP 2
 	JP NZ,.L182
-	ld c,'B'
-;1 	elseif a=4
+	LD C,'B'
+;1 	ELSEIF A=4
 	JP .L181
 .L182:
 	CP 4
 	JP NZ,.L183
-	ld c,'C'
-;1 	elseif a=8
+	LD C,'C'
+;1 	ELSEIF A=8
 	JP .L181
 .L183:
 	CP 8
 	JP NZ,.L184
-	ld c,'D'
-;1 	else
+	LD C,'D'
+;1 	ELSE
 	JP .L185
 .L184:
-	ld c,'?'
-;1 	endif
+	LD C,'?'
+;1 	ENDIF
 .L185:
 .L181:
-	call co
-	call crlf
-	call crlf
+	CALL CONOUT
+	CALL CRLF
+	CALL CRLF
 		; 
-	ld a,(kopf)
-;1 	if a=1  	; zweiseitig
+	LD A,(SSDS)
+;1 	IF A=1  	; zweiseitig
 	CP 1  
-	JP NZ,.L186
-	ld a,(sideflag)
-;2 	if a=0 	; ohne SSO
+	JP NZ,.L186	; -> single-sided
+	
+	; double-sided
+	LD A,(USESSO)
+;2 	IF A=0 	; OHNE SSO
 	OR A
-	JP NZ,.L187
-	ld hl,tzweiseitig
-;2 	else  	; mit SSO
+	JP NZ,.L187	; -> SSO
+	
+	; no SSO
+	LD HL,TZWEISEITIg
+;2 	ELSE  	; MIT SSO
 	JP .L188
 .L187:
-	ld hl,tzweisso
-;2 	endif
+	LD HL,TZWEISSO
+;2 	ENDIF
 .L188:
-	call print
-;1 	else  	; einseitig
+	CALL PRNTMSG
+;1 	ELSE  	; EINSEItig
 	JP .L189
 .L186:
-	ld a,(laufwerk) 
-	and 80h
-;2 	if z  	; vorderseite
+	LD A,(DRIVE) 
+	AND 80H
+;2 	IF Z  	; VORDERseite
 	JP NZ,.L190
-	ld hl,teinseitig
-	call printŠ;2 	else  	; rueckseite
+	LD HL,TEINSEITIG
+	CALL PRNTMSG
+;2 	ELSE  	; RUECKSeite
 	JP .L191
 .L190:
-	ld a,(sideflag)
-;3 	if a=0 	; ohne sso
+	LD A,(USESSO)
+;3 	IF A=0 	; OHNE Sso
 	OR A
-	JP NZ,.L192
-	ld hl,trueckseite
-;3 	else  	; sso
+	JP NZ,.L192	; -> SSO
+	
+	; no SSO
+	LD HL,TRUECKSEITe
+;3 	ELSE  	; SSO
 	JP .L193
 .L192:
-	ld hl,truecksso
-;3 	endif
+	LD HL,TRUECKSSO
+;3 	ENDIF
 .L193:
-	call print
-;2 	endif
+	CALL PRNTMSG
+;2 	ENDIF
 .L191:
-;1 	endif
+;1 	ENDIF
 .L189:
-	call crlf 
-	call crlf
-		; Kapazitaet ausrechnen
-	ld hl,tkap
-	call print
-	ld a,(sektoren)
-	ld l,a
-	ld h,0
-	ld a,(spuren)
-	ld e,a
-	ld d,0
-	call mulhlde 	; sektoren*tracks
-	ld a,(kopf)
-;1 	if a=1
+	CALL CRLF 
+	CALL CRLF
+		; KAPAZItaet ausrechnen
+	LD HL,TKAP
+	CALL PRNTMSG
+	LD A,(SECCNT)
+	LD L,A
+	LD H,0
+	LD A,(TRKCNT)
+	LD E,A
+	LD D,0
+	CALL MULHLDE 	; sektoren*tracks
+	LD A,(SSDS)
+;1 	IF A=1
 	CP 1
-	JP NZ,.L194
-	ld de,2
-	call mulhlde 	; wenn zweiseitig, dann doppelt
-;1 	endif
+	JP NZ,.L194	; -> single-sided
+	
+	; double-sided
+	LD DE,2
+	CALL MULHLDE 	; wenn zweiseitig, dann doppelt
+;1 	ENDIF
 .L194:
-	ld de,(anzbyte) 	; de=1024,512,256,128
-		; de=400h,200h,100h,80h
-;1 	if d=0
-	LD A,d
+	LD DE,(BYTCNT) 	; de=1024,512,256,128
+		; DE=400h,200h,100h,80h
+;1 	IF D=0
+	LD A,D
 	OR A
 	JP NZ,.L195
-;2 	do b,3 	; div 8
-	LD b,3 
+;2 	DO B,3 	; DIV 8
+	LD B,3 
 .L196:
-	sra h
-	rr l
-;2 	enddo
+	SRA H
+	RR L
+;2 	ENDDO
 	DEC B
 	JP NZ,.L196
-;1 	elseif d=1
+;1 	ELSEIF D=1
 	JP .L197
 .L195:
-	LD A,d
+	LD A,D
 	CP 1
 	JP NZ,.L198
-	sra h  	; div 4
-	rr l
-	sra h
-	rr l
-;1 	elseif d=2
+	SRA H  	; DIV 4
+	RR L
+	SRA H
+	RR L
+;1 	ELSEIF D=2
 	JP .L197
 .L198:
-	LD A,d
+	LD A,D
 	CP 2
 	JP NZ,.L199
-	sra h  	; div 2Š	rr l
-;1 	elseif d=4
+	SRA H  	; DIV 2
+	RR L
+;1 	ELSEIF D=4
 	JP .L197
 .L199:
-	LD A,d
+	LD A,D
 	CP 4
 	JP NZ,.L200
-	nop  	; hl = KBytes
-;1 	endif
+	NOP  	; HL = KBytes
+;1 	ENDIF
 .L200:
 .L197:
-	call printhl 	; ausgeben
-	ld hl,tkap1
-	call print
-	call crlf
-	ret
-
-mulhlde:		; fuer Kapazitaetsbestimmung
-		; hl*de -> hl
-	ld a,16
-	push de
-	pop bc
-	ld de,0
-	ex de,hl
-mullp:
-	push af
-	bit 0,e
-;1 	if nz
-	JP Z,.L201
-	add hl,bc
-;1 	endif
-.L201:
-	sra h
-	rr l
-	rr d
-	rr e
-	pop af
-	dec a
-	jr nz,mullp
-	ex de,hl 	; nur lsb nach hl
-	ret
-
-crlf:
-	ld hl,tcrlf
-	call print
-	ret
-tkap:
-	defb 'Speicherkapazitaet :  ',0
-tkap1:
-	defb ' KBytes',0
-tmini:
-	defb 'Mini-Laufwerk  ',0
-tmaxi:
-	defb 'Maxi-Laufwerk  ',0
-tflo2:
-	defb 'FLO2 (C0h)  ',0
-tflo1a:
-	defb 'FLO1 (40h)  ',0
-tflo1b:
-	defb 'FLO1 (30h)  ',0
-tflo1c:
-	defb 'FLO1 (C0h)  ',0
-tfm:
-	defb 'FM  ',0
-tmfm:
-	defb 'MFM  ',0
-tecma:Š	defb 'ECMA70 ',0
-tspuren:
-	defb 'Anzahl Spuren    = ',0
-tsektoren:
-	defb 'Anzahl Sektoren  = ',0
-tbytes:
-	defb 'Bytes/pro Sektor = ',0
-tlaufwerk:
-	defb 'Laufwerk ',0
-teinseitig:
-	defb 'Vorderseite wird formatiert',0
-trueckseite:
-	defb 'Rueckseite wird formatiert',0
-truecksso:
-	defb 'Rueckseite wird mit SSO formatiert',0
-tzweiseitig:
-	defb 'beide Seiten werden formatiert',0
-tzweisso:
-	defb 'beide Seiten werden formatiert',0dh,0ah
-	defb 'Seite 1 mit SSO, Seite 0 normal',0
-formtxt::
-	defb 0dh,0ah
-	defb 'ACHTUNG Diskette wird formatiert',0dh,0ah
-	defb 'Start = "J"',0dh,0ah
-	defb 0
-headtxt::
-	defb 1ah,0dh,0ah
-	defb ' Universal Formatierer  V 1.22 , Rolf-Dieter Klein / JS ',0dh,0ah
-	defb ' (C) 1984, Muenchen ',0dh,0ah
-	defb 0dh,0ah
-	defb ' --   Bitte Systemdiskette herausnehmen    -- ',0dh,0ah
-	defb ' -- und zu formatierende Diskette einlegen -- ',0dh,0ah
-	defb 0dh,0ah
-	defb 'Minilaufwerke (5 1/4") = 1',0dh,0ah
-	defb 'Maxilaufwerke (8"    ) = 2',0dh,0ah
-	defb 'Std  8" SD SD 77 Spur  = 3',0dh,0ah
-	defb 'ECMA 70 DD SD 40 Spur  = 4',0dh,0ah
-	defb 'NDR- DD DS 80 Spur     = 5',0dh,0ah
-	defb 'ENDE                   = 6',0dh,0ah
-	defb 0dh,0ah,0
-menue2::
-	defb 1ah,0dh,0ah
-	defb 'einfache Schreibdichte = 1',0dh,0ah
-	defb 'doppelte Schreibdichte = 2',0dh,0ah
-	defb 0dh,0ah,0
-menue3::
-	defb 1ah,0dh,0ah
-	defb '35 Spuren  = 1',0dh,0ah
-	defb '40 Spuren  = 2',0dh,0ah
-	defb '70 Spuren  = 3',0dh,0ah
-	defb '77 Spuren  = 4',0dh,0ah
-	defb '80 Spuren  = 5',0dh,0ah
-	defb 0dh,0ah,0
-menue4::
-	defb 1ah,0dh,0ah
-	defb 'Einseitiges Laufwerk     = 1',0dh,0ah
-	defb 'Doppeltseitiges Laufwerk = 2',0dh,0ah
-	defb 'Doppeltseitig und SSO    = 3',0dh,0ah
-	defb 0dh,0ah,0
-menue5a::		; einfache Dichte, Minifloppy
-	defb 1ah,0dh,0ahŠ	defb '128 Bytes pro Sektor  (16 pro Track) = 1',0dh,0ah
-	defb '128 Bytes pro Sektor  (18 pro Track) = 2',0dh,0ah
-	defb '256 Bytes pro Sektor  (10 pro Track) = 3',0dh,0ah
-	defb 0dh,0ah,0
-menue5b::		; doppelte Dichte, Minifloppy
-	defb 1ah,0dh,0ah
-	defb '256 Bytes pro Sektor  (16 pro Track) = 1',0dh,0ah
-	defb '512 Bytes pro Sektor  (9 pro Track)  = 2',0dh,0ah
-	defb '512 Bytes pro Sektor  (10 pro Track) = 3',0dh,0ah
-	defb '1024 Bytes pro Sektor (5 pro Track)  = 4',0dh,0ah
-	defb 0dh,0ah,0
-menue5c::		; einfache Dichte Maxifloppy
-	defb 1ah,0dh,0ah
-	defb '128 Bytes pro Sektor (26 pro Track) = 1',0dh,0ah
-	defb '256 Bytes pro Sektor (15 pro Track) = 2',0dh,0ah
-	defb 0dh,0ah,0
-menue5d::		; doppelte Dichte Maxifloppy
-	defb 1ah,0dh,0ah
-	defb '256 Bytes pro Sektor (26 pro Track) = 1',0dh,0ah
-	defb '512 Bytes pro Sektor (14 pro Track) = 2',0dh,0ah
-	defb '512 Bytes pro Sektor (15 pro Track) = 3',0dh,0ah
-	defb '512 Bytes pro Sektor (16 pro Track) = 4',0dh,0ah
-	defb '1024 Bytes pro Sektor (8 pro Track) = 5',0dh,0ah
-	defb '1024 Bytes pro Sektor (9 pro Track) = 6',0dh,0ah
-	defb 0dh,0ah,0
-menue6::
-	defb 1ah,0dh,0ah
-	defb 'Laufwerk              A = 1',0dh,0ah
-	defb 'Laufwerk              B = 2',0dh,0ah
-	defb 'Laufwerk              C = 3',0dh,0ah
-	defb 'Laufwerk              D = 4',0dh,0ah
-	defb 'Laufwerk A Rueckseite A = 5',0dh,0ah
-	defb 'Laufwerk B Rueckseite B = 6',0dh,0ah
-	defb 'Laufwerk C Rueckseite C = 7',0dh,0ah
-	defb 'Laufwerk D Rueckseite D = 8',0dh,0ah
-	defb 'NEUSTART    = 9',0dh,0ah
-	defb 'ENDE        = 0',0dh,0ah
-	defb 0dh,0ah,0
-menue7:
-	defb 1ah,0dh,0ah
-	defb 'FLO2-Maxi/Mini (0C0h) = 1',0dh,0ah
-	defb 'FLO1-Maxi (40h)       = 2',0dh,0ah
-	defb 'FLO1-Mini (30h)       = 3',0dh,0ah
-	defb 'FLO1-Maxi/Mini (0C0h) = 4',0dh,0ah
-	defb 0dh,0ah,0
-fmsg:
-	defb 1ah,0dh,0ah
-	defb 'Diskette wird formatiert ... bitte warten ',0dh,0ah
-	defb 0dh,0ah,0
-f6msg:
-	defb 0dh,0ah
-	defb 'Schreibschutz gesetzt',0dh,0ah
-	defb 'Neustart = Taste W druecken',0dh,0ah,0
-f5msg:
-	defb 0dh,0ah
-	defb 'Record Typ ist falsch',0dh,0ah
-	defb 'Neustart = Taste W druecken',0dh,0ah,0
-f4msg:
-	defb 0dh,0ah
-	defb 'Record nicht gefunden',0dh,0ah
-	defb 'Neustart = Taste W druecken',0dh,0ah,0
-f3msg:Š	defb 0dh,0ah
-	defb 'CRC Fehler aufgetreten',0dh,0ah
-	defb 'Neustart = Taste W druecken',0dh,0ah,0
-f2msg:
-	defb 0dh,0ah
-	defb 'CPU zu langsam fuer gewaehltes Format-- Datenverlust',0dh,0ah
-	defb 'hoeherer Takt erforderlich',0dh,0ah
-	defb 'Neustart = Taste W druecken',0dh,0ah,0
-f0msg:
-	defb 0dh,0ah
-	defb 'Fehler aufgetreten. Neustart = Taste W druecken',0dh,0ah,0
-tkmsg:
-	defb 0dh,0ah
-	defb 'Track = ',0
-skmsg:
-	defb ', Sektor = ',0
-tcrlf:
-	defb 0dh,0ah,0
-rmsg:
-	defb 0dh,0ah
-	defb 'Laufwerk nicht READY ... bitte pruefen:',0dh,0ah
-	defb ' 1. Diskette falschherum eingelegt',0dh,0ah
-	defb ' 2. Laufwerkstuere nicht geschlossen',0dh,0ah
-	defb ' 3. falsche Laufwerksnummer angegeben',0dh,0ah
-	defb ' 4. Laufwerksmotor dreht sich nicht',0dh,0ah
-	defb ' 5. READY-Leitung nicht ok',0dh,0ah 
-	defb 0dh,0ah
-	defb 'Neustart = Taste W druecken',0dh,0ah,0
-vmsg:
-	defb 0dh,0ah
-	defb 'Diskette wird geprueft ... bitte warten',0dh,0ah
-	defb 0dh,0ah,0
-fimsg:
-	defb 1ah,0dh,0ah
-	defb 'Systemdiskette in Laufwerk A einlegen,',0dh,0ah
-	defb 'dann CR (carriage return) druecken.',0dh,0ah,0
-
-	defb 0	; v1.22
+	CALL PRNTHL 	; ausgeben
+	LD HL,TKAP1
+	CALL PRNTMSG
+	CALL CRLF
+	RET
 	
-user::	defb 0  	; NDR=1, MC+Term1=2, sonst=3
-flotyp:	defb 0    	; 0=flo2, 1=flo1  max, 2=flo1 min
-minimax::	defb 0  	; 0=Mini 1=Maxi
-ecma::	defb 0  	; 1=ECMA70 Format (SD,128 auf TK0)
-anzbyte::	defw 0  	; Anzahl der Bytes pro Sektor
-filler::	defb 0e5h 	; Fuellbyte std=E5
-dichte::	defb 0  	; 0=einfache Dichte, 1=doppelte Dichte
-gaplen::	defb 0  	; Gap 3 Laenge zwischen Sektoren
-spuren::	defb 0  	; Anzahl der Spuren
-kopf::	defb 0  	; 0=einseitig, 1=zweiseitig
-sektoren::	defb 0  	; Anzahl der Sektoren pro Spur
-laufwerk::	defb 0  	; 1,2,4,8 = Laufwerkscode
-		; 81,82,84,88 = Rueckseite
-sidesel::	defb 0  	;0=Seite 0,SSO, 80h=Seite 1,SSO
-sideflag::	defb 0  	; 0=SSO nicht verwenden
-		;
-akttrk::	defb 0  	; aktuelle Spur
-aktsek::	defb 0  	; aktueller Sektor
-		;
-formtab::		; Formatierbereich, dorthin wird
-		; ein Track gelegt.
+;-----------------------------------------------------------------------------
+
+MULHLDE:		; fuer Kapazitaetsbestimmung
+		; HL*DE -> hl
+	LD A,16
+	PUSH DE
+	POP BC
+	LD DE,0
+	EX DE,HL
+MULLP:
+	PUSH AF
+	BIT 0,E
+;1 	IF NZ
+	JP Z,.L201
+	ADD HL,BC
+;1 	ENDIF
+.L201:
+	SRA H
+	RR L
+	RR D
+	RR E
+	POP AF
+	DEC A
+	JR NZ,MULLP
+	EX DE,HL 	; nur lsb nach hl
+	RET
+	
+;-----------------------------------------------------------------------------
+
+
+CRLF:
+	LD HL,TCRLF
+	CALL PRNTMSG
+	RET
+
+;-----------------------------------------------------------------------------
+
+TKAP:	DEFB 'Speicherkapazitaet :  ',0
+
+TKAP1:	DEFB ' KBytes',0
+
+TMINI:	DEFB 'Mini-Laufwerk  ',0
+
+TMAXI:	DEFB 'Maxi-Laufwerk  ',0
+
+TFLO2:	DEFB 'FLO2 (C0h)  ',0
+
+TFLO1A:	DEFB 'FLO1 (40h)  ',0
+
+TFLO1B:	DEFB 'FLO1 (30h)  ',0
+
+TFLO1C:	DEFB 'FLO1 (C0h)  ',0
+
+TFM:	DEFB 'FM  ',0
+
+TMFM:	DEFB 'MFM  ',0
+
+TECMA:	DEFB 'ECMA70 ',0
+
+TSPUREN:
+	DEFB 'Anzahl Spuren    = ',0
+
+TSEKTOREN:
+	DEFB 'Anzahl Sektoren  = ',0
+
+TBYTES:	DEFB 'Bytes/pro Sektor = ',0
+
+TLAUFWERK:
+	DEFB 'Laufwerk ',0
+
+TEINSEITIG:
+	DEFB 'Vorderseite wird formatiert',0
+
+TRUECKSEITE:
+	DEFB 'Rueckseite wird formatiert',0
+
+TRUECKSSO:
+	DEFB 'Rueckseite wird mit SSO formatiert',0
+
+TZWEISEITIG:
+	DEFB 'beide Seiten werden formatiert',0
+
+TZWEISSO:
+	DEFB 'beide Seiten werden formatiert',0dh,0ah
+	DEFB 'Seite 1 mit SSO, Seite 0 normal',0
+
+FORMTXT:
+	DEFB 0dh,0ah
+	DEFB 'ACHTUNG Diskette wird formatiert',0dh,0ah
+	DEFB 'Start = "J"',0dh,0ah
+	DEFB 0
+
+HEADTXT:
+	DEFB 1ah,0dh,0ah
+	DEFB ' Universal Formatierer  V 1.22 , Rolf-Dieter Klein / JS ',0dh,0ah
+	DEFB ' (C) 1984, Muenchen ',0dh,0ah
+	DEFB 0dh,0ah
+	DEFB ' --   Bitte Systemdiskette herausnehmen    -- ',0dh,0ah
+	DEFB ' -- und zu formatierende Diskette einlegen -- ',0dh,0ah
+	DEFB 0dh,0ah
+	DEFB 'Minilaufwerke (5 1/4") = 1',0dh,0ah
+	DEFB 'Maxilaufwerke (8"    ) = 2',0dh,0ah
+	DEFB 'Std  8" SD SD 77 Spur  = 3',0dh,0ah
+	DEFB 'ECMA 70 DD SD 40 Spur  = 4',0dh,0ah
+	DEFB 'NDR- DD DS 80 Spur     = 5',0dh,0ah
+	DEFB 'ENDE                   = 6',0dh,0ah
+	DEFB 0dh,0ah,0
+
+MENUE2:	DEFB 1ah,0dh,0ah
+	DEFB 'einfache Schreibdichte = 1',0dh,0ah
+	DEFB 'doppelte Schreibdichte = 2',0dh,0ah
+	DEFB 0dh,0ah,0
+
+MENUE3:	DEFB 1ah,0dh,0ah
+	DEFB '35 Spuren  = 1',0dh,0ah
+	DEFB '40 Spuren  = 2',0dh,0ah
+	DEFB '70 Spuren  = 3',0dh,0ah
+	DEFB '77 Spuren  = 4',0dh,0ah
+	DEFB '80 Spuren  = 5',0dh,0ah
+	DEFB 0dh,0ah,0
+
+MENUE4:	DEFB 1ah,0dh,0ah
+	DEFB 'Einseitiges Laufwerk     = 1',0dh,0ah
+	DEFB 'Doppeltseitiges Laufwerk = 2',0dh,0ah
+	DEFB 'Doppeltseitig und SSO    = 3',0dh,0ah
+	DEFB 0dh,0ah,0
+
+MENUE5A:
+; einfache Dichte, Minifloppy
+	DEFB 1ah,0dh,0ah
+	DEFB '128 Bytes pro Sektor  (16 pro Track) = 1',0dh,0ah
+	DEFB '128 Bytes pro Sektor  (18 pro Track) = 2',0dh,0ah
+	DEFB '256 Bytes pro Sektor  (10 pro Track) = 3',0dh,0ah
+	DEFB 0dh,0ah,0
+
+MENUE5B:
+	; doppelte Dichte, Minifloppy
+	DEFB 1ah,0dh,0ah
+	DEFB '256 Bytes pro Sektor  (16 pro Track) = 1',0dh,0ah
+	DEFB '512 Bytes pro Sektor  (9 pro Track)  = 2',0dh,0ah
+	DEFB '512 Bytes pro Sektor  (10 pro Track) = 3',0dh,0ah
+	DEFB '1024 Bytes pro Sektor (5 pro Track)  = 4',0dh,0ah
+	DEFB 0dh,0ah,0
+
+MENUE5C:
+	; einfache Dichte Maxifloppy
+	DEFB 1ah,0dh,0ah
+	DEFB '128 Bytes pro Sektor (26 pro Track) = 1',0dh,0ah
+	DEFB '256 Bytes pro Sektor (15 pro Track) = 2',0dh,0ah
+	DEFB 0dh,0ah,0
+
+MENUE5D:
+	; doppelte Dichte Maxifloppy
+	DEFB 1ah,0dh,0ah
+	DEFB '256 Bytes pro Sektor (26 pro Track) = 1',0dh,0ah
+	DEFB '512 Bytes pro Sektor (14 pro Track) = 2',0dh,0ah
+	DEFB '512 Bytes pro Sektor (15 pro Track) = 3',0dh,0ah
+	DEFB '512 Bytes pro Sektor (16 pro Track) = 4',0dh,0ah
+	DEFB '1024 Bytes pro Sektor (8 pro Track) = 5',0dh,0ah
+	DEFB '1024 Bytes pro Sektor (9 pro Track) = 6',0dh,0ah
+	DEFB 0dh,0ah,0
+
+MENUE6:	DEFB 1ah,0dh,0ah
+	DEFB 'Laufwerk              A = 1',0dh,0ah
+	DEFB 'Laufwerk              B = 2',0dh,0ah
+	DEFB 'Laufwerk              C = 3',0dh,0ah
+	DEFB 'Laufwerk              D = 4',0dh,0ah
+	DEFB 'Laufwerk A Rueckseite A = 5',0dh,0ah
+	DEFB 'Laufwerk B Rueckseite B = 6',0dh,0ah
+	DEFB 'Laufwerk C Rueckseite C = 7',0dh,0ah
+	DEFB 'Laufwerk D Rueckseite D = 8',0dh,0ah
+	DEFB 'NEUSTART    = 9',0dh,0ah
+	DEFB 'ENDE        = 0',0dh,0ah
+	DEFB 0dh,0ah,0
+
+MENUE7:	DEFB 1ah,0dh,0ah
+	DEFB 'FLO2-Maxi/Mini (0C0h) = 1',0dh,0ah
+	DEFB 'FLO1-Maxi (40h)       = 2',0dh,0ah
+	DEFB 'FLO1-Mini (30h)       = 3',0dh,0ah
+	DEFB 'FLO1-Maxi/Mini (0C0h) = 4',0dh,0ah
+	DEFB 0dh,0ah,0
+
+FMSG:	DEFB 1ah,0dh,0ah
+	DEFB 'Diskette wird formatiert ... bitte warten ',0dh,0ah
+	DEFB 0dh,0ah,0
+
+F6MSG:	DEFB 0dh,0ah
+	DEFB 'Schreibschutz gesetzt',0dh,0ah
+	DEFB 'Neustart = Taste W druecken',0dh,0ah,0
+
+F5MSG:	DEFB 0dh,0ah
+	DEFB 'Record Typ ist falsch',0dh,0ah
+	DEFB 'Neustart = Taste W druecken',0dh,0ah,0
+
+F4MSG:	DEFB 0dh,0ah
+	DEFB 'Record nicht gefunden',0dh,0ah
+	DEFB 'Neustart = Taste W druecken',0dh,0ah,0
+
+F3MSG:	DEFB 0dh,0ah
+	DEFB 'CRC Fehler aufgetreten',0dh,0ah
+	DEFB 'Neustart = Taste W druecken',0dh,0ah,0
+
+F2MSG:	DEFB 0dh,0ah
+	DEFB 'CPU zu langsam fuer gewaehltes Format-- Datenverlust',0dh,0ah
+	DEFB 'hoeherer Takt erforderlich',0dh,0ah
+	DEFB 'Neustart = Taste W druecken',0dh,0ah,0
+
+F0MSG:	DEFB 0dh,0ah
+	DEFB 'Fehler aufgetreten. Neustart = Taste W druecken',0dh,0ah,0
+
+TKMSG:	DEFB 0dh,0ah
+	DEFB 'Track = ',0
+
+SKMSG:	DEFB ', Sektor = ',0
+
+TCRLF:	DEFB 0dh,0ah,0
+
+RMSG:	DEFB 0dh,0ah
+	DEFB 'Laufwerk nicht READY ... bitte pruefen:',0dh,0ah
+	DEFB ' 1. Diskette falschherum eingelegt',0dh,0ah
+	DEFB ' 2. Laufwerkstuere nicht geschlossen',0dh,0ah
+	DEFB ' 3. falsche Laufwerksnummer angegeben',0dh,0ah
+	DEFB ' 4. Laufwerksmotor dreht sich nicht',0dh,0ah
+	DEFB ' 5. READY-Leitung nicht ok',0dh,0ah 
+	DEFB 0dh,0ah
+	DEFB 'Neustart = Taste W druecken',0dh,0ah,0
+
+VMSG:	DEFB 0dh,0ah
+	DEFB 'Diskette wird geprueft ... bitte warten',0dh,0ah
+	DEFB 0dh,0ah,0
+
+FIMSG:	DEFB 1ah,0dh,0ah
+	DEFB 'Systemdiskette in Laufwerk A einlegen,',0dh,0ah
+	DEFB 'dann CR (carriage return) druecken.',0dh,0ah,0
+
+	DEFB 0	; v1.22
+	
+USER:	DEFB 0  	; NDR=1, MC+Term1=2, sonst=3
+FLOTYP:	DEFB 0    	; 0=FLO2, 1=FLO1 Maxi, 2=FLO1 Mini
+MINMAX:	DEFB 0  	; 0=Mini 1=Maxi
+ECMA:	DEFB 0  	; 1=ECMA70 format (SD,128 on track 0)
+BYTCNT:	DEFW 0  	; Anzahl der Bytes pro Sektor
+FILLER:	DEFB 0E5h 	; fill byte std=E5
+DENSITY:DEFB 0  	; 0=single-density, 1=double-density
+GAPLEN:	DEFB 0  	; Gap 3 Laenge zwischen Sektoren
+TRKCNT:	DEFB 0  	; Anzahl der Spuren
+SSDS:	DEFB 0  	; 0=single-sided, 1=double-sided
+SECCNT:	DEFB 0  	; Anzahl der Sektoren pro Spur
+DRIVE:	DEFB 0  	; drive code (1,2,4,8)
+			; 81,82,84,88 = Rueckseite
+SIDESEL:DEFB 0  	; SSO: 0=Seite 0, 80h=Seite 1
+USESSO:	DEFB 0  	; 0=no SSO, 1=use SSO
+		
+CURTRK:	DEFB 0  	; aktuelle Spur
+CURSEC:	DEFB 0  	; aktueller Sektor
+
+FORMTAB:; Formatierbereich, hier wird ein Track gelegt.
 
 	end start
