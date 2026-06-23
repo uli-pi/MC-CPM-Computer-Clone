@@ -3,13 +3,12 @@
 	;*********************************************************************
 	;* Universal Formatierer fuer Mini/Maxi                              *
 	;* Rev 1.22 (C) 1984 Rolf-Dieter Klein / JS                          *
-	;* FLO2-Baugruppe / MC/ NDR/                                         *
+	;* FLO2-Baugruppe / MC / NDR                                         *
 	;* FLO1-Baugruppe MC                                                 *
 	;* 31.05.2026 *dg* Quellcode der Version 1.22 aus COM-Datei          *
 	;*                 wiederhergestellt                                 *
-	;* 22.06.2026 *dg* Quellcode ueberarbeitet und dokumentiert          *
+	;* 23.06.2026 *dg* Quellcode ueberarbeitet und dokumentiert          *
 	;*                 Binaer identisch zur Version 1.22                 *
-	;*                 Work in progress...                               *
 	;*********************************************************************
 
 	; arbeitet unabhaengig vom CP/M - Betriebsystem.
@@ -1435,47 +1434,51 @@ MAIN36:	; wait for CR
 
 SELTRK:	LD HL,MENUE3
 	CALL PRNMSG
-;1 	REPEAT
-.L119:
+
+SELTR1:	; wait for '1'..'5'
 	CALL CONIN
-;1 	UNTIL A IN ['1'..'5']
 	CP '5'+1
-	JP NC,.L119
+	JP NC,SELTR1
 	CP '1'+0
-	JP C,.L119
-.L120:
-;1 	IF A='1'
+	JP C,SELTR1
+
 	CP '1'
-	JP NZ,.L121
+	JP NZ,SELTR2
+
+	; '1': 35 tracks
 	LD A,35
-;1 	ELSEIF A='2'
-	JP .L122
-.L121:
-	CP '2'
-	JP NZ,.L123
+	JP SELTR7
+
+SELTR2:	CP '2'
+	JP NZ,SELTR3
+	
+	; '2': 40 tracks
 	LD A,40
-;1 	ELSEIF A='3'
-	JP .L122
-.L123:
-	CP '3'
-	JP NZ,.L124
+	JP SELTR7
+
+SELTR3:	CP '3'
+	JP NZ,SELTR4
+	
+	; '3': 70 tracks
 	LD A,70
-;1 	ELSEIF A='4'
-	JP .L122
-.L124:
-	CP '4'
-	JP NZ,.L125
+	JP SELTR7
+	
+SELTR4:	CP '4'
+	JP NZ,SELTR5
+	
+	; '4'; 77 tracks
 	LD A,77
-;1 	ELSEIF A='5'
-	JP .L122
-.L125:
-	CP '5'
-	JP NZ,.L126
+	JP SELTR7
+	
+SELTR5:	CP '5'
+	JP NZ,SELTR6
+	
+	; '5': 80 traacks
 	LD A,80
-;1 	ENDIF
-.L126:
-.L122:
-	LD (TRKCNT),A
+
+SELTR6:	; all other inputs: invalid???
+
+SELTR7:	LD (TRKCNT),A
 	RET
 	
 ;-----------------------------------------------------------------------------
@@ -1484,38 +1487,36 @@ SELTRK:	LD HL,MENUE3
 SELSID:	LD HL,MENUE4
 	CALL PRNMSG
 	
-;1 	REPEAT
-.L127:
+SELSI1:	; wait for '1'..'3'
 	CALL CONIN
-;1 	UNTIL A IN ['1'..'3']
 	CP '3'+1
-	JP NC,.L127
+	JP NC,SELSI1
 	CP '1'+0
-	JP C,.L127
-.L128:
-;1 	IF A='1'
+	JP C,SELSI1
+
 	CP '1'
-	JP NZ,.L129
+	JP NZ,SELSI2
+	
+	; '1': single-sided
 	LD A,0  
 	LD (SSDS),A	; single-sided
-;1 	ELSEIF A='2'
-	JP .L130
-.L129:
-	CP '2'
-	JP NZ,.L131
+	JP SELSI4
+	
+SELSI2:	CP '2'
+	JP NZ,SELSI3
+	
+	; '2': double-sided
 	LD A,1
 	LD (SSDS),A	; double-sided
-;1 	ELSE
-	JP .L132
-.L131:
+	JP SELSI4
+	
+SELSI3:	; all other inputs: double-sided with SSO
 	LD A,1
 	LD (SSDS),A	; double-sided
 	LD A,1
 	LD (USESSO),A 	; Seite 0 beginnt
-;1 	ENDIF
-.L132:
-.L130:
-	LD (SSDS),A 	; single-sided=0, double-sided=1
+
+SELSI4:	LD (SSDS),A 	; single-sided=0, double-sided=1
 	RET
 
 ;-----------------------------------------------------------------------------
@@ -1523,26 +1524,25 @@ SELSID:	LD HL,MENUE4
 
 SELDEN:	LD HL,MENUE2
 	CALL PRNMSG
-;1 	REPEAT
-.L133:
+
+SELDE1:	; wait for '1'..'2'
 	CALL CONIN
-;1 	UNTIL A IN ['1'..'2']
 	CP '2'+1
-	JP NC,.L133
+	JP NC,SELDE1
 	CP '1'+0
-	JP C,.L133
-.L134:
-;1 	IF A='1'
+	JP C,SELDE1
+	
 	CP '1'
-	JP NZ,.L135
-	LD A,0 	; EINFAChe Dichte
-;1 	ELSE
-	JP .L136
-.L135:
-	LD A,1 	; DOPPELte Dichte
-;1 	ENDIF
-.L136:
-	LD (DENSITY),A
+	JP NZ,SELDE2
+
+	; '1': single-density
+	LD A,0		; single-density
+	JP SELDE3
+
+SELDE2:	; all other inputs: double-density
+	LD A,1 		; double-density
+
+SELDE3:	LD (DENSITY),A
 	RET
 	
 ;-----------------------------------------------------------------------------
@@ -1553,243 +1553,253 @@ SELDEN:	LD HL,MENUE2
 ;	1024 bytes / 5 per track)
 
 SELSEC:	LD A,(MINMAX)
-;1 	IF A=0  	; Mini
 	OR A
-	JP NZ,.L137
+	JP NZ,SELSE13	; -> Maxi
+	
+	; --- 0 = Mini ---
 	LD A,(DENSITY)
-;2 	IF A=0 	; SD
 	OR A
-	JP NZ,.L138
+	JP NZ,SELSE6
+	
+	; --- mini, single-density ---
+	
 	LD HL,MENUE5A
 	CALL PRNMSG
-;3 	REPEAT
-.L139:
+	
+SELSE1:	; wait for '1'..'3'
 	CALL CONIN
-;3 	UNTIL A IN ['1'..'3']
 	CP '3'+1
-	JP NC,.L139
+	JP NC,SELSE1
 	CP '1'+0
-	JP C,.L139
-.L140:
-;3 	IF A='1'
+	JP C,SELSE1
+	
 	CP '1'
-	JP NZ,.L141
+	JP NZ,SELSE2
+
+	; '1': 128 bytes per sector, 16 sectors per track
 	LD HL,128
 	LD (BYTCNT),HL
 	LD A,16
 	LD (SECCNT),A
 	LD A,27
 	LD (GAPLEN),A
-;3 	ELSEIF A='2'
-	JP .L142
-.L141:
-	CP '2'
-	JP NZ,.L143
+	JP SELSE5
+
+SELSE2:	CP '2'
+	JP NZ,SELSE3
+
+	; '2': 128 bytes per sector, 18 sectors per track
 	LD HL,128
 	LD (BYTCNT),HL
 	LD A,18
 	LD (SECCNT),A
 	LD A,10
 	LD (GAPLEN),A
-;3 	ELSEIF A='3'
-	JP .L142
-.L143:
-	CP '3'
-	JP NZ,.L144
+	JP SELSE5
+	
+SELSE3:	CP '3'
+	JP NZ,SELSE4
+	
+	; '3': 256 bytes per sector, 10 sectors per track
 	LD HL,256
 	LD (BYTCNT),HL
 	LD A,10
 	LD (SECCNT),A
 	LD A,16
 	LD (GAPLEN),A
-;3 	ENDIF
-.L144:
-.L142:
-;2 	ELSE  	; DD
-	JP .L145
-.L138:
+
+SELSE4:	; all other inputs: invalid ???
+
+SELSE5:	JP SELSE12
+
+SELSE6:	; --- mini, double-density ---
+
 	LD HL,MENUE5B
 	CALL PRNMSG
-;3 	REPEAT
-.L146:
+
+SELSE7:	; wait for '1'..'4'
 	CALL CONIN
-;3 	UNTIL A IN ['1'..'4']
 	CP '4'+1
-	JP NC,.L146
+	JP NC,SELSE7
 	CP '1'+0
-	JP C,.L146
-.L147:
-;3 	IF A='1'
+	JP C,SELSE7
+
 	CP '1'
-	JP NZ,.L148
+	JP NZ,SELSE8
+	
+	; '1': 256 bytes per sector, 16 sectors per track
 	LD HL,256
 	LD (BYTCNT),HL
 	LD A,16
 	LD (SECCNT),A
 	LD A,54
 	LD (GAPLEN),A
-;3 	ELSEIF A='2'
-	JP .L149
-.L148:
-	CP '2'
-	JP NZ,.L150
+	JP SELSE12
+	
+SELSE8:	CP '2'
+	JP NZ,SELSE9
+	
+	; '2': 512 bytes per sector, 9 sectors per track
 	LD HL,512
 	LD (BYTCNT),HL
 	LD A,9
 	LD (SECCNT),A
 	LD A,54
 	LD (GAPLEN),A
-;3 	ELSEIF A='3'
-	JP .L149
-.L150:
-	CP '3'
-	JP NZ,.L151
+	JP SELSE12
+	
+SELSE9:	CP '3'
+	JP NZ,SELSE10
+	
+	; '3': 512 bytes per sector, 10 sectors per track
 	LD HL,512
 	LD (BYTCNT),HL
 	LD A,10
 	LD (SECCNT),A
 	LD A,40
 	LD (GAPLEN),A
-;3 	ELSEIF A='4'
-	JP .L149
-.L151:
-	CP '4'
-	JP NZ,.L152
+	JP SELSE12
+	
+SELSE10:CP '4'
+	JP NZ,SELSE11
+	
+	; '3': 1024 bytes per sector, 5 sectors per track
 	LD HL,1024
 	LD (BYTCNT),HL
 	LD A,5
 	LD (SECCNT),A
 	LD A,54
 	LD (GAPLEN),A
-;3 	ENDIF
-.L152:
-.L149:
-;2 	ENDIF
-.L145:
-;1 	ELSE  	; MAXI
-	JP .L153
-.L137:
-	LD A,(DENSITY)
-;2 	IF A=0 	; SD
+
+SELSE11:; all other inputs: invalid ???
+
+SELSE12:JP SELSE25	; -> ret
+
+	; --- Maxi ---
+	
+SELSE13:LD A,(DENSITY)
 	OR A
-	JP NZ,.L154
+	JP NZ,SELSE17
+	
+	; maxi, single-density
 	LD HL,MENUE5C
 	CALL PRNMSG
-;3 	REPEAT
-.L155:
+
+SELSE14:; wait for '1'..'2'
 	CALL CONIN
-;3 	UNTIL A IN ['1'..'2']
 	CP '2'+1
-	JP NC,.L155
+	JP NC,SELSE14
 	CP '1'+0
-	JP C,.L155
-.L156:
-;3 	IF A='1'
+	JP C,SELSE14
+
 	CP '1'
-	JP NZ,.L157
+	JP NZ,SELSE15
+	
+	; '1': 128 bytes per sector, 26 sectors per track
 	LD HL,128
 	LD (BYTCNT),HL
 	LD A,26
 	LD (SECCNT),A
 	LD A,27
 	LD (GAPLEN),A
-;3 	ELSE
-	JP .L158
-.L157:
+	JP SELSE16
+	
+SELSE15:; all other: 256 bytes per sector, 15 sectors per track
 	LD HL,256
 	LD (BYTCNT),HL
 	LD A,15
 	LD (SECCNT),A
 	LD A,27
 	LD (GAPLEN),A
-;3 	ENDIF
-.L158:
-;2 	ELSE   	; DD
-	JP .L159
-.L154:
-	LD HL,MENUE5D
+	
+SELSE16:JP SELSE25	; -> ret
+
+	; maxi, double-density
+
+SELSE17:LD HL,MENUE5D
 	CALL PRNMSG
-;3 	REPEAT
-.L160:
+	
+SELSE18:; wait for '1'..'6'
 	CALL CONIN
-;3 	UNTIL A IN ['1'..'6']
 	CP '6'+1
-	JP NC,.L160
+	JP NC,SELSE18
 	CP '1'+0
-	JP C,.L160
-.L161:
-;3 	IF A='1'
+	JP C,SELSE18
+
 	CP '1'
-	JP NZ,.L162
+	JP NZ,SELSE19
+	
+	; '1': 256 bytes per sector, 26 sectors per track
 	LD HL,256
 	LD (BYTCNT),HL
 	LD A,26
 	LD (SECCNT),A
 	LD A,54
 	LD (GAPLEN),A
-;3 	ELSEIF A='2'
-	JP .L163
-.L162:
-	CP '2'
-	JP NZ,.L164
+	JP SELSE25
+	
+SELSE19:CP '2'
+	JP NZ,SELSE20
+	
+	; '2': 512 bytes per sector, 14 sectors per track
 	LD HL,512
 	LD (BYTCNT),HL
 	LD A,14
 	LD (SECCNT),A
 	LD A,54
 	LD (GAPLEN),A
-;3 	ELSEIF A='3'
-	JP .L163
-.L164:
-	CP '3'
-	JP NZ,.L165
+	JP SELSE25
+	
+SELSE20:CP '3'
+	JP NZ,SELSE21
+	
+	; '3': 512 bytes per sector, 15 sectors per track
 	LD HL,512
 	LD (BYTCNT),HL
 	LD A,15
 	LD (SECCNT),A
 	LD A,54
 	LD (GAPLEN),A
-;3 	ELSEIF A='4'
-	JP .L163
-.L165:
-	CP '4'
-	JP NZ,.L166
+	JP SELSE25
+	
+SELSE21:CP '4'
+	JP NZ,SELSE22
+	
+	; '4': 512 bytes per sector, 16 sectors per track
 	LD HL,512
 	LD (BYTCNT),HL
 	LD A,16
 	LD (SECCNT),A
 	LD A,40
 	LD (GAPLEN),A
-;3 	ELSEIF A='5'
-	JP .L163
-.L166:
-	CP '5'
-	JP NZ,.L167
+	JP SELSE25
+	
+SELSE22:CP '5'
+	JP NZ,SELSE23
+	
+	; '5': 1024 bytes per sector, 8 sectors per track
 	LD HL,1024
 	LD (BYTCNT),HL
 	LD A,8
 	LD (SECCNT),A
 	LD A,54
 	LD (GAPLEN),A
-;3 	ELSEIF A='6'
-	JP .L163
-.L167:
-	CP '6'
-	JP NZ,.L168
+	JP SELSE25
+	
+SELSE23:CP '6'
+	JP NZ,SELSE24
+	
+	; '6': 1024 bytes per sector, 9 sectors per track
 	LD HL,1024
 	LD (BYTCNT),HL
 	LD A,9
 	LD (SECCNT),A
 	LD A,40
 	LD (GAPLEN),A
-;3 	ENDIF
-.L168:
-.L163:
-;2 	ENDIF
-.L159:
-;1 	ENDIF
-.L153:
-	RET
+
+SELSE24:; all other inputs: invalid
+
+SELSE25:RET
 	
 ;-----------------------------------------------------------------------------
 ; Print 0-terminated message, address in HL
@@ -1813,68 +1823,80 @@ PRNTM2:	RET
 PRNPRM:	LD C,1AH	; clear screen
 	CALL CONOUT
 
+	; --- mini / maxi ---
+
 	LD A,(MINMAX)
-;1 	IF A=0  	; 0=Mini
 	OR A
-	JP NZ,.L171
-	LD HL,TMINI
-;1 	ELSE
-	JP .L172
-.L171:
-	LD HL,TMAXI
-;1 	ENDIF
-.L172:
-	CALL PRNMSG
-	LD A,(USER)
-;1 	IF A=0  	; FLO 2
-	OR A
-	JP NZ,.L173
+	JP NZ,PRNP1
 	
-	; V1.22
+	; Mini
+	LD HL,TMINI
+	JP PRNP2
+	
+PRNP1:	; Maxi
+	LD HL,TMAXI
+
+PRNP2:	CALL PRNMSG
+
+	; --- user / flotype ---
+
+	LD A,(USER)
+	OR A		; USER=0 ?
+	JP NZ,PRNP5
+	
+	; USER=0 ---
 	LD A,(FLOTYP)
 	OR A
-	JP NZ,L0BD4
-	LD HL,TFLO2
-	JP L0BD7
+	JP NZ,PRNP3
 	
-L0BD4:	
+	; USER=0: FLOTYP=FLO2 (C0h)
+	LD HL,TFLO2
+	JP PRNP4
+	
+PRNP3:	; USER=0: FLOYP=FLO1 (C0h)
 	LD HL,TFLO1C
-L0BD7:
-;1 	ELSEIF A=1
-	JP .L174
-.L173:
-	CP 1
-	JP NZ,.L175
+
+PRNP4:	JP PRNP7
+	
+PRNP5:	CP 1		; USER=1 ?
+	JP NZ,PRNP6
+	
+	; USER=1: FLO1 Maxi
 	LD HL,TFLO1A
-;1 	ELSE A=2
-	JP .L176
-.L175:
+	JP PRNP7
+
+PRNP6:	; USER=other: FLO1 Mini
 	LD HL,TFLO1B
-;1 	ENDIF
-.L176:
-.L174:
-	CALL PRNMSG
+
+PRNP7:	CALL PRNMSG	; print USER/FLOTYP
+
+	; --- density (FM/MFM/ECMA77)---
+
 	LD A,(DENSITY)
-;1 	IF A=0  	; 0=SD
 	OR A
-	JP NZ,.L177
+	JP NZ,PRNP8
+
+	; DENSITY=0: FM
 	LD HL,TFM
-;1 	ELSE
-	JP .L178
-.L177:
+	JP PRNP9
+
+PRNP8:	; DENSITY=1: MFM
 	LD HL,TMFM
-;1 	ENDIF
-.L178:
-	LD A,(ECMA)
-;1 	IF A=1
+
+PRNP9:	LD A,(ECMA)
 	CP 1
-	JP NZ,.L179
-	LD HL,TECMA 	; Sonderfall, Ecma-Format
-;1 	ENDIF
-.L179:
-	CALL PRNMSG
+	JP NZ,PRNP10
+	
+	; ECMA
+	LD HL,TECMA 	; special case: ECMA77 format
+
+PRNP10:	CALL PRNMSG
+
 	CALL CRLF
 	CALL CRLF
+	
+	; --- number of track ---
+	
 	LD HL,TSPUREN
 	CALL PRNMSG
 	LD A,(TRKCNT)
@@ -1882,6 +1904,9 @@ L0BD7:
 	LD H,0
 	CALL PRNTHL 	; Anzahl Spuren
 	CALL CRLF
+	
+	; --- number of sectors ---
+	
 	LD HL,TSEKTOREN
 	CALL PRNMSG
 	LD A,(SECCNT)
@@ -1889,102 +1914,102 @@ L0BD7:
 	LD H,0
 	CALL PRNTHL 	; Anzahl SECCNT
 	CALL CRLF
+
+	; --- bytes per sector ---
+	
 	LD HL,TBYTES
 	CALL PRNMSG
 	LD HL,(BYTCNT)
 	CALL PRNTHL 	; Bytes pro Sektor
 	CALL CRLF
-		;
+
+	; --- drive (A,B, ...) ---
+
 	LD HL,TLAUFWERK
 	CALL PRNMSG
 	LD A,(DRIVE)
 	AND 0FH 	; 1,2,4,8
-;1 	IF A=1
 	CP 1
-	JP NZ,.L180
+	JP NZ,PRNP11
+	
 	LD C,'A'
-;1 	ELSEIF A=2
-	JP .L181
-.L180:
-	CP 2
-	JP NZ,.L182
+	JP PRNP15
+
+PRNP11:	CP 2
+	JP NZ,PRNP12
+	
 	LD C,'B'
-;1 	ELSEIF A=4
-	JP .L181
-.L182:
-	CP 4
-	JP NZ,.L183
+	JP PRNP15
+
+PRNP12:	CP 4
+	JP NZ,PRNP13
+	
 	LD C,'C'
-;1 	ELSEIF A=8
-	JP .L181
-.L183:
-	CP 8
-	JP NZ,.L184
+	JP PRNP15
+	
+PRNP13:	CP 8
+	JP NZ,PRNP14
+	
 	LD C,'D'
-;1 	ELSE
-	JP .L185
-.L184:
-	LD C,'?'
-;1 	ENDIF
-.L185:
-.L181:
-	CALL CONOUT
+	JP PRNP15
+
+PRNP14:	LD C,'?'
+
+PRNP15:	CALL CONOUT
 	CALL CRLF
 	CALL CRLF
-		; 
+
+	; --- single-sided / double-sided ---
+
 	LD A,(SSDS)
-;1 	IF A=1  	; zweiseitig
-	CP 1  
-	JP NZ,.L186	; -> single-sided
+	CP 1
+	JP NZ,PRNP18	; -> single-sided
 	
 	; double-sided
-	LD A,(USESSO)
-;2 	IF A=0 	; OHNE SSO
-	OR A
-	JP NZ,.L187	; -> SSO
 	
-	; no SSO
-	LD HL,TZWEISEITIg
-;2 	ELSE  	; MIT SSO
-	JP .L188
-.L187:
+	LD A,(USESSO)
+	OR A
+	JP NZ,PRNP16	; -> SSO
+	
+	; double-sided, no SSO
+	LD HL,TZWEISEITIG
+	JP PRNP17
+
+PRNP16:	; double-sided with SSO
 	LD HL,TZWEISSO
-;2 	ENDIF
-.L188:
-	CALL PRNMSG
-;1 	ELSE  	; EINSEItig
-	JP .L189
-.L186:
-	LD A,(DRIVE) 
+
+PRNP17:	CALL PRNMSG
+	JP PRNP22
+
+	; single-sided
+
+PRNP18:	LD A,(DRIVE) 
 	AND 80H
-;2 	IF Z  	; VORDERseite
-	JP NZ,.L190
+	JP NZ,PRNP19
+	
+	; side 0
 	LD HL,TEINSEITIG
 	CALL PRNMSG
-;2 	ELSE  	; RUECKSeite
-	JP .L191
-.L190:
-	LD A,(USESSO)
-;3 	IF A=0 	; OHNE Sso
-	OR A
-	JP NZ,.L192	; -> SSO
+	JP PRNP22
 	
-	; no SSO
-	LD HL,TRUECKSEITe
-;3 	ELSE  	; SSO
-	JP .L193
-.L192:
+PRNP19:	; side 1
+	LD A,(USESSO)
+	OR A
+	JP NZ,PRNP20	; -> SSO
+	
+	; single-sided, no SSO
+	LD HL,TRUECKSEITE
+	JP PRNP21
+
+PRNP20:	; side 1, with SSO
 	LD HL,TRUECKSSO
-;3 	ENDIF
-.L193:
-	CALL PRNMSG
-;2 	ENDIF
-.L191:
-;1 	ENDIF
-.L189:
-	CALL CRLF 
+
+PRNP21:	CALL PRNMSG
+
+PRNP22:	CALL CRLF 
 	CALL CRLF
-		; KAPAZItaet ausrechnen
+	
+	; --- capacity ---
 	LD HL,TKAP
 	CALL PRNMSG
 	LD A,(SECCNT)
@@ -1993,60 +2018,59 @@ L0BD7:
 	LD A,(TRKCNT)
 	LD E,A
 	LD D,0
-	CALL MULHLDE 	; sektoren*tracks
+	CALL MULHLDE 	; HL = sectors * tracks
+	
 	LD A,(SSDS)
-;1 	IF A=1
 	CP 1
-	JP NZ,.L194	; -> single-sided
+	JP NZ,PRNP23	; -> single-sided
 	
 	; double-sided
 	LD DE,2
-	CALL MULHLDE 	; wenn zweiseitig, dann doppelt
-;1 	ENDIF
-.L194:
-	LD DE,(BYTCNT) 	; de=1024,512,256,128
-		; DE=400h,200h,100h,80h
-;1 	IF D=0
+	CALL MULHLDE 	; HL = HL * 2
+
+PRNP23:	LD DE,(BYTCNT) 	; 1024,512,256,128
+			; (400h,200h,100h,80h)
 	LD A,D
 	OR A
-	JP NZ,.L195
-;2 	DO B,3 	; DIV 8
+	JP NZ,PRNP25 	; -> D=1
+	
+	; D=0: HL = HL / 8
 	LD B,3 
-.L196:
-	SRA H
+PRNP24:	SRA H
 	RR L
-;2 	ENDDO
 	DEC B
-	JP NZ,.L196
-;1 	ELSEIF D=1
-	JP .L197
-.L195:
+	JP NZ,PRNP24
+	
+	JP PRNP28
+
+PRNP25:	; D=1
 	LD A,D
 	CP 1
-	JP NZ,.L198
-	SRA H  	; DIV 4
+	JP NZ,PRNP26
+	
+	; D=1: HL = HL / 4
+	SRA H
 	RR L
 	SRA H
 	RR L
-;1 	ELSEIF D=2
-	JP .L197
-.L198:
-	LD A,D
+	JP PRNP28
+
+PRNP26:	LD A,D
 	CP 2
-	JP NZ,.L199
-	SRA H  	; DIV 2
+	JP NZ,PRNP27
+
+	; D=2: HL = HL / 2
+	SRA H
 	RR L
-;1 	ELSEIF D=4
-	JP .L197
-.L199:
-	LD A,D
+	JP PRNP28
+	
+PRNP27:	LD A,D
 	CP 4
-	JP NZ,.L200
+	JP NZ,PRNP28
+	
 	NOP  	; HL = KBytes
-;1 	ENDIF
-.L200:
-.L197:
-	CALL PRNTHL 	; ausgeben
+
+PRNP28:	CALL PRNTHL	; print HL decimal
 	LD HL,TKAP1
 	CALL PRNMSG
 	CALL CRLF
@@ -2287,9 +2311,9 @@ FIMSG:	DEFB 1ah,0dh,0ah
 	DEFB 'Systemdiskette in Laufwerk A einlegen,',0dh,0ah
 	DEFB 'dann CR (carriage return) druecken.',0dh,0ah,0
 
-	DEFB 0	; v1.22
+	DEFB 0		; v1.22
 	
-USER:	DEFB 0  	; NDR=1, MC+Term1=2, sonst=3
+USER:	DEFB 0  	; ??? NDR=1, MC+Term1=2, sonst=3 (<- das stimmt nicht mehr)
 FLOTYP:	DEFB 0    	; 0=FLO2, 1=FLO1 Maxi, 2=FLO1 Mini
 MINMAX:	DEFB 0  	; 0=Mini 1=Maxi
 ECMA:	DEFB 0  	; 1=ECMA70 format (SD,128 on track 0)
@@ -2308,6 +2332,6 @@ USESSO:	DEFB 0  	; 0=no SSO, 1=use SSO
 CURTRK:	DEFB 0  	; aktuelle Spur
 CURSEC:	DEFB 0  	; aktueller Sektor
 
-FORMTAB:; Formatierbereich, hier wird ein Track gelegt.
+FORMTAB:	; Formatierbereich, hier wird ein Track gelegt.
 
-	end start
+	END start
