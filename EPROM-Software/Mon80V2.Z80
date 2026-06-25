@@ -68,29 +68,47 @@ SA_DAT	EQU 0F0H	; SIO A Daten
 SA_STS	EQU 0F1H	; SIO A Control
 SB_DAT	EQU 0F2H	; SIO B Daten
 SB_STS	EQU 0F3H	; SIO B Control
-S_RXB	EQU 01h		; SIO RX Ready Bit
-S_TXB	EQU 04h		; SIO TX Ready Bit
+SI_RXB	EQU 01h		; SIO RX Ready Bit
+SI_TXB	EQU 04h		; SIO TX Ready Bit
 
 	IF SYS80S
 
 ; Console is redirected to UART on SYS-80s
-U_DAT	EQU SU_DAT
-U_STS	EQU SU_STS
-U_RXB	EQU SU_RXB
-U_TXB	EQU SU_TXB
+CO_DAT	EQU SU_DAT
+CO_STS	EQU SU_STS
+CO_RXB	EQU SU_RXB
+CO_TXB	EQU SU_TXB
 
 	ELSE
 
 ; Console is redirected to SIO A on OUT-80 board
-U_DAT	EQU SA_DAT
-U_STS	EQU SA_STS
-U_RXB	EQU S_RXB
-U_TXB	EQU S_TXB
+CO_DAT	EQU SA_DAT
+CO_STS	EQU SA_STS
+CO_RXB	EQU SI_RXB
+CO_TXB	EQU SI_TXB
 
 	ENDIF
 
+; Reader port (SIO B)
+RE_DAT	EQU SB_DAT
+RE_STS	EQU SB_STS
+RE_RXB	EQU SI_RXB
+RE_TXB	EQU SI_TXB
 
-; Address of IDE Port CF-80 card
+; Punch port (SIO B)
+PU_DAT	EQU SB_DAT
+PU_STS	EQU SB_STS
+PU_RXB	EQU SI_RXB
+PU_TXB	EQU SI_TXB
+
+; List port (SIO B)
+LI_DAT	EQU SB_DAT
+LI_STS	EQU SB_STS
+LI_RXB	EQU SI_RXB
+LI_TXB	EQU SI_TXB
+
+
+; Address of IDE-80 CF-Adapter card
 
 IDEDATA	EQU 018h	; IDE Data Register
 SECCND	EQU 01Ah	; Sector Count Register
@@ -144,6 +162,7 @@ ROMSTRT:
 TRAP:	; trap/breakpoint entry -> RSTRT
 
 	JP RSTRT
+	
 	JP FLOP	 	; new floppy interface rev 1.0
 	JP MAXI		; FLOPPY EXEC VEKTOR SOFT (old)
 	JP MINI		; FLOPPY EXEC VEKTOR MINI (old)
@@ -173,7 +192,6 @@ FREPTR:	DEFW FREEMEM 	; End of Monitor driver section. The area behind it can be
 	JP ILLEGAL 	; hl=quelle,de=ziel,c=bank quelle, b=bank ziel
 			; carry wenn bankram auf f000h nicht da ist
 
-
 ; End of area of tables and fixed addresses, that are used by CP/M BIOS, UFORMAT etc.
 
 ;------------------------------------------------------------------------------
@@ -191,19 +209,19 @@ INIT:	JP INIT1 	; kurzschliessen ggf.
 			; ende fixed gebiet
 
 ;==============================================================================
-; IO Routinen
+; IO Routines
 ;==============================================================================
 ; Output 0-terminated string, address in HL
 
-WRSTR:	IN  A,(U_STS)	; read status
-	AND U_TXB	; check TxRDY bit
+WRSTR:	IN  A,(CO_STS)	; read status
+	AND CO_TXB	; check TxRDY bit
 	JP Z,WRSTR	; wait if not set
 	
 	LD A,(HL)	; get char from string
 	AND A		; check if 0
 	RET Z		; -> send of string
 	
-	OUT (U_DAT),A	; write char to output
+	OUT (CO_DAT),A	; write char to output
 	INC HL		; next char in string
 	JP WRSTR	; start over
 
@@ -214,30 +232,30 @@ CONIN:	LD A,(IOBYT)
 	AND 00000011b		; console mask
 	JR NZ,CONI2		; -> user device
 
-CONI1:	IN A,(U_STS)
-	AND U_RXB
+CONI1:	IN A,(CO_STS)
+	AND CO_RXB
 	JR Z,CONI1
-	IN A,(U_DAT)
+	IN A,(CO_DAT)
 	RET
 
-CONI2:	JP USERCI  		; user CI
+CONI2:	JP USERCI  		; user device
 
 ;------------------------------------------------------------------------------
 ; Reader Input routine (SIO B)
 
 READIN:	LD A,(IOBYT)
 	AND 00001100b
-	JP Z,CONIN  	; AR=T
+	JP Z,CONIN  		; assign: AR=T
 
 	CP 00000100B 
 	JP NZ,USERRI
 	
-READI1:	; AR = P
-	IN A,(SB_STS)
-	AND S_RXB
+READI1:	; assign: AR=P
+	IN A,(RE_STS)
+	AND RE_RXB
 	JR Z,READI1
 	
-	IN A,(SB_DAT)
+	IN A,(RE_DAT)
 	RET
 
 ;------------------------------------------------------------------------------
@@ -245,55 +263,57 @@ READI1:	; AR = P
 
 CONOUT:	LD A,(IOBYT)
 	AND 00000011b
-	JR NZ,CONO2
+	JR NZ,CONO2		; -> user device
 
-CONO1:	IN A,(U_STS)
-	AND U_TXB
+CONO1:	; 
+	IN A,(CO_STS)
+	AND CO_TXB
 	JR Z,CONO1
 	
 	LD A,C
-	OUT (U_DAT),A
+	OUT (CO_DAT),A
 	RET
 
-CONO2:	JP USERCO	; user console output
+CONO2:	JP USERCO		; user device
 
 ;------------------------------------------------------------------------------
 ; Punch Output main routine
 ; HIER ABFRAGE IOBYT MOEGLICH
+; char in C
 ;
 PUNOUT:	LD A,(IOBYT)
 	AND 00110000b
-	JP Z,CONOUT  			; AP=T
+	JP Z,CONOUT  		; assign: AP=T
 	
 	CP 00010000b
 	JP NZ,USERPO
-	
-PUNO1:	; AP=P
-	IN A,(SB_STS)
-	AND S_TXB
+
+PUNO1:	; assign: AP=P
+	IN A,(PU_STS)
+	AND PU_TXB
 	JR Z,PUNO1
 	
 	LD A,C
-	OUT (SB_DAT),A
+	OUT (PU_DAT),A
 	RET
 
 ;------------------------------------------------------------------------------
 ; List Output main routine
 
 LSTOUT:	LD A,(IOBYT)
-	AND 0C0H
-	JP Z,CONO1 		; AL=T
+	AND 11000000b
+	JP Z,CONO1 		; assign: AL=T
 	
 	CP 10000000B 		
 	JP NZ,USERLO
 					
-LO1:	; AL=L
-	IN A,(SB_STS)
-	AND S_TXB
+LO1:	; assign AL=L
+	IN A,(LI_STS)
+	AND LI_TXB
 	JR Z,LO1
 	
 	LD A,C
-	OUT (SB_DAT),A
+	OUT (LI_DAT),A
 	RET
 
 ;------------------------------------------------------------------------------
@@ -302,16 +322,16 @@ LO1:	; AL=L
 CONSTS:	LD A,(IOBYT)
 	AND 03h
 	JR NZ,CONS2
-	
-CONS1:	IN A,(U_STS)
-	AND U_RXB
+
+CONS1:	IN A,(CO_STS)
+	AND CO_RXB
 	RET Z
 	
 	LD A,0FFH
 	OR A
 	RET
 
-CONS2:	JP USERCSTS	; user csts
+CONS2:	JP USERCSTS	; user device
 
 ;------------------------------------------------------------------------------
 ; The IOBYTE is used to switch from physical to logical device. It has the
@@ -348,7 +368,7 @@ MEMCK1:	LD B,H
 
 MEMSIZ:	PUSH BC
 
-	; Einsprung
+	; entry point
 MEMSIZB:
 	LD HL,-1
 
@@ -639,18 +659,35 @@ iniflp:				; Floppy Routinen Init
 
 INTVEK	EQU 38h 		; Interruptziel
 
-FLOP:				; Haupteingang der Floppy-Routinen
-	XOR A  			; sso-Flag auf 0 setzen
-flop1:				; a=sso flag, nur 2 zulaessig
-	LD (SSOFLAG),A 		; ok setzen hier moeglich
-				; HL = Ziel oder Quelladresse
-				; E = Sektor D= Track
-				; C = Laufwerkscode + Dichtecode + Seite
-				; B = 0 dann Steprate setzen + SSO-Flag
-				;   = 1 dann lesen
-				;   = 2 dann schreiben
+;------------------------------------------------------------------------------
+; Haupteingang der Floppy-Routinen
+; HL = Ziel oder Quelladresse
+; E = Sektor D= Track
+; C = Laufwerkscode + Dichtecode + Seite (siehe SOFTEX)
+;   7    6    5    4    3    2    1    0
+;   sso  mot  min  dens d    d    d    d
+;   sso  = seitenauswahl (1=seite 1)
+;   mot  = motor on code (std=0)
+;   min  = 1 bei Minilaufwerken
+;   dens = 1 bei Single Dense Aufzeichnung
+;   d = binary drive code
+;     normalerweise nur 1,2,4,8 moeglich
+;     Kombinationen moeglich, wenn binaere
+;     Dekodierung beim Laufwerk verwendet wird
+; B = 0 dann Steprate setzen + SSO-Flag
+;   = 1 dann lesen
+;   = 2 dann schreiben
 
-cflo1:	PUSH AF			; entscheiden FLO1 oder FLO2
+; Entry SSO = 0
+
+FLOP:	XOR A  			; sso-Flag auf 0 setzen
+
+; Entry SSO in A
+
+flop1:	; a=sso flag, nur 2 zulaessig
+	LD (SSOFLAG),A
+
+cflo1:	PUSH AF
 	LD A,(FLOC0)
 	CP 1  
 	JP NZ,CFLO2		; -> FLO2
@@ -930,7 +967,7 @@ nodum:				; Einsprung head down ok
 	JR Z,TRY1 		; dann zuerst RESTORE
 	CP D  			; oder schon auf dem Track
 	JP Z,RDWR 		; ja dann nur lesen,schreiben
-	TRYº  			; SEEK ausfuehren
+TRY:				; SEEK ausfuehren
 	LD A,(DRVCOD)
 	LD C,A
 	CALL SEEKEX 		; und Track anfahren Reg retten
@@ -1191,7 +1228,7 @@ MSGCRLF:
 
 	DEFM ESC,"[2J",ESC,"[H",BELL,CR,LF
 	DEFM " -------------------------",CR,LF
-	DEFM " Monitor MC COMPUTER V 8.0",CR,LF
+	DEFM " Monitor MC COMPUTER V 8.1",CR,LF
 	DEFM "   RDK/JS 1985 - UH 2026",CR,LF
 	DEFM	" -------------------------",CR,LF,LF
 	DEFM " Bootmenue = I",CR,LF,LF,0
@@ -1232,20 +1269,26 @@ TABSIOB:
 ; Init 8251 (D71051c) on CPU-Board
 
 SKSKL:
+
+	;TODO
+	;IF Z80S
+
 ;INIT_UART:
 	XOR	A		; lt. Datenblatt erst mal "aufwecken"
-	OUT	(U_STS),A	; SyncMode
-	OUT	(U_STS),A	; SyncMode
-	OUT	(U_STS),A	; SyncMode
+	OUT	(SU_STS),A	; SyncMode
+	OUT	(SU_STS),A	; SyncMode
+	OUT	(SU_STS),A	; SyncMode
 
 	LD	A,40H		; Reset
-	OUT	(U_STS),A	; UART Status Port
+	OUT	(SU_STS),A	; UART Status Port
 
 	LD	A,04EH		; BAUD x16, 8,1,n
-	OUT	(U_STS),A	; UART Status Port
+	OUT	(SU_STS),A	; UART Status Port
 	LD	A,37H		; Cmd: TXE,RXE,RTS=LOW,DSR=LOW
-	OUT	(U_STS),A	; UART Status Port
-					
+	OUT	(SU_STS),A	; UART Status Port
+
+	;ENDIF
+
 ;------------------------------------------------------------------------------
 ; Monitor cold start
 
@@ -1436,7 +1479,7 @@ IDE_CF:	LD HL,08000h
 ; 00= TELETYPE CONS
 
 ASSIGN:	CALL TI
-	LD HL,LTBL
+	LD HL,ASSTBL
 	LD BC,400H
 	LD DE,5
 
@@ -1507,7 +1550,7 @@ BYE1:	CALL CONIN7	; In HEX Dump 1E
 ; PUT ASCII INTO MEM
 ; Texte direkt in den Speicher eingeben
 
-PUTA:	CALL EXPR1
+PUTA:	CALL EXPRA
 	CALL CRLF
 	POP HL
 
@@ -1578,7 +1621,7 @@ DISP2:	CALL BLK
 ; Output EOF for Punch
 ; Intel-Hex Ende ausgeben
 
-EOF:	CALL EXPR1
+EOF:	CALL EXPRA
 	CALL PEOL
 	LD C,':'
 	CALL PUNOUT
@@ -1594,7 +1637,7 @@ EOF:	CALL EXPR1
 ; Monitor command FILL
 ; Einen Speicherbereich mit einem Wert fuellen
 
-FILL:	CALL EXPR3
+FILL:	CALL EXPRX	; C=2, get 3 arguments
 
 FILL1:	LD (HL),C
 	CALL HILO
@@ -1611,7 +1654,7 @@ GOTO:	CALL PCHK
 	JR C,GOTO5
 	JR Z,GOTO1
 	
-	CALL EXF
+	CALL EXPRF
 	POP DE
 	LD HL,PLOC
 	ADD HL,SP
@@ -1627,7 +1670,7 @@ GOTO1:	LD D,2
 	ADD HL,SP
 
 GOTO2:	PUSH HL
-	CALL EXPR1
+	CALL EXPRA
 	LD E,B
 	POP BC
 	POP HL
@@ -1665,11 +1708,11 @@ GOTO5:	CALL CRLF
 	
 ;------------------------------------------------------------------------------
 ; Monitor command TEST
-; FAST Complement Test fuer den Speicher
+; Fast Complement Test fuer den Speicher
 
 TEST:	CALL EXLF
-TEST1:
-	LD A,(HL)
+
+TEST1:	LD A,(HL)
 	LD B,A
 	CPL
 	LD (HL),A
@@ -1693,7 +1736,7 @@ TEST2:	LD (HL),B
 ; Monitor command MOVE
 ; Speicherbereich verschieben
 
-MOVE:	CALL EXPR3
+MOVE:	CALL EXPRX	; C=2, get 3 arguments
 
 MOVE1:	LD A,(HL)
 	LD (BC),A
@@ -1705,7 +1748,7 @@ MOVE1:	LD A,(HL)
 ; Monitor command READ
 ; Einlesen von Intel-Hex oder TDL-Daten
 
-READ:	CALL EXPR1
+READ:	CALL EXPRA
 	LD A,B
 	SUB 0DH
 	LD B,A
@@ -1713,7 +1756,7 @@ READ:	CALL EXPR1
 	POP DE
 	JR Z,READ1
 	
-	CALL EXPR1
+	CALL EXPRA
 	POP BC
 
 READ1:	EX DE,HL
@@ -1852,7 +1895,7 @@ STORE:	; store
 ; Monitor command SUBST
 ; Interaktive Eingabe von Hex-Werten
 
-SUBST:	CALL EXPR1
+SUBST:	CALL EXPRA
 	POP HL
 	
 SUBST1:	LD A,(HL)
@@ -1864,7 +1907,7 @@ SUBST1:	LD A,(HL)
 	JR Z,SUBST4
 	
 	PUSH HL
-	CALL EXF
+	CALL EXPRF
 	POP DE
 	POP HL
 	LD (HL),E
@@ -1914,7 +1957,7 @@ TYPE4:	CP 7CH
 ;
 WHERE:	LD D,0
 
-WHER1:	CALL EXPR1
+WHER1:	CALL EXPRA
 	POP HL
 	LD H,L
 	PUSH HL
@@ -2078,7 +2121,7 @@ XAM4:	CALL COPCK
 	
 	PUSH HL
 	PUSH BC
-	CALL EXF
+	CALL EXPRF
 	POP HL
 	POP AF
 	PUSH BC
@@ -2212,6 +2255,7 @@ BLK:	LD C,' '
 
 ;------------------------------------------------------------------------------
 ; Punch EOL
+; CR+LF to Punch
 
 PEOL:	LD C,0DH
 	CALL PUNOUT
@@ -2256,10 +2300,8 @@ EXLF:	CALL EXPR
 	POP DE
 	POP HL
 
-;------------------------------------------------------------------------------
-
 CRLF:	PUSH HL
-	push AF
+	PUSH AF
 	LD B,2
 	CALL OUTCRLF	; output CR+LF
 	POP AF
@@ -2268,8 +2310,10 @@ CRLF:	PUSH HL
 
 ;------------------------------------------------------------------------------
 ; Eingabe von Hex-Wertes von der Console
+; Anzahl-1 in C
+; war EXPR3
 
-EXPR3:	INC C
+EXPRX:	INC C
 	CALL EXPR
 	CALL CRLF
 	POP BC
@@ -2279,39 +2323,43 @@ EXPR3:	INC C
 
 ;------------------------------------------------------------------------------
 
-EXPR1:	LD C,1
+EXPRA:	LD C,1
 
 EXPR:	LD HL,0
 
-EX0:	CALL TI
+EXPR1:	CALL TI
 
-EX1:	LD B,A
+EXPR2:	LD B,A
 	CALL NIBBLE
-	JR C,LXEX2
+	JR C,EXPR3
+	
 	ADD HL,HL
 	ADD HL,HL
 	ADD HL,HL
 	ADD HL,HL
 	OR L
 	LD L,A
-	JR EX0
+	JR EXPR1
 
-LXEX2:	EX (SP),HL
+EXPR3:	EX (SP),HL
 	PUSH HL
 	LD A,B
 	CALL QCHK
-	JR NC,LXEX3
+	JR NC,EXPR4
+	
 	DEC  C
 	RET Z
 
-LXEX3:	JP NZ,ERROR
+EXPR4:	JP NZ,ERROR
 	DEC C
 	JR NZ,EXPR
 	RET
 
-EXF:	LD C,1
+	; entry point
+
+EXPRF:	LD C,1
 	LD HL,0
-	JP EX1
+	JP EXPR2
 
 ;------------------------------------------------------------------------------
 
@@ -2367,14 +2415,13 @@ LXR22:	CALL CONV
 ;------------------------------------------------------------------------------
 
 MARK:	LD BC,8FFH
-	JR LEO
-
-;------------------------------------------------------------------------------
+	JR LEAD1
 
 LEAD:	LD BC,4800H
 
-LEO:	CALL PUNOUT
-	DJNZ  LEO
+LEAD1:	CALL PUNOUT
+	DJNZ  LEAD1
+	
 	RET
 
 ;------------------------------------------------------------------------------
@@ -2424,11 +2471,14 @@ PCHK:	CALL TI
 
 QCHK:	CP ' '
 	RET Z
+	
 	CP ','
 	RET Z
+	
 	CP 0DH
 	SCF
 	RET Z
+	
 	CCF
 	RET
 	
@@ -2443,7 +2493,7 @@ RIX:	CALL RIFF	; Reader input
 ; Laden von Binaerdaten 
 ; Startkennung ist eine Gruppe von 0FFh-Werten
 
-LOAD:	CALL EXPR1
+LOAD:	CALL EXPRA
 	POP HL
 	CALL CRLF
 	LD D,0FFH
@@ -2635,12 +2685,12 @@ QUERY:	CALL TI
 	CP 'I'
 	JP NZ,ERROR
 	
-	CALL EXPR1
+	CALL EXPRA
 	POP BC
 	IN E,(C)
 
 	;----------------------------------------------------------------------
-	; Einsprung BITS
+	; entry point BITS
 	
 BITS:	LD B,8
 	CALL BLK
@@ -2663,7 +2713,7 @@ BITS2:	CALL EXPR
 ; Monitor command VERFIY
 ; Vergleich von Speicherbereichen
  
-VERIFY:	CALL EXPR3
+VERIFY:	CALL EXPRX	; C=2, get 3 arguments
 
 VERIF1:	LD A,(BC)
 	CP (HL)
@@ -2680,7 +2730,7 @@ VERIF2:	INC BC
 ;------------------------------------------------------------------------------
 ; IO lookup table (for ASSIGN command)
 
-LTBL:	DEFB 'C'	; console
+ASSTBL:	DEFB 'C'	; console
 	DEFB 'T'	; tty
 	DEFB 'V'	; video
 	DEFB 'B'	; batch
