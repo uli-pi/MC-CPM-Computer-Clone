@@ -17,7 +17,6 @@ CPMB		EQU	03400H+OFFSET	;start cp/m
 BIOS		EQU	04A00H+OFFSET	;start bios
 BOOTP		EQU	01000H		;Hier muss sich das Boot Programm befinden
 
-		ORG	0100			;
 WBOOT0:
 ;
 		LD	SP,0FFH		;start of stack
