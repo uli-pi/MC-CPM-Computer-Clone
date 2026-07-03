@@ -7,28 +7,28 @@
 	;* FLO1-Baugruppe MC                                                 *
 	;* 31.05.2026 *dg* Quellcode der Version 1.22 aus COM-Datei          *
 	;*                 wiederhergestellt                                 *
-	;* 23.06.2026 *dg* Quellcode ueberarbeitet und dokumentiert          *
+	;* 03.07.2026 *dg* Quellcode ueberarbeitet und dokumentiert          *
 	;*                 Binaer identisch zur Version 1.22                 *
 	;*********************************************************************
 
 	; arbeitet unabhaengig vom CP/M - Betriebsystem.
 	; verwendet den Monitor
 
-; IO ADDESSES FLO2 MINI/Maxi
-FLO0	EQU 0C0H
-FLO1	EQU 0C1H
-FLO2	EQU 0C2H
-FLO3	EQU 0C3H
-FLO4	EQU 0C4H
+; IO ADDESSES FLO1/FLO2 Mini/Maxi
+FLO0	EQU 0C0H	; Status/Command
+FLO1	EQU 0C1H	; Track
+FLO2	EQU 0C2H	; Sector
+FLO3	EQU 0C3H	; Data
+FLO4	EQU 0C4H	; Special FLO-Flags
 
-; IO ADDESSES FLO1 MAXI
+; IO ADDESSES FLO1 Maxi
 FLOA0	EQU 040H
 FLOA1	EQU 041H
 FLOA2	EQU 042H
 FLOA3	EQU 043H
 FLOA4	EQU 044H
 
-; IO ADDESSES FLO1 MINI
+; IO ADDESSES FLO1 Mini
 FLOB0	EQU 030H
 FLOB1	EQU 031H
 FLOB2	EQU 032H
@@ -52,18 +52,21 @@ CONIN:	CALL 0F003H 	; Eingabe eines Zeichens nach A
 ;-----------------------------------------------------------------------------
 ; Interrupt routine
 
-INTR:	POP AF  	; spez. Int-Routine
+INTR:	POP AF
+	; reset interrupts
 	IN A,(FLOA0)
 	IN A,(FLOB0)
-	IN A,(FLO0) 	; Status FLO ist wichtig
+	IN A,(FLO0)
 	EI
-	RETI  		; fertig
+	RETI
 
 ;-----------------------------------------------------------------------------
-; Universal Formatierer
+; Universal Formatter
 
 FORMAT:	LD HL,FMSG 
 	CALL PRNMSG
+	
+	; reset interrupts
 	IN A,(FLOA0) 	; ggf. bei gemischtem Betrieb auch
 	IN A,(FLOB0)   	; andere Ports loeschen
 	IN A,(FLO0) 	; alle Interrupts loeschen
@@ -74,7 +77,7 @@ FORMAT:	LD HL,FMSG
 	LD HL,INTR
 	LD (39H),HL 	; auf Interruptroutine
 
-	; --- format ---
+	; --- format ---------------------------------------------------------
 
 	CALL HOME 	; set head to track 0
 
@@ -83,7 +86,10 @@ FORMAT:	LD HL,FMSG
 	LD A,(TRKCNT) 	; number of tracks
 	LD B,A
 
-FORM1:	; loop
+FORM1:	; format loop (tracks)
+
+	; --- format side 0 ---
+	
 	PUSH BC
 	CALL ECMACHK 	; check if track 0 and ECMA70
 	CALL GENTRK 	; create track
@@ -92,24 +98,27 @@ FORM1:	; loop
 	
 	LD A,(SSDS)
 	CP 1
-	JP NZ,FORM3	; single sided
+	JP NZ,FORM3	; -> single sided
+
+	; --- double-sided,. format side 1 ---
 	
-	; double-sided
 	LD A,(DRIVE)	; Rueckseite setzen
 	OR 80H  	; aber kein Side-sel
 	LD (DRIVE),A
-	
+
 	LD A,(USESSO)
 	OR A
 	JP Z,FORM2	; -> no SSO
 	
 	; SSO
-	LD A,80H
+	LD A,80H 
 	LD (SIDESEL),A 	; setzen
 
 FORM2:	CALL GENTRK
 	CALL FRMTRK
 	CALL ERRCHK
+	
+	; set side 0
 	LD A,(DRIVE)
 	AND 7FH
 	LD (DRIVE),A   
@@ -129,19 +138,24 @@ FORM3:	LD A,(CURTRK)
 FORM4:	LD C,'F'
 	CALL CONOUT 	; Meldung FFFFF ausgeben bei jeder Spur ein F
 	POP BC
-	DJNZ FORM1	; -> loop
+	DJNZ FORM1	; -> format loop (tracks)
 
-	; verify
+	; verify -------------------------------------------------------------
 	
 	LD HL,VMSG
 	CALL PRNMSG
+	
 	CALL HOME	; set head to track 0
+	
 	XOR A
 	LD (CURTRK),A  	; start with track 0
 	LD A,(TRKCNT) 	; number of tracks
 	LD B,A
 
-FORM5:	; loop
+FORM5:	; verify loop (tracks)
+
+	; --- verify side 0 ---
+
 	PUSH BC
 	CALL ECMACHK
 	CALL VERIFY
@@ -149,7 +163,8 @@ FORM5:	; loop
 	CP 1
 	JP NZ,FORM7	; -> single-sided
 
-	; double-sided
+	; --- double-sided, verify side 1 ---
+	
 	LD A,(DRIVE)
 	OR 80H
 	LD (DRIVE),A
@@ -159,9 +174,11 @@ FORM5:	; loop
 	
 	; SSO
 	LD A,80H
-	LD (SIDESEL),A 	; setzen
+	LD (SIDESEL),A
 
 FORM6:	CALL VERIFY
+
+	; set side 0
 	LD A,(DRIVE)
 	AND 7FH
 	LD (DRIVE),A 
@@ -181,7 +198,7 @@ FORM7:	LD A,(CURTRK)
 FORM8:	LD C,'V' 
 	CALL CONOUT 	; VVVVV fuer Verify
 	POP BC
-	DJNZ FORM5	; -> loop
+	DJNZ FORM5	; -> verify loop (tracks)
 	
 	CALL HOME 	; set head to track 0
 	RET
@@ -204,7 +221,7 @@ ECMACHK:
 	; track 0, format single-density
 	LD HL,128
 	LD (BYTCNT),HL
-	
+ 	
 	LD A,0 		; single density
 	LD (DENSITY),A 	;
 	LD A,0		; single-sided
@@ -641,22 +658,22 @@ DELAY1:	DEC BC
 ; Set head to track 0
 
 HOME:	LD A,(USER)
-	OR A  		; 0=FLO2
+	OR A
 	JP NZ,HOME4
 	
-	; FLO2
+	; USER=0: FLO1/FLO2 (C0h)
 	
 	LD HL,250 	; max retries
 	
 HOME1:	; retry loop
 	PUSH  HL
-	IN A,(FLO0)
+	IN A,(FLO0)	; read status
 	CALL DELAY
 	EI  		; enable interrupts
-	CALL REXEC
+	CALL RSTEX	; execute Restore
 	DI
 	POP HL
-	IN A,(FLO0) 	; check status
+	IN A,(FLO0)	; read status
 	AND 80H 	; <>0 dann nicht ready
 	JP Z,HOME12
 	
@@ -692,7 +709,7 @@ HOME5:	; retry loop
 	IN A,(FLOA0)
 	CALL DELAY
 	EI  		; enable interrupts
-	CALL RAEXEC
+	CALL RSTEXA	; execute Restore
 	DI
 	POP HL
 	IN A,(FLOA0) 	; check status
@@ -728,7 +745,7 @@ HOME9:	; retry loop
 	IN A,(FLOB0)
 	CALL DELAY
 	EI  		; enable interrupts
-	CALL RBEXEC
+	CALL RSTEXB	; execute Restore
 	DI
 	POP HL
 	IN A,(FLOB0) 	; check status
@@ -757,26 +774,26 @@ HOME12:	; finished
 	RET
 
 ;-----------------------------------------------------------------------------
-; Ausfuehrung FLO2
+; Execute Restore FLO2
 
-REXEC:	CALL SETCTR	; setup controller
-	LD A,0BH 	; Rstore ohne Verify
-	OUT (FLO0),A
+RSTEX:	CALL SETSR	; setup special register
+	LD A,00001011B 	; 0000=Restore, Headload=1, Verify=0, Stepping rate=11
+	OUT (FLO0),A	; write command
 	HALT  		; UEBER INT zurueck
 
 ;-----------------------------------------------------------------------------
-; Ausfuehrung FLO1 Maxi
+; Execute Restore FLO1 Maxi
 
-RAEXEC:	CALL SETCTR	; setup controller
-	LD A,0BH 	; Rstore ohne Verify
+RSTEXA:	CALL SETSR	; setup special register
+	LD A,00001011B 	; see FLO2
 	OUT (FLOA0),A
 	HALT  		; UEBER INT zurueck
 
 ;-----------------------------------------------------------------------------
-; Ausfuehrung FLO1 Mini
+; Execute Restore FLO1 Mini
 
-RBEXEC:	CALL SETCTR	; setup controller
-	LD A,0BH 	; Rstore ohne Verify
+RSTEXB:	CALL SETSR	; setup special register
+	LD A,00001011B 	; see FLO2
 	OUT (FLOB0),A
 	HALT  		; UEBER INT zurueck
 
@@ -785,39 +802,42 @@ RBEXEC:	CALL SETCTR	; setup controller
 
 STEPIN:	CALL DELAY 	; settle head
 	EI
-	CALL STPEXEC
+	CALL STPEX
 	DI
 	RET
 
 ;-----------------------------------------------------------------------------
+; Execute drive step
 
-STPEXEC:
+STPEX:
  	; Laufwerk und Dichte
-	CALL SETCTR	; setup controller
+	CALL SETSR	; setup special register
 	LD A,(USER)
-;1 	IF A=0
 	OR A
-	JP NZ,.L52
-	LD A,5BH
-	OUT (FLO0),A 	; Step ohne Verify
-;1 	ELSEIF A=1
-	JP .L53
-.L52:
-	CP 1
-	JP NZ,.L54
-	LD A,5BH
-	OUT (FLOA0),A
-;1 	ELSEIF A=2
-	JP .L53
-.L54:
-	CP 2
-	JP NZ,.L55
-	LD A,5BH 
-	OUT (FLOB0),A
-;1 	ENDIF
-.L55:
-.L53:
-	HALT 
+	JP NZ,STPEX1
+
+	; USER=0: FLO1/FLO2 (C0h)
+	LD A,01011011B	; 010=Step In, update=1, headload=1, verify=0, stepping rate=11
+	OUT (FLO0),A	; write command
+	JP STPEX3
+
+STPEX1:	CP 1
+	JP NZ,STPEX2
+	
+	; USER=1: FLO1 Maxi
+	LD A,01011011B	; see FLO2
+	OUT (FLOA0),A	; write command
+	JP STPEX3
+
+STPEX2:	CP 2
+	JP NZ,STPEX3	; das fuehrt zu einem Endlos-HALT, weil der Controller
+			; nicht programmier wurde.
+
+	; USER=2: FLO1 Mini
+	LD A,01011011B	; see FLO2
+	OUT (FLOB0),A	; write command
+
+STPEX3:	HALT 
 
 ;-----------------------------------------------------------------------------
 
@@ -832,21 +852,21 @@ READ1:	PUSH BC
 	OR A
 	JP NZ,READ2
 	
-	; FLO2
-	IN A,(FLO0) 	; Status beim Lesen pruefen
+	; USER=0: FLO1/FLO2 (C0h)
+	IN A,(FLO0) 	; read status
 	JP READ4
 	
 READ2:	CP 1
 	JP NZ,READ3
 	
-	; FLO1 Maxi
+	; USER=1: FLO1 Maxi
 	IN A,(FLOA0)
 	JP READ4
 	
 READ3:	CP 2
 	JP NZ,READ4
 	
-	; FLO1 Mini
+	; USER=2: FLO1 Mini
 	IN A,(FLOB0)
 
 READ4:	AND 00111100B
@@ -857,12 +877,12 @@ READ4:	AND 00111100B
 
 ;-----------------------------------------------------------------------------
 
-READEX:	CALL SETCTR 	; Dichtecode setzen, Head ist down.
+READEX:	CALL SETSR 	; setup special register
 	LD A,(USER)
 	OR A
 	JP NZ,READX2
 
-	; FLO2
+	; USER=0: FLO1/FLO2 (C0h)
 	LD A,(CURSEC)
 	OUT (FLO2),A 	; Sektor definieren
 	LD HL,FORMTAB 	; dorthin Daten legen 
@@ -875,9 +895,11 @@ READEX:	CALL SETCTR 	; Dichtecode setzen, Head ist down.
 	ADD A,88H 	; kein Delay abwarten, head ist down
 	OUT (FLO0),A 	; und Befehl geben
 
-READX1:	IN A,(FLO4)
-	RLCA
-	JP NC,READX1 	; warten bis DRQ-da ist
+READX1:	; wait for DRQ
+	IN A,(FLO4)
+	RLCA		; DRQ -> Carry
+	JP NC,READX1	; -> wait
+
 	INI  		; DATEN ablegen
 	JP READX1 	; bis alle Daten gelesen, dann Interrupt 
 	JP READX6
@@ -885,7 +907,7 @@ READX1:	IN A,(FLO4)
 READX2:	CP 1 
 	JP NZ,READX4
 
-	; FLO1 Maxi
+	; USER=1: FLO1 Maxi
 	LD A,(CURSEC)
 	OUT (FLOA2),A 	; Sektor definieren
 	LD HL,FORMTAB 	; dorthin Daten legen 
@@ -908,7 +930,7 @@ READX3:	IN A,(FLOA4)
 READX4:	CP 2 
 	JP NZ,READX6
 	
-	; FLO1 Mini
+	; USER=2: FLO1 Mini
 	LD A,(CURSEC) 
 	OUT (FLOB2),A 	; Sektor definieren
 	LD HL,FORMTAB 	; dorthin Daten legen 
@@ -930,9 +952,9 @@ READX5:	IN A,(FLOB4)
 READX6:	RET 
 
 ;-----------------------------------------------------------------------------
-; Setup controller
+; Setup special register (Register 4)
 
-SETCTR:	PUSH BC
+SETSR:	PUSH BC
 	LD A,(DRIVE) 	; Laufwerkscode
 	LD B,A 
 	LD A,(DENSITY)
@@ -941,28 +963,31 @@ SETCTR:	PUSH BC
 
 	; SD
 	LD A,B
-	OR 10H
+	OR 10H		; set FD179x and FDC9293 density signal
 	LD B,A
 
 SETCT1:	LD A,(MINMAX)
 	OR A
 	JP NZ,SETCT2
-	
+
+	; Mini
 	LD A,B
-	OR 20H
+	OR 20H		; set FDC9293 Mini signal
 	LD B,A
 	
-SETCT2:	LD A,(USER)
+SETCT2:	; Mini/Maxi
+	LD A,(USER)
 	OR A
 	JP NZ,SETCT5
 	
-	; FLO2
+	; USER=0: FLO1/FLO2 (C0h)
 	LD A,(FLOTYP)
 	CP 01H
 	JP NZ,SETCT3
-	
-	LD A,B  	; OK Code fertig
-	XOR 10H
+
+	; FLO1 (C0h)
+	LD A,B
+	XOR 10H		; invert density signal
 	JP SETCT4
 
 SETCT3:	LD A,B
@@ -974,20 +999,20 @@ SETCT4:	POP BC
 SETCT5:	CP 1  
 	JP NZ,SETCT6
 	
-	; FLO1 Maxi
+	; FLO1 Maxi (USER=1)
 	LD A,B
 	POP BC
-	XOR 10H  	; DENSE invertiert bei FLO1
+	XOR 10H  	; invert density signal
 	OUT (FLOA4),A
 	JP SETCT7
 
 SETCT6:	CP 2
 	JP NZ,SETCT7
 	
-	; FLO1 Mini
+	; FLO1 Mini (USER=2)
 	LD A,B
 	POP BC
-	XOR 10H  	; DENSE invertiert bei FLO1
+	XOR 10H  	; invert density signal
 	OUT (FLOB4),A
 
 SETCT7:	RET
@@ -999,53 +1024,58 @@ FRMTRK:	CALL DELAY
 	EI
 	CALL FMT
 	DI
+	
+	; check for lost data and write protection
+	
 	LD A,(USER)
 	OR A
 	JP NZ,FRMTR1
 	
-	; FLO2
-	IN A,(FLO0) 	; pruefen auf Schreibschutz, Datalost
+	; FLO1/FLO2 (C0h)
+	IN A,(FLO0) 	; read status
 	JP FRMTR3
 
 FRMTR1:	CP 1
 	JP NZ,FRMTR2
 	
 	; FLOW1 Maxi
-	IN A,(FLOA0)
+	IN A,(FLOA0) 	; read status
 	JP FRMTR3
 
 FRMTR2:	CP 2
 	JP NZ,FRMTR3
 	
 	; FLO1 Mini
-	IN A,(FLOB0)
+	IN A,(FLOB0) 	; read status
 
-FRMTR3:	AND 44H
+FRMTR3:	AND 01000100B	; Bit 2=Lost Data, Bit 6=Write Protect
 	RET
 
 ;-----------------------------------------------------------------------------
 
-FMT:	CALL SETCTR 	; set density etc. at Port 4
+FMT:	CALL SETSR 	; setup special register
 	LD A,(USER)
 	OR A
 	JP NZ,FMT2
 
-	; FLO 2
+	; FLO1/FLO2 (C0h)
 	LD HL,FORMTAB 	; Startadresse 
 	LD C,FLO3 	; Datenport
 	LD A,(SIDESEL) 	; Side-Flag setzen, fuer SSO-Ausgang
 	AND 80H 	; wenn USESSO auf 80h gesetzt wird
-	RLCA  	; BIT 0
-	RLCA  	; BIT 1
-	AND 00000010B 	; 1=Seite 1
-	OR 0F4H 	; Formatier-Befehl+nicht documentierter
+	RLCA  		; BIT 0
+	RLCA  		; BIT 1
+	AND 00000010B 	; Side select for FD1797 (SSO)
+	OR 0F4H 	; 1111x1xx=Write track, Formatier-Befehl+nicht documentierter
 	OUT (FLO0),A 	; Side-Select-Befehl fuer SSO
 
 FMT1:	; format loop
 	IN A,(FLO4) 	; DRQ int head
-	RLCA  		; BIT 7 ins carry
-	JP NC,FMT1 	; 0=warten 1=fertig i
-	OUTI  		; UND BYte ausgeben
+	RLCA  		; DRQ -> carry
+	JP NC,FMT1 	; -> wait
+	
+	; ready
+	OUTI		; (HL) -> Port (C), length in B
 	JP FMT1 	; durch INT wird die Routine gestoppt.
 	JP FMT6
 
@@ -1057,17 +1087,18 @@ FMT2:	CP 1
 	LD C,FLOA3 	; Datenport
 	LD A,(SIDESEL) 	; Side-Flag setzen, fuer SSO-Ausgang
 	AND 80H 	; wenn USESSO auf 80h gesetzt wird
-	RLCA  	; BIT 0
-	RLCA  	; BIT 1
-	AND 00000010B 	; 1=Seite 1
-	OR 0F4H 	; Formatier-Befehl+nicht documentierter
-	OUT (FLOA0),A 	; Side-Select-Befehl fuer SSO
+	RLCA  		; BIT 0
+	RLCA  		; BIT 1
+	AND 00000010B 	; Side select for FD1797 (SSO)
+	OR 0F4H 	; see FLO2
+	OUT (FLOA0),A
 
-FMT3:	; format loop
+FMT3:	; wait for DRQ
 	IN A,(FLOA4) 	; drq int head
 	RLCA  		; BIT 7 ins carry
-	JP NC,FMT3 	; 0=warten 1=fertig i
-	OUTI  		; UND BYte ausgeben
+	JP NC,FMT3 	; -> wait
+	
+	OUTI		; (HL) -> Port (C), length in B
 	JP FMT3 	; durch INT wird die Routine gestoppt.
 	JP FMT6
 
@@ -1081,15 +1112,16 @@ FMT4:	CP 2
 	AND 80H 	; wenn USESSO auf 80h gesetzt wird
 	RLCA  		; BIT 0
 	RLCA  		; BIT 1
-	AND 00000010B 	; 1=Seite 1
-	OR 0F4H 	; Formatier-Befehl+nicht documentierter
-	OUT (FLOB0),A 	; Side-Select-Befehl fuer SSO
+	AND 00000010B 	; Side select for FD1797 (SSO)
+	OR 0F4H 	; see FLO2
+	OUT (FLOB0),A
 
-FMT5:	; format loop
-	IN A,(FLOB4) 	; drq int head
+FMT5:	; wait for DRQ
+	IN A,(FLOB4) 	; DRQ int head
 	RLCA  		; BIT 7 ins carry
-	JP NC,FMT5 	; 0=warten 1=fertig i
-	OUTI  		; UND BYte ausgeben
+	JP NC,FMT5 	; -> wait
+	
+	OUTI		; (HL) -> Port (C), length in B
 	JP FMT5 	; durch INT wird die Routine gestoppt.
 
 FMT6:	RET
@@ -1116,9 +1148,9 @@ MAIN1:	; wait for 1..6
 MAIN2:	PUSH AF
 	XOR A
 	LD (ECMA),A 	; 0=no ECMA70 (default)
-	LD (USER),A 	; 0=FLO2
+	LD (USER),A 	; 0 = FLO1/FLO2 (C0h)
 	LD A,0E5H
-	LD (FILLER),A 	; Filler ist normalerweise E5
+	LD (FILLER),A 	; Filler ist normalerweise E5h
 	XOR A
 	LD (SIDESEL),A 	; no SSO (default)
 	LD (USESSO),A	; auch nicht bei Kopfwechsel 
@@ -1154,43 +1186,42 @@ MAIN4:	CP '3'
 	JP NZ,MAIN5
 	
 	; Format 3: Std  8" SD SD 77 Spur
-	LD A,1
+	LD A,1		; Maxi disk
 	LD (MINMAX),A
-	LD HL,128 	; 128 Bytes pro Sektor
+	LD HL,128 	; 128 bytes per sector
 	LD (BYTCNT),HL
-	LD A,0
-	LD (DENSITY),A 	; SD
-	LD A,27 	; Gaplaenge
+	LD A,0 		; single-density
+	LD (DENSITY),A
+	LD A,27 	; gap lenght 27
 	LD (GAPLEN),A
-	LD A,0
-	LD (SSDS),A 	; single-sided
-	LD A,26 	; Sektorenzahl
+	LD A,0 		; single-sided
+	LD (SSDS),A
+	LD A,26 	; 26 sectors
 	LD (SECCNT),A
-	LD A,77 	; 0..76
-	LD (TRKCNT),A 	; Anzahl Spuren
+	LD A,77 	; 77 tracks
+	LD (TRKCNT),A
 	JP MAIN8
 
 MAIN5:	CP '4' 
 	JP NZ,MAIN6
 
 	; Format 4: ECMA 70 DD SD 40 Spur
-	XOR A
-	LD (MINMAX),A 	; rev 1.1, loeschen
-	LD A,1
-	LD (ECMA),A 	; Spezialformat SD erste Spur
-	LD (USESSO),A 	; wenn rueckseite dann mit Bit
-			; REST In ecma doppelt
-	LD HL,256 	; rest DD
+	XOR A		; Mini disk
+	LD (MINMAX),A
+	LD A,1	 	; Spezialformat SD erste Spur
+	LD (ECMA),A 	; wenn rueckseite dann mit Bit
+	LD (USESSO),A	; REST in ECMA doppelt
+	LD HL,256 	; 256 bytes per sector
 	LD (BYTCNT),HL
-	LD A,1
-	LD (DENSITY),A 	; DD
-	LD A,0
-	LD (SSDS),A 	; single-sided
-	LD A,16 	; Sektorenzahl
+	LD A,1		; double-density
+	LD (DENSITY),A
+	LD A,0		; single-sided
+	LD (SSDS),A
+	LD A,16 	; 16 sectors
 	LD (SECCNT),A
-	LD A,54
-	LD (GAPLEN),A 	; STD Gap
-	LD A,40 	; und 40 Spuren
+	LD A,54		; gap length 54
+	LD (GAPLEN),A
+	LD A,40 	; 40 tracks
 	LD (TRKCNT),A
 	JP MAIN8
 
@@ -1198,24 +1229,24 @@ MAIN6:	CP '5'
 	JP NZ,MAIN7
 
 	; Format 5: NDR- DD DS 80 Spur
-	LD A,0 		; MINI
+	LD A,0 		; Mini disk
 	LD (MINMAX),A
-	LD HL,1024 	; bytes per sector
+	LD HL,1024 	; 1024 bytes per sector
 	LD (BYTCNT),HL
-	LD A,1 		; DD
+	LD A,1 		; double-density
 	LD (DENSITY),A
-	LD A,54 	; Gaplaenge 3
+	LD A,54 	; gap length 3
 	LD (GAPLEN),A
-	LD A,5
+	LD A,5		; 5 sectors
 	LD (SECCNT),A
-	LD A,1
-	LD (SSDS),A 	; double-sided
-	LD A,1
+	LD A,1 		; double-sided
+	LD (SSDS),A
+	LD A,1		; side bit
 	LD (USESSO),A 	; und mit Side-Bit
-	LD A,80 	; Spuren 0..79
+	LD A,80 	; 80 tracks (0..79)
 	LD (TRKCNT),A
 	JP MAIN8
-	
+
 MAIN7:	CP '6' 
 	JP NZ,MAIN8
 	
@@ -1251,7 +1282,7 @@ MAIN12:	CP '3'
 	; FLO type 3: FLO1 Mini (30h)
 	LD A,2 	; FLO2, mini
 	; FLOTYP = 0
-	; USER = 0
+	; USER = 2
 	JP MAIN15
 	
 MAIN13:	CP '4'
@@ -1514,8 +1545,8 @@ SELSI3:	; all other inputs: double-sided with SSO
 	LD A,1
 	LD (SSDS),A	; double-sided
 	LD A,1
-	LD (USESSO),A 	; Seite 0 beginnt
-
+	LD (USESSO),A	; use SSO
+	
 SELSI4:	LD (SSDS),A 	; single-sided=0, double-sided=1
 	RET
 
@@ -1844,16 +1875,16 @@ PRNP2:	CALL PRNMSG
 	OR A		; USER=0 ?
 	JP NZ,PRNP5
 	
-	; USER=0 ---
+	; USER=0: FLO1/FLO2 (C0h)
 	LD A,(FLOTYP)
 	OR A
 	JP NZ,PRNP3
 	
-	; USER=0: FLOTYP=FLO2 (C0h)
+	; USER=0, FLOTYP=0: FLO2 (C0h)
 	LD HL,TFLO2
 	JP PRNP4
 	
-PRNP3:	; USER=0: FLOYP=FLO1 (C0h)
+PRNP3:	; USER=0, FLOYP=1: FLO1 (C0h)
 	LD HL,TFLO1C
 
 PRNP4:	JP PRNP7
@@ -1861,11 +1892,11 @@ PRNP4:	JP PRNP7
 PRNP5:	CP 1		; USER=1 ?
 	JP NZ,PRNP6
 	
-	; USER=1: FLO1 Maxi
+	; USER=1: FLO1 (40h)
 	LD HL,TFLO1A
 	JP PRNP7
 
-PRNP6:	; USER=other: FLO1 Mini
+PRNP6:	; USER=other: FLO1 (30h)
 	LD HL,TFLO1B
 
 PRNP7:	CALL PRNMSG	; print USER/FLOTYP
@@ -2009,7 +2040,8 @@ PRNP21:	CALL PRNMSG
 PRNP22:	CALL CRLF 
 	CALL CRLF
 	
-	; --- capacity ---
+	; --- capacity in kb ---
+	
 	LD HL,TKAP
 	CALL PRNMSG
 	LD A,(SECCNT)
@@ -2029,48 +2061,50 @@ PRNP22:	CALL CRLF
 	CALL MULHLDE 	; HL = HL * 2
 
 PRNP23:	LD DE,(BYTCNT) 	; 1024,512,256,128
-			; (400h,200h,100h,80h)
+			; (400h,200h,100h,080h)
 	LD A,D
 	OR A
-	JP NZ,PRNP25 	; -> D=1
+	JP NZ,PRNP25
 	
-	; D=0: HL = HL / 8
+	; D=0: HL = HL / 8 (1 KB / 8 = 128)
 	LD B,3 
 PRNP24:	SRA H
 	RR L
 	DEC B
 	JP NZ,PRNP24
 	
-	JP PRNP28
+	JP PRNP29
 
 PRNP25:	; D=1
 	LD A,D
 	CP 1
 	JP NZ,PRNP26
 	
-	; D=1: HL = HL / 4
+	; D=1: HL = HL / 4 (1 KB / 4 = 256)
 	SRA H
 	RR L
 	SRA H
 	RR L
-	JP PRNP28
+	JP PRNP29
 
 PRNP26:	LD A,D
 	CP 2
 	JP NZ,PRNP27
 
-	; D=2: HL = HL / 2
+	; D=2: HL = HL / 2 (1 KB / 2 = 512)
 	SRA H
 	RR L
-	JP PRNP28
-	
-PRNP27:	LD A,D
-	CP 4
-	JP NZ,PRNP28
-	
-	NOP  	; HL = KBytes
+	JP PRNP29
 
-PRNP28:	CALL PRNTHL	; print HL decimal
+PRNP27:	; D=4: HL = HL / 1 (1 KB / 1 = 1024)
+
+PRNP28:	LD A,D
+	CP 4
+	JP NZ,PRNP29
+	
+	NOP		; ???
+
+PRNP29:	CALL PRNTHL	; print HL decimal
 	LD HL,TKAP1
 	CALL PRNMSG
 	CALL CRLF
@@ -2313,21 +2347,20 @@ FIMSG:	DEFB 1ah,0dh,0ah
 
 	DEFB 0		; v1.22
 	
-USER:	DEFB 0  	; ??? NDR=1, MC+Term1=2, sonst=3 (<- das stimmt nicht mehr)
-FLOTYP:	DEFB 0    	; 0=FLO2, 1=FLO1 Maxi, 2=FLO1 Mini
-MINMAX:	DEFB 0  	; 0=Mini 1=Maxi
+USER:	DEFB 0  	; 0=FLO1/FLO2 (C0h), 1=FLO1 Maxi, 2=FLO1 Mini
+FLOTYP:	DEFB 0    	; 0=FLO2 (C0h), 1=FLO1 (C0h) (only if USER=0)
+MINMAX:	DEFB 0  	; 0=Mini, 1=Maxi
 ECMA:	DEFB 0  	; 1=ECMA70 format (SD,128 on track 0)
 BYTCNT:	DEFW 0  	; Anzahl der Bytes pro Sektor
-FILLER:	DEFB 0E5h 	; fill byte std=E5
+FILLER:	DEFB 0E5h 	; fill byte std=E5h
 DENSITY:DEFB 0  	; 0=single-density, 1=double-density
 GAPLEN:	DEFB 0  	; Gap 3 Laenge zwischen Sektoren
 TRKCNT:	DEFB 0  	; Anzahl der Spuren
 SSDS:	DEFB 0  	; 0=single-sided, 1=double-sided
 SECCNT:	DEFB 0  	; Anzahl der Sektoren pro Spur
-DRIVE:	DEFB 0  	; drive code (1,2,4,8)
-			; 81,82,84,88 = Rueckseite
-SIDESEL:DEFB 0  	; SSO: 0=Seite 0, 80h=Seite 1
-USESSO:	DEFB 0  	; 0=no SSO, 1=use SSO
+DRIVE:	DEFB 0  	; drive code (1,2,4,8), Bit7=1: Side 1
+SIDESEL:DEFB 0  	; SSO: 0=Seite 0, 80h=Seite 1 (wird nur bei USESSO=1 gesetzt fuer FD1797)
+USESSO:	DEFB 0  	; 0=no SSO, 1=use SSO (nur fuer FD1797)
 		
 CURTRK:	DEFB 0  	; aktuelle Spur
 CURSEC:	DEFB 0  	; aktueller Sektor
