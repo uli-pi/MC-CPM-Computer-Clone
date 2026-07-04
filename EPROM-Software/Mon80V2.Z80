@@ -33,6 +33,18 @@
 ; --- Work in progress ---
 
 ;------------------------------------------------------------------------------
+; Mapping of REG-Latch
+
+; Bit0 = Drive Select 1
+; Bit1 = Drive Select 1
+; Bit2 = Drive Select 3
+; Bit3 = Drive Select 4
+; Bit4 = FDC9239 Dens (0=DD, 1=SS)
+; Bit5 = FDC9239 Mini (0=Maxi, 1=Mini)
+; Bit6 = Motor On (Jumper)
+; Bit7 = Side Select (Jumper)
+
+;------------------------------------------------------------------------------
 ; Constants
 
 FALSE	EQU 0
@@ -427,9 +439,8 @@ IEXEC:	DEFS 3
 KEXEC:	DEFS 3
 
 ;==============================================================================
-; FLO2 floppy routines
-
-; Autobestimmung des Formats
+; Format detection (not used)
+;
 ; in C ist danach der gueltige ; Laufwerkscode,
 ; Vorgabe ist in C die Laufwerksnummer und ggf. Seite.
 ; testet mini,sd =11
@@ -437,67 +448,78 @@ KEXEC:	DEFS 3
 ;        maxi,sd =01
 ;        maxi,dd =00
 
-getfl:	DI  		; ohne Interrupts
+GETFRM:	DI  		; disable interrupts
 	LD A,0D0H
-	OUT (FLO),A 	; Stop Controller
-	IN A,(FLO) 	; Ints loeschen
-	LD A,C
-	AND 8FH 	; nur Drivecode ok
-	LD C,A
-	CALL WAWA	; short delay
-	LD A,C
-	OR 00110000B	; mini sd vorgeben		
-	LD C,A
-	CALL GET1FL
-	RET NC  	; kein Fehler, no carry
+	OUT (FLO),A 	; stop controller
+	IN A,(FLO) 	; clear controller interrupts
 	
+ 	; use only drive code and side
+	LD A,C
+	AND 8FH
+	LD C,A
+	
+	CALL WAWA	; short delay
+	
+	; try Mini SD
+	LD A,C
+	OR 00110000B
+	LD C,A
+	CALL TSTFRM
+	RET NC		; -> ok
+	
+	; try Maxi SD
 	LD A,C
 	AND 10101111B
 	LD C,A
-	CALL GET1FL
-	RET NC
+	CALL TSTFRM
+	RET NC		; -> ok
 	
+	; try Mini SD
 	LD A,C
 	AND 10001111B
 	OR  00010000B
 	LD C,A
-	CALL GET1FL
-	RET NC
+	CALL TSTFRM
+	RET NC		; -> ok
+
+	; try Maxi DD
 	LD A,C
 	AND 10001111B
 	LD C,A
-	CALL GET1FL
-	RET  		; carry, dann Fehler
+	CALL TSTFRM
+	RET  		; ok or error (carry=1)
 
 ;------------------------------------------------------------------------------
-; get1fl
+; TSTFRM
 
-GET1FL:	LD A,(FLOC0)
+TSTFRM:	LD A,(FLOTYP)
 	CP 1
-	JP NZ,GET1FL1	; -> FLO2
+	JP NZ,TSTF1	; -> FLO2
 
 	; FLO1
 	LD A,C
 	XOR 10H		; if FLO1 invert density bit
-	JP GET1FL2
+	JP TSTF2
 	
-GET1FL1:; FLO2
+TSTF1:	; FLO2
 	LD A,C
+
+TSTF2:	OUT (FLO+4),A 	; set REG4-Latch
+	LD A,0FH 	; RSTORE command with Verify
+	OUT (FLO),A 	; to controller
 	
-GET1FL2:
-	OUT (FLO+4),A 	; Drive-Code probieren
-	LD A,0FH 	; RSTORE-Befehl mit Verify verwenden
-	OUT (FLO),A 	; und ausgeben
-GET1FL3:
+TSTF3:	; wait for INT
 	IN A,(FLO+4)
 	AND 40H 	; Bit 6 pruefen
-	JR Z,GET1FL3 	; bis INT da
-	IN A,(FLO) 	; und dann status lesen, int loeschen
-	AND  10011000B 	; krit. Bit testen 
-	SCF  		; falls Fehler, dann setzen
-	RET NZ  	; carry=Fehler
+	JR Z,TSTF3 	; -> wait
+	
+	IN A,(FLO) 	; read status, clear interrupt
+	AND  10011000B 	; mask critical bits
+	SCF
+	RET NZ  	; return with carry se (error)
+	
 	XOR A
-	RET  		; sonst ok nocarry (c=Code)
+	RET  		; return with carry clear (no error)
 
 ;==============================================================================
 ; Floppy Interface Paket Rev 1.0   841031
@@ -519,6 +541,11 @@ MAXI:	CALL SCODA	; coding 1
 			; gueltig wenn bit 7 gesetzt.
 
 ;------------------------------------------------------------------------------
+; Maxi Disk recoding of drive and side for Special Register 4
+; 0 -> 11 (drive 1, side 0, Maxi)
+; 1 -> 91 (drive 1, side 1, Maxi)
+; 2 -> 12 (drive 2, side 0, Maxi)
+; 3 -> 92 (drive 2, side 1, Maxi)
 
 SCODA:	LD A,C  	; SD MAXI
 	AND 3  		; muss Bereich 0..3 sein
@@ -544,6 +571,13 @@ SCODA3:	LD C,10010010B 	; LW 2 seite 1
 	RET
 
 ;------------------------------------------------------------------------------
+; Mini Disk recoding of drive and side for Special Register 4
+; 0 -> 01 (drive 1, side 0, Mini)
+; 1 -> 81 (drive 1, side 1, Mini)
+; 2 -> 02 (drive 2, side 0, Mini)
+; 3 -> 82 (drive 2, side 1, Mini)
+
+; hier ist eine Erweiterung für Laufwerke C und D notwendig
 
 SCODB:	AND 3  		; 0,1,2,3 erlaubt
 	CP 0
@@ -568,32 +602,42 @@ SCODB3:	LD C,10000010B 	; LW 2 seite 1
 	RET
 
 ;------------------------------------------------------------------------------
-; rest unzul.
-; 10,11 12,13 gekoppelt, d0,d1,d2,d3
-; bit 6 =Dichtecode 1=Double dense
 
-mini:	LD A,C
+; Old MINI routine
+
+; Routinen fuer MC-Kompatibilitaet
+; wie floppy, jedoch Drive-Codierung anders
+; nur fuer bestehende BIOS-Routinen gedacht
+;
+; HL = block buffer address
+; B = 0=set step-rate and SSO, 1=read, 2=write
+; C = bit0=drive 0/1 (A/B), bit1=side 0/1, bit6=density
+; D = track
+; E = physical sector
+
+MINI:	LD A,C		; drive code
 	AND 7FH 	; bit 7 interessiert nicht
-	LD C,A
+	LD C,A		; C value is used and overwritten by SCODB
+
+	; value for REG4-Latch -> C
 	PUSH AF
-	CALL SCODB 	; coding 2
+	CALL SCODB 	; drive-code + side A -> C (value for REG4-Latch)
 	POP AF
-	AND 40H 	; dd,sd 
-	JP NZ,MINI3
+	AND 40H 	; density
+	JP NZ,MINI1
 	
-	; IF Z=0 SD
+	; single-density
 	LD A,C
-	OR 00110000B 	; SD MINI
+	OR 00110000B 	; Bit5=Mini, Bit4=density (0=DD)
 	LD C,A
-	; ELSE
-	JP MINI4
+	JP MINI2
 
-mini3:	; DD
+MINI1:	; double-density
 	LD A,C
-	OR 00100000B 	; DD MINI
+	OR 00100000B 	; Bit5=Mini, Bit4=density (0=DD)
 	LD C,A
 
-mini4:	LD A,2  	; sso-flag setzen
+MINI2:	LD A,2  	; set SSO flag
 	JP FLOP1 	; ok ausfuehren
 
 ;==============================================================================
@@ -635,6 +679,8 @@ FLO	EQU 0C0H 		; Basisadresse Floppy-Controller
 ;FLO2	EQU 0C2H
 ;FLO3	EQU 0C3H
 ;FLO4	EQU 0C4H 		; Port fuer Zusatzstatus etc.
+				; write REG4-Latch
+				; read REG4-Status
 
 ;------------------------------------------------------------------------------
 ; Bei einem Interrupt wird an diese Stelle gesprungen
@@ -647,12 +693,13 @@ INTEX:	; Das INT-Program arbeitet nicht als Unterprogramm
 	RETI  			; zurueck zum vorherigen Aufrufer
 
 ;------------------------------------------------------------------------------
+; Floppy Routinen Init
 
-iniflp:				; Floppy Routinen Init
-	LD A,2  		; 3= langsamste Steprate
-	LD (STEPRATE),A		; einstellen, kein SSO
+INIFLP:	LD A,2  		; 3 = langsamste Steprate, kein SSO
+	LD (STEPRATE),A
+	
 	LD A,0FFH
-	LD (CURDRV),A 		; Drive ungueltig
+	LD (CURDRV),A 		; no current drive
 	RET 
 
 ;------------------------------------------------------------------------------
@@ -663,10 +710,10 @@ INTVEK	EQU 38h 		; Interruptziel
 ; Haupteingang der Floppy-Routinen
 ; HL = Ziel oder Quelladresse
 ; E = Sektor D= Track
-; C = Laufwerkscode + Dichtecode + Seite (siehe SOFTEX)
+; C = Laufwerkscode + Dichtecode + Seite (siehe EXFLO)
 ;   7    6    5    4    3    2    1    0
 ;   sso  mot  min  dens d    d    d    d
-;   sso  = seitenauswahl (1=seite 1)
+;   sso  = seitenauswahl (0=side 0, 1=side 1)
 ;   mot  = motor on code (std=0)
 ;   min  = 1 bei Minilaufwerken
 ;   dens = 1 bei Single Dense Aufzeichnung
@@ -680,17 +727,18 @@ INTVEK	EQU 38h 		; Interruptziel
 
 ; Entry SSO = 0
 
-FLOP:	XOR A  			; sso-Flag auf 0 setzen
+FLOP:	XOR A  			; SSO-Flag auf 0 setzen
 
 ; Entry SSO in A
+; called only from Old MINI routine
 
-flop1:	; a=sso flag, nur 2 zulaessig
+FLOP1:	; SSO flag in A, only 0 and 2 allowed
 	LD (SSOFLAG),A
 
-cflo1:	PUSH AF
-	LD A,(FLOC0)
+	PUSH AF
+	LD A,(FLOTYP)
 	CP 1  
-	JP NZ,CFLO2		; -> FLO2
+	JP NZ,FLOP2		; -> FLO2
 	
 	; FLO1
 	LD A,C
@@ -698,11 +746,11 @@ cflo1:	PUSH AF
 	XOR 10H 		; invertieren Dichtebit fuer FLO1
 	LD C,A
 
-CFLO2:	POP AF
+FLOP2:	POP AF
 	LD (SP0),SP 		; save user-stack, maybe to deep for BDOS
 	LD SP,TSTACK 		;
 
-	LD A,0D0H
+	LD A,0D0H		; ???
 	OUT (FLO),A 		; reset floppy controller
 	
 	; set interrupt vector to INTEX
@@ -720,7 +768,7 @@ CFLO2:	POP AF
 	IN A,(FLO)		; Status - Port
 	IM 1  			; set interrupt mode 1 ->  execure at 38h
 	EI  			; Interrupt freigeben
-	CALL SOFTEX
+	CALL EXFLO
 	DI  			; disable interrupt
 	
 	; restore interrupt vector
@@ -732,56 +780,57 @@ CFLO2:	POP AF
 	LD (INTVEK+1),HL
 	POP HL
 	POP AF
-	LD SP,(SP0) 		; restore user-stack
 	
+	LD SP,(SP0) 		; restore user-stack
 	RET
 
 ;------------------------------------------------------------------------------
 ; Diverse Unterprogramme
 ;------------------------------------------------------------------------------
+; Prepare command byte for floppy controller
 
-SETUP:				; testet ob der Kopf noch
+SETCMD:				; testet ob der Kopf noch
 				; geladen ist und setzt die
 	LD B,0  		; Flag fuer SSO-Bit
 	LD A,(DRVCOD) 		; wenn Bit 7 gesetzt, dann abfragen
 	AND 80H
-	JR Z,SETUP2 		; Seite 0, immer mit SSO=0
+	JR Z,SETC2 		; Seite 0, immer mit SSO=0
 	
 	LD A,(STEPRATE) 	; jetzt pruefen ob flags da
 	AND 80H 		; <>0, dann SSO setzen, wenn seite 1
-	JR Z,SETUP1 		; =0, dann code 0, oder SSOFLAG
+	JR Z,SETC1 		; =0, dann code 0, oder SSOFLAG
 	
 	LD B,2  		; SSO setzen 
-	JR SETUP2
+	JR SETC2
 
-SETUP1:	; pruefen ob SSO-Flag
+SETC1:	; pruefen ob SSO-Flag
 	LD A,(SSOFLAG) 		; ok, 2=Flag
 	AND 2  			; SSO-Bit
 	LD B,A  		; 0,2 erlaubt 
 
-SETUP2:	; entsprechenden Bits
-	IN A,(FLO+4) 		; Status Port
+SETC2:	; entsprechenden Bits
+	IN A,(FLO+4) 		; REG4-Status
 	AND 20H 		; Head-Load Bit
-	JR NZ,SETUP3 		; =1 dann Kopf auf Diskette
+	JR NZ,SETC3 		; =1 dann Kopf auf Diskette
 	
 	LD A,B
-	OR 4  			; sonst Bitmaske fuer headdown
+	OR 04h 			; sonst Bitmaske fuer headdown
 	RET
 
-SETUP3:	; noset
+SETC3:	; noset
 	LD A,B
 	RET 			; Code belassen
-	
+
 ;------------------------------------------------------------------------------
 ; Read one sector
 ; sector number in E
 
 RDFLP:	LD A,C
-	OUT (FLO+4),A 		; erst mal Dichtecode setzen und Seite
+	OUT (FLO+4),A 		; erst mal Dichtecode setzen und Seite -> REG4-Latch
 	LD A,E
 	OUT (FLO+2),A 		; ins Sektorregister
 	LD C,FLO+3 		; Adresse Datenport dann nach c
-	CALL SETUP 		; Register A vorbereiten
+	CALL SETCMD 		; Register A vorbereiten
 	ADD A,88H 		; Lese-Befehl, sidesel=0
 	OUT (FLO),A 		; Befehl ausfuehren
 
@@ -797,11 +846,11 @@ RDFLP1:	; wait for DRQ
 ; Write one sector
 
 WRFLP:	LD A,C
-	OUT (FLO+4),A 		; erst mal Seite anwaehlen und Dichte
+	OUT (FLO+4),A 		; erst mal Seite anwaehlen und Dichte -> REG4-Latch
 	LD A,E  		; Sektorregister setzen
 	OUT (FLO+2),A
 	LD C,FLO+3		; Adresse Datenport laden
-	CALL SETUP		; E-Code in A laden
+	CALL SETCMD		; E-Code in A laden
 	ADD A,0A8H		; Befehl Schreibe-Sektor
 	OUT (FLO),A 		; und Befehl ausfuehren
 
@@ -839,7 +888,7 @@ DELAY:	DEC BC
 SEEK:	CALL WAWA 		; short delay
 
 	LD A,C
-	OUT (FLO+4),A 		; drive code, density and side
+	OUT (FLO+4),A 		; drive code, density and side -> REG4-Latch
 	LD A,E
 	OUT (FLO+2),A 		; Sector
 	LD A,D
@@ -858,7 +907,7 @@ SEEK:	CALL WAWA 		; short delay
 RSTORE:	CALL WAWA		; short delay
 
 	LD A,C  		; Laufwerkscode (drive)
-	OUT (FLO+4),A 		; mit Dichtecode etc. ausgeben
+	OUT (FLO+4),A 		; mit Dichtecode etc. ausgeben -> REG4-Latch
 	
 	LD B,8  		; nur Head-load, kein verify
 	LD A,(STEPRATE)
@@ -872,9 +921,9 @@ RSTORE:	CALL WAWA		; short delay
 ; Floppy Kernal Routines
 
 ; HL=Address, d=Track e=Sector
-; b=Command (0=set dteprate, 1=read, 2=write)
+; b=Command (0=set steprate+SSO, 1=read, 2=write)
 ; c=drive code
-;   aufgebaut wie Statusregister
+;   aufgebaut wie Special Register 4
 ;   7    6    5    4    3    2    1    0
 ;   sso  mot  min  dens d    d    d    d
 ;   sso  = seitenauswahl (1=seite 1)
@@ -886,30 +935,37 @@ RSTORE:	CALL WAWA		; short delay
 ;   Kombinationen moeglich, wenn binaere
 ;   Dekodierung beim Laufwerk verwendet wird
 
-SOFTEX:	LD A,B			; B = steprate
+EXFLO:	LD A,B			; B = command
 	OR A
-	JR NZ,SOFT1
+	JR NZ,EXFL1
 
-	; set new steprate (0..3 in D, SSO in bit 7)
+	;---------------------------------------------------------------------
+	; B=0: set steprate and SSO
+	; steprate in D, Bit0/1=steprate, bit7=SSO
+	
 	LD A,D   		; (+80h =SSO verwenden und pruefen).
 	AND 83h  		; Bit 7=SSO-Flag bei Zugriffen wichtig
 	LD (STEPRATE),A		; die die zweite Seite verwenden.
 	XOR A
 	RET
 
-SOFT1:	XOR A
+	;---------------------------------------------------------------------
+
+EXFL1:	XOR A
 	LD (ERRCNT),A 		; Fehlerzahl 0
 	LD A,C
-	LD (DRVCOD),A 		; Drive-Code
-	AND 0FH 		; fuer Vergleich
-	LD C,A  		; wieder zurueck
+	LD (DRVCOD),A 		; drive-code
+	AND 0FH 		; in bit 0..3
+	LD C,A
 	LD A,(CURDRV)
-	CP 0FFH 		; ungueltig, dann setzen noetig
-	JR Z,NOTDEF
+	CP 0FFH 		; current drive invalid -> set
+	JR Z,EXFL2
 	
-	AND 0FH 		; nur Laufwerksnummer relevant
-	CP C  			; Vergleich ob Laufwerkewechsel
-	JP Z,NURSEEK 		; nur Seek noetig
+	; check if drive change
+	AND 0FH 		; bit 0..3
+	CP C
+	JP Z,EXFL3 		; -> no change, nur Seek noetig
+
 	PUSH HL
 	PUSH BC
 	LD HL,DRVTAB 		; Basisadresse
@@ -921,15 +977,14 @@ SOFT1:	XOR A
 	POP BC
 	POP HL
 
-notdef:				; Drive nur laden
-	PUSH HL
+EXFL2:	PUSH HL
 	PUSH BC
 	LD A,(DRVCOD) 		; neues Laufwerk
 	AND 0FH 		; nur Laufwerkscode
 	LD C,A
 	LD B,0
 	LD HL,DRVTAB 		; Tabellenstart
-	ADD HL,BC 		; hl zeigt auf Laufwerkstrack
+	ADD HL,BC 		; HL zeigt auf Laufwerkstrack
 	LD A,(HL)
 	OUT (FLO+1),A 		; und ins Register des FDs
 	POP BC
@@ -940,41 +995,42 @@ notdef:				; Drive nur laden
 	LD BC,1000*3/12		; ca 1ms warten
 	CALL DELAY
 	LD A,(DRVCOD) 		; Dann neues Laufwerk ansprechen
-	OUT (FLO+4),A
+	OUT (FLO+4),A		; -> REG4-Latch
 	LD BC,2917		; ca 35ms .. 15ms
 	CALL DELAY		; um headload-Zeit zu beruecksichtigen 
 	POP BC  		; alte Codes zurueck
-	JR NUR1 		; Immer auf ready pruefen, da
-				; head down sein kann und dennoch
-				; nicht ready
+	JR EXFL4 		; Immer auf ready pruefen, da
+				; head down sein kann und dennoch nicht ready
 
-nurseek:
-	IN A,(FLO+4) 		; wenn head down dann kein dummyseek
+EXFL3:	; seek only
+	IN A,(FLO+4)
 	AND 20H
-	JR NZ,NODUM
+	JR NZ,EXFL5		; -> head down, no dummy seek
 
-nur1:				; immer einsprung
+EXFL4:	; repeat seek command (ready test only)
 	LD A,(DRVCOD)
 	LD C,A
-	CALL SEEKEX 		; seek selekt dummy nur fuer readytest
+	CALL EXSEEK 		; seek select dummy nur fuer ready-test
 	IN A,(FLO)		; test Status
 	AND 80H 		; fuer Ready
-	JR NZ,NUR1		; Wiederhole solange bis Laufwerk READY
+	JR NZ,EXFL4		; repeat until ready
 
-nodum:				; Einsprung head down ok
-	IN A,(FLO+1) 		; nun pruefen of Tracks gleich sind
+EXFL5:	; entry head down ok
+	IN A,(FLO+1) 		; nun pruefen ob Tracks gleich sind
 	CP 0FFH 		; nicht definiert
-	JR Z,TRY1 		; dann zuerst RESTORE
+	JR Z,EXFL7 		; dann zuerst RESTORE
+
 	CP D  			; oder schon auf dem Track
-	JP Z,RDWR 		; ja dann nur lesen,schreiben
-TRY:				; SEEK ausfuehren
+	JP Z,EXFL9 		; -> ja dann nur lesen/schreiben
+
+EXFL6:	; loop seek
 	LD A,(DRVCOD)
 	LD C,A
-	CALL SEEKEX 		; und Track anfahren Reg retten
+	CALL EXSEEK 		; und Track anfahren Reg retten
 	AND 10010000B 		; Fehlermaske
-	JR Z,RDWR 		; ja dann R/W moeglich
+	JR Z,EXFL9 		; -> ja dann R/W moeglich
 	
-TRY1:	; Laufwerk normieren und RSTORE
+EXFL7:	; Laufwerk normieren und RSTORE
 	LD A,(DRVCOD)
 	LD C,A
 	PUSH HL
@@ -988,23 +1044,26 @@ TRY1:	; Laufwerk normieren und RSTORE
 	INC A
 	LD (ERRCNT),A
 	CP 10  			; bei 10 Fatal-Fehler
-	JR C,TRY 		; sonst nochmals mit SEEK probieren
+	JR C,EXFL6 		; sonst nochmals mit SEEK probieren
 
-error1:	LD A,0FFH
+EXFL8:	; fatal error
+	LD A,0FFH
 	OR A
-	SCF  			; 0ffh, carry als Fehlerflag
+	SCF  			; A=0ffh, carry as error flag
 	RET  			; ABBRUCH FATAL
 
-NOERR:	; return without error
+NOERR:	; exit without error
 	XOR A
 	RET
 
-RDWR:	; execute read/write
+EXFL9:	; execute read/write
 	LD A,B
 	CP 2
-	JP Z,WRTEX		; -> execute write
+	JP Z,EXFL10		; -> execute write
 
+	;---------------------------------------------------------------------
 	; execute read
+	
 	LD A,(DRVCOD)
 	LD C,A
 	PUSH HL
@@ -1015,23 +1074,27 @@ RDWR:	; execute read/write
 	POP DE
 	POP HL
 	AND 10011100B 		; Fehlermaske incl. Lost data
-	JR Z,NOERR 		; exit without error
+	JR Z,NOERR 		; -> exit without error
 
 	; error
 	AND 00010000B
-	JR NZ,TRY1		; record not found -> SEEK, RESTORE
+	JR NZ,EXFL7		; record not found -> SEEK, RESTORE
 
 	LD A,(ERRCNT)
 	INC A
 	LD (ERRCNT),A 		; CRC error
 	CP 5
-	JR C,RDWR		; less than 5, try again
+	JR C,EXFL9		; less than 5, try again
+	
 	CP 10
-	JR C,TRY1 		; sonst rstore und seek
-	JR ERROR1 		; sonst FATAL - Fehler
+	JR C,EXFL7 		; less than 10, rstore und seek
+	
+	JR EXFL8 		; -> fatal error
 
-WRTEX:	; execute write
-	LD A,(DRVCOD)
+	;---------------------------------------------------------------------
+	; execute write
+
+EXFL10:	LD A,(DRVCOD)
 	LD C,A
 	PUSH HL
 	PUSH DE
@@ -1043,18 +1106,18 @@ WRTEX:	; execute write
 	AND 11111100B
 	JR Z,NOERR 		; alles ok
 	AND 00010000B 		; record not found
-	JR NZ,TRY1		; gleich neuen Seek ausfuehren
+	JR NZ,EXFL7		; gleich neuen Seek ausfuehren
 	LD A,(ERRCNT)
 	INC A
 	LD (ERRCNT),A 
 	CP 4  			; recht bald, da i.A. nur record not fnd
-	JR C,TRY1 		; daher nur 4 Versuche
-	JR ERROR1 		; FATAL FEHLER
+	JR C,EXFL7 		; daher nur 4 Versuche
+	JR EXFL8 		; -> fatal error
 
 ;------------------------------------------------------------------------------
+; execute seek
 
-SEEKEX:	; execute seek
-	PUSH HL
+EXSEEK:	PUSH HL
 	PUSH DE
 	PUSH BC
 	CALL SEEK
@@ -1096,7 +1159,7 @@ TSTACK:	DEFB 0
 ; ENDE FLO2-Routinen
 ;==============================================================================
 
-; werden bis auf FLOC0 alle nicht verwendet ???
+; werden bis auf FLOTYP alle nicht verwendet ???
 
 TASK:	DEFS 6  		;task block
 OLDSEC:	DEFW 0  		;frueherer sector a 128
@@ -1105,7 +1168,7 @@ HSTBUF:	DEFS 256 		;sector buffer
 IMBEF:	DEFB 0  		;befehl =1 read =2 write
 SECTRK:	DEFW 0  		;sectoradresse a 128
 IMDMA:	DEFW 0  		;adresse ziel,quelle
-FLOC0:	DEFB 0  		;0=FLO2, 1=FLO1
+FLOTYP:	DEFB 0  		;0=FLO2, 1=FLO1
 
 ;==============================================================================
 ; IDE/CF card interface
@@ -1274,7 +1337,7 @@ SKSKL:
 	;IF Z80S
 
 ;INIT_UART:
-	XOR	A		; lt. Datenblatt erst mal "aufwecken"
+	XOR	A		; lt. Datenblatt erst mal 'aufwecken'
 	OUT	(SU_STS),A	; SyncMode
 	OUT	(SU_STS),A	; SyncMode
 	OUT	(SU_STS),A	; SyncMode
@@ -1413,7 +1476,7 @@ BOOT:	CALL INIFLP 	; Vektoren etc definieren
 	
 	; '3' = FLO1
 	LD A,1
-	LD (FLOC0),A	; 1 = FLO1
+	LD (FLOTYP),A	; 1 = FLO1
 	JP BOOT3
 	
 BOOT1:	CP '1' 
@@ -1421,12 +1484,10 @@ BOOT1:	CP '1'
 	
 	; '1' = FLO2
 	XOR A
-	LD (FLOC0),A 	; 0 = FLO2
+	LD (FLOTYP),A 	; 0 = FLO2
 	JP BOOT3
 
 BOOT2:	JP ERROR
-
-BOOT3:
 
 ;+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++		
 ; Ueberspringt autom. Format Erkennung bei boot 
@@ -1434,6 +1495,7 @@ BOOT3:
 ; 2026 geaendert wg. Boot von DD Disketten
 ; FLO1/FLO2 in A
 
+BOOT3:
 	LD C,00100001B 	; immer von Laufwerk A Mini Floppy Seite 0, DD booten
 	LD HL,80H	; SD, load 128 byte boot sector to address 0080h
 	JP EXEC1
@@ -1441,7 +1503,7 @@ BOOT3:
 ; Ende +++++++++++++++++++++++++++++++++++++++++++++++++++++
 			; automatisch Format bestimmen, REV 1.1
 	LD C,00000001b 	; immer von Laufwerk A  Seite 0 booten
-	CALL GETFL	; Formatierung bestimmen
+	CALL GETFRM	; Formatierung bestimmen
 	JP C,ERROR	; bei Fehler zurueck ins Menue	
 	LD HL,80H 	; bei einfacher Dichte nach 80h
 	BIT 4,C  	; =0, dann dd, sonst sd

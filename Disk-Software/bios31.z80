@@ -1,0 +1,939 @@
+	;MACLIB DISKDEF1	; LOAD DEFINTION FOR DISKS
+
+;*****************************************************************************
+; Version 1.0   Version 80 Spur-Laufwerk                                     *
+; gebootet wird vom 80 Spur-Laufwerk                                         *
+; A,B sind die beiden 80 Spur Laufwerke                                      *
+; C,D ist ein 8Zoll LW, C=Vorderseite,D=Ruecks.                              *
+; E ist RAM-Floppy                                                           *
+; (C) 1984 Rolf-Dieter Klein     841220                                      *
+;                                                                            *
+; 24.06.2026 *dg* Kommentare hinzugefuegt                                    *
+;                 Binaer identisch zur Origial-Version                       *
+; 30.06.2026 *dg* Komplette Ueberarbeitung, Floppy-Routinen aus dem Monitor  *
+;                 ins BIOS üebernehmen                                       *
+;                                                                            *
+; ****************************************************************************
+
+; modifiziert für 3,5K-Test-BIOS *dg* 30.06.2026
+; E200..EFFF		
+
+VERS	EQU 22		; CP/M version
+TRUE	EQU 0FFFFH
+FALSE	EQU NOT TRUE
+TEST	EQU TRUE
+CR	EQU 0DH		; Zeilenrücklauf
+LF	EQU 0AH		; Zeilenvorschub
+
+
+MSIZE 	EQU 58		; Speichergroesse, hier 58K
+
+BIAS	EQU (MSIZE-20)*1024	; min=20K
+CCP	EQU 3400H+BIAS	; Start des CCP
+BDOS	EQU CCP+806H	; dort beginnt das BDOS
+BIOS	EQU CCP+1600H	; und dort das BIOS
+
+CPMB	EQU CCP		; Start CP/M-Boot
+
+CPML	EQU BIOS-CPMB	; Laenge des CP/Ms
+NSECTS	EQU CPML/128	; Anzahl der belegten Sektoren
+
+
+	ORG BIOS	; Start of BIOS
+
+
+CDISK	EQU 0004H	; address for last used drive
+BUFF	EQU 0080H	; buffer address
+RETRY	EQU 5		; Fehlerversuche bei BOOT und Maxi Read/Write
+
+;-----------------------------------------------------------------------------
+
+; VEKTORTABELLE der BIOS-Einspruenge
+
+	JP BOOT	; Kalt-Start
+	
+WBOOTE:	JP WBOOT	; Warm-Start, bei CTRL-C
+	JP CONST	; Consol Status, Ergebnis in A
+	JP CONIN	; Consol Eingabe, nach A	
+	JP CONOUT	; Consol Ausgabe von C
+	JP LIST		; Ausgabe auf den Drucker, von C
+	JP PUNCH	; Ausgabe auf PO, C-Register
+	JP READER	; Eingabe nach RI, A-Register
+
+	JP HOME		; Laufwerk nur Track 0
+	JP SELDSK	; Select drive, returns disk parameter header block in HL
+	JP SETTRK	; Spur auswaehlen
+	JP SETSEC	; Sektor auswaehlen
+	JP SETDMA	; Adresse festlegen                     
+	JP READ		; Sektor lesen
+	JP WRITE	; Sektor schreiben
+	JP LISTST	; Drucker fertig ?
+	JP SECTRAN	; sector translation (skew only)
+
+;-----------------------------------------------------------------------------
+
+	; size of mini disks A and B
+	; TRUNC(5 logical sectors * 1024 logical sector size * (2*80 tracks - 4 offset) / 2048 block size) - 1 = ca. 780 KB
+	; TRUNC (5 * 1024 * (160-4)/2048) - 1 = ca. 780 K
+SIZEAB	EQU 389
+
+	; track offset for disk A and B
+OFFSAB	EQU 4
+
+	;DISKS 5		; define 5 drives (A..E)
+NDISKS	EQU	5	
+
+DPBASE	EQU	$		;BASE OF DISK PARAMETER BLOCKS
+
+DPE0:	DW	XLT0,0000H	;TRANSLATE TABLE
+	DW	0000H,0000H	;SCRATCH AREA
+	DW	DIRBUF,DPB0	;DIR BUFF,PARM BLOCK
+	DW	CSV0,ALV0	;CHECK, ALLOC VECTORS
+	
+DPE1:	DW	XLT1,0000H	;TRANSLATE TABLE
+	DW	0000H,0000H	;SCRATCH AREA
+	DW	DIRBUF,DPB1	;DIR BUFF,PARM BLOCK
+	DW	CSV1,ALV1	;CHECK, ALLOC VECTORS
+	
+DPE2:	DW	XLT2,0000H	;TRANSLATE TABLE
+	DW	0000H,0000H	;SCRATCH AREA
+	DW	DIRBUF,DPB2	;DIR BUFF,PARM BLOCK
+	DW	CSV2,ALV2	;CHECK, ALLOC VECTORS
+	
+DPE3:	DW	XLT3,0000H	;TRANSLATE TABLE
+	DW	0000H,0000H	;SCRATCH AREA
+	DW	DIRBUF,DPB3	;DIR BUFF,PARM BLOCK
+	DW	CSV3,ALV3	;CHECK, ALLOC VECTORS
+	
+DPE4:	DW	XLT4,0000H	;TRANSLATE TABLE
+	DW	0000H,0000H	;SCRATCH AREA
+	DW	DIRBUF,DPB4	;DIR BUFF,PARM BLOCK
+	DW	CSV4,ALV4	;CHECK, ALLOC VECTORS
+
+	; Disk 0 (A) ---------------------------------------------------------
+	
+	; *** DISKDEF BEDEUTUNG DER PARAMETER***
+	; 0 = NUMMER DES LAUFWERKS
+	; 0 = NUMMER DES ERSTEN SEKTORS EINER SPUR
+	; 39 =  NUMMER DES LETZTEN SEKTORS EINER SPUR
+	; 0 = OPTIONALER VERSCHIEBUNGSFAKTOR ZUM
+	;     VERSETZEN ABSPEICHERN DER SEKTOREN
+	; 2048 = GROESSE EINES BLOCKS
+	; SIZEAB = ZAHL DER MAX. MOEGLICHEN BLOECKE
+	; 256 = ZAHL DER DIRECTORY EINTRITTSPUNKTE
+	; 256 = ZAHL DER GEPRUEFTEN EINTRITTSPUNKTE
+	; OFFSAB = ADDITIVE KONSTANTE ZUM ANSPRECHEN DER SPUR 00
+
+	; physical format: 3,5 inch/5.25 inch, DD, DS, 1024 bytes/sector, 5 sectors/track, 80 tracks
+	; DISKDEF 0,0,39,0,2048,SIZEAB,256,256,OFFSAB
+DPB0	EQU	$		;DISK PARM BLOCK
+	DW	40		;SEC PER TRACK
+	DB	4		;BLOCK SHIFT
+	DB	15		;BLOCK MASK
+	DB	0		;EXTNT MASK
+	DW	388		;DISK SIZE-1
+	DW	255		;DIRECTORY MAX
+	DB	240		;ALLOC0
+	DB	0		;ALLOC1
+	DW	64		;CHECK SIZE
+	DW	4		;OFFSET
+XLT0	EQU	0		;NO XLATE TABLE
+
+	; Disk 1 (B), same as Disk A -----------------------------------------
+	
+	; DISKDEF 1,0	; LAUFWERK 1 WIE LAUFWERK 0 DEFINIERT
+DPB1	EQU	DPB0	;EQUIVALENT PARAMETERS
+;ALS1	EQU	ALS0	;SAME ALLOCATION VECTOR SIZE
+;CSS1	EQU	CSS0	;SAME CHECKSUM VECTOR SIZE
+XLT1	EQU	XLT0	;SAME TRANSLATE TABLE
+
+	; Disk 2 (C) --------------------------------------------------------
+	; physical format: 8 inch, SD, SS, 128 bytes/sector, 26 sectors/track, 77 tracks
+	; DISKDEF 2,1,26,6,1024,243,64,64,2 ; 8 ZOLL DEFINITION
+	
+ DPB2	EQU	$		;DISK PARM BLOCK
+ 	DW	26		;SEC PER TRACK
+ 	DB	3		;BLOCK SHIFT
+ 	DB	7		;BLOCK MASK
+ 	DB	0		;EXTNT MASK
+ 	DW	242		;DISK SIZE-1
+ 	DW	63		;DIRECTORY MAX
+ 	DB	192		;ALLOC0
+ 	DB	0		;ALLOC1
+ 	DW	16		;CHECK SIZE
+ 	DW	2		;OFFSET
+	
+ XLT2	EQU	$		;TRANSLATE TABLE
+ 	DB	1		
+ 	DB	7		
+ 	DB	13		
+ 	DB	19		
+ 	DB	25		
+ 	DB	5		
+ 	DB	11		
+ 	DB	17		
+ 	DB	23		
+ 	DB	3		
+ 	DB	9		
+ 	DB	15		
+ 	DB	21		
+ 	DB	2		
+ 	DB	8		
+ 	DB	14		
+ 	DB	20		
+  	DB	26		
+ 	DB	6		
+ 	DB	12		
+ 	DB	18		
+ 	DB	24		
+ 	DB	4		
+ 	DB	10		
+ 	DB	16		
+ 	DB	22	
+
+	; Disk 3 (D), same as Disk 2 -----------------------------------------
+	; DISKDEF 3,2	; LAUFWERK 3 WIE LAUFWERK 2 DEFINIERT
+DPB3	EQU	DPB2	;EQUIVALENT PARAMETERS
+;ALS3	EQU	ALS2	;SAME ALLOCATION VECTOR SIZE
+;CSS3	EQU	CSS2	;SAME CHECKSUM VECTOR SIZE
+XLT3	EQU	XLT2	;SAME TRANSLATE TABLE
+
+	; Disk 4 (E), RAM Floppy 60K,120K,180K -------------------------------
+	; DISKDEF 4,0,14,0,1024,180,64,64,0 ; RAM FLOPPY 60K,120K,180K
+DPB4	EQU	$		;DISK PARM BLOCK
+ 	DW	15		;SEC PER TRACK
+ 	DB	3		;BLOCK SHIFT
+ 	DB	7		;BLOCK MASK
+ 	DB	0		;EXTNT MASK
+ 	DW	179		;DISK SIZE-1
+ 	DW	63		;DIRECTORY MAX
+ 	DB	192		;ALLOC0
+ 	DB	0		;ALLOC1
+ 	DW	16		;CHECK SIZE
+ 	DW	0		;OFFSET
+XLT4	EQU	0		;NO XLATE TABLE
+
+;-----------------------------------------------------------------------------
+; CP/M message after cold start
+
+SIGNON:	DB 26
+	DB CR,LF,'Welcome to 58 K CP/M 2.2'
+	DB CR,LF,0
+
+;-----------------------------------------------------------------------------
+; Monitor routines and addresses
+
+CONST:	JP 0F012H	; DIESE ROUTINE LIEFERT DEN STATUS DER
+			; EINGABETASTATUR. WURDE EIN ZEICHEN
+			; EINGEGEBEN, SO LIEFERT DIE ROUTINE 0FFH. 
+	
+CONIN:	CALL 0F003H	; DIE ROUTINE HOLT EIN ZEICHEN VON DER
+			; TASTATUR AB UND SETZT DAS HOECHSTE BIT
+			; (PARITY BIT) AUF NULL
+	AND 7FH
+	RET
+
+MON80	EQU 0F01EH	; Neustart des Monitors
+
+CONOUT	EQU 0F009H	; ROUTINE ZUR AUSGABE EINES ZEICHENS IM
+			; C-REGISTER AN DIE KONSOLE. DAZU SPRUNG 
+			; IN DEN MONITOR IM EPROM
+
+LIST	EQU 0F00FH	; ADRESSE FUER DEN SPRUNG IN DIE AUSGABEROUTINE,
+			; UM EIN ZEICHEN IM C-REGISTER AN DIE DRUCKER-
+			; SCHNITTSTELLE ZU LIEFERN
+
+PUNCH	EQU 0F00CH	; ADRESSE FUER DEN SPRUNG IN DIE AUSGABEROUTINE,
+			; UM EIN ZEICHEN IM C-REGISTER AN DIE STANZ-
+			; SCHNITTSTELLE ZU LIEFERN
+
+READER	EQU 0F006H	; ADRESSE FUER DEN SPRUNG IN DIE EINGABEROUTINE,
+			; UM EIN ZEICHEN VON LESER-KANAL ZU HOLEN,
+			; UND DAS ZEICHEN IM A-REGISTER ABZULIEFERN (RI)	
+
+;-----------------------------------------------------------------------------
+; Cold boot
+
+BOOT:	LD SP,BUFF+80H	; output start message
+	LD HL,SIGNON
+	CALL PRMSG
+	
+	; clear last used drive
+	XOR A
+	LD (CDISK),A
+	
+	; sector buffer is empty, set to BLKBUF not changed
+	XOR A
+	LD (BLKCHG),A
+	
+	; drive is undefined
+	LD A,0FFH
+	LD (CURDRV),A
+
+	; disable monitor entries, set to WBOOT
+	LD HL,WBOOT
+	LD (0F033H+1),HL
+	LD (0F036H+1),HL
+	JP GOCPM	; start CP/M
+
+;-----------------------------------------------------------------------------
+; Warm boot
+
+WBOOT:	; write BLKBUF to disk if changed
+	LD A,(BLKCHG)
+	OR A
+	JP Z,WBOO1
+	
+	CALL PUTBLK	; normalerweise ist Schreibvorgang
+			; nach einem Direktoryzugriff abgeschlossen
+			; ACHTUNG BUG!? PUTBLK nur für Mini/DD-Laufwerke
+			; Bei einem anderen Laufwerk geht das wohl schief
+			
+WBOO1:	LD A,0FFH	; alle Tracks ungueltig, bei Diskettenwechsel wichtig
+	LD (CURDRV),A
+
+	LD SP,BUFF	; Stack zuweisen
+	LD C,RETRY	; Anzahl der Versuche
+	PUSH BC		; und dann anfangen zu booten
+
+WBOO2:	; loop
+	LD BC,CPMB	; Boot von MINI-Diskette
+	CALL SETDMA	; auf der Startadresse des CP/Ms
+	LD C,0		; Laufwerk A
+	CALL SELDSK	; auswaehlen
+	LD C,0		; Track 0
+	CALL SETTRK	; und den zweiten phys. Sektor, (Nr 8 logisch)
+	LD C,8		; enstpricht Nr 2 bei 1024 Bytes
+	CALL SETSEC	; wichtig, da andere Zaehlweise
+	POP BC		; und von da an n Sektoren einlesen
+	LD B,NSECTS	; aber das BIOS nicht ueberschreiben
+			; damit Patches leicht moeglich sind
+
+WBOO3:	; sector read loop
+	PUSH BC		; Anzahl merken
+	CALL READ	; LESEN ausfuehren
+	JP NZ,BOOTERR	; Fehler: defekter Sektor
+	
+	LD HL,(IOD)	; Zieladresse laden
+	LD DE,128	; um logische Sektorgroesser erhoehen
+	ADD HL,DE			; dazu addieren,
+	LD (IOD),HL	; und dann wieder zurueckspeichern.
+	LD A,(IOS)	; Sektor laden
+	CP 39		; Mini 0..39 Sektoren a 128 Bytes
+	JP C,WBOO4	; solange auf der gleichen Spur bleiben
+
+	; next track
+	LD A,(IOT)	; Dann neue Spur anwaehlen,
+	INC A	  	; jedoch im Verfahren 0,2,...
+	INC A		; SPUR 0, dann SPUR 2, wegen BOOT.ASM
+	LD (IOT),A	; denn 1,3,5 ist die Rueckseite des Laufwerks
+	LD A,0FFH	; 0,1,2,3.... nach Increment A=0
+	
+WBOO4:	INC A		; dann 0
+	LD (IOS),A	; und auch neuesn Sektor anwaehlen
+	POP BC		; Schleifenzaehler zuruech
+	DEC B		; und immer weiter lesen
+	JP NZ,WBOO3	; -> read next sector
+	
+	;---------------------------------------------------------------------
+
+GOCPM:	LD BC,BUFF	; Buffer auf Default einstellen
+	CALL SETDMA	; so wie es CP/M braucht
+	LD A,0C3H	; Sprung auf den WARM-Boot im
+	LD (0),A	; RAM ablegen.
+	LD HL,WBOOTE	; Warm-Boot-Adresse
+	LD (1),HL	; nicht vergessen
+	LD (5),A	; Sprung auf die BDOS-CALL-Adresse
+	LD HL,BDOS	; legen und auch das Ziel
+	LD (6),HL	; dorthin
+	LD (7*8),A	; RST7 definieren, default ist Monitor
+	LD HL,MON80	; der aber normalerweise kurzgeschl. ist.
+	LD (7*8+1),HL		
+	LD A,(CDISK)	; das zuletzt verwendete Laufwerk
+	LD C,A		; laden und damit selektieren.
+	JP CPMB
+
+BOOTERR:		; im Fehlerfalle, bei BAD-Sektor.
+	POP BC		; erst mal nocheinmal versuchen
+	DEC C
+	JP Z,BOOTE0	; bis hoffnungslos, dann Fehlermeldung
+	
+	PUSH BC
+	JP WBOO2	; -> try again
+
+BOOTE0:	; Fehlermeldung ausgeben und Monitor neu starten, bzw. WBOOT
+	LD HL,ERRMSG
+	CALL PRMSG
+	JP MON80
+
+ERRMSG:	; Fehlermeldung
+	DB '?BOOT',0
+
+;-----------------------------------------------------------------------------
+; List status (used by BDOS)
+; LST state, not used
+
+LISTST:	NOP
+	XOR A		; ggf. hier Sprung einbauen.
+	RET
+
+;-----------------------------------------------------------------------------
+; Home drive (used by BDOS)
+
+HOME:	LD C,0		; aber nur anwaehlen, nicht
+	JP SETTRK	; ausfuehren
+
+;-----------------------------------------------------------------------------
+; Select disk (used by BDOS)
+; drive-code in C (0..3)
+
+SELDSK:	LD HL,0		; und pruefen ob gueltig
+	LD A,C		; wenn groesser als ndisks
+	CP NDISKS	; dann nicht ok
+	RET NC		; Nummer 0 bis n-1 erscheint in A
+	LD (DBANK),A	; dann zusaetzlich die
+	LD L,C		; Laufwerkstabelle ausrechnen
+	LD H,0		; dazu Nummer mit 16 multiplizieren
+	ADD HL,HL	
+	ADD HL,HL	
+	ADD HL,HL	
+	ADD HL,HL	
+	LD DE,DPBASE	; und Basisadresse drauf addieren.
+	ADD HL,DE
+	RET
+
+;-----------------------------------------------------------------------------
+; Select track (used by BDOS)
+; track in C
+
+SETTRK:	LD HL,IOT
+	LD (HL),C
+	RET
+
+;-----------------------------------------------------------------------------
+; Select sector  (used by BDOS)
+; sector in C
+
+SETSEC:	LD HL,IOS
+	LD (HL),C
+	RET
+
+;-----------------------------------------------------------------------------
+; Sector translation (used by BDOS)
+; sector in C
+; skew table in DE (or 0)
+
+SECTRAN:LD A,D		; wenn ein SKEW-Faktor verwendet wird,
+        OR E		; wie z.B. bei 8 Zoll ueblich.
+        JP Z,SECTR1	; =0, -> no skew
+
+	LD B,0		; sonst in DE Adresse der Skew-Tabelle
+	EX DE,HL	; skew table -> HL
+	ADD HL,BC	; add BC
+	LD A,(HL)	; load skew value
+	LD (IOS),A	; save in IOS 
+	LD L,A		; and in L
+	RET
+
+SECTR1:	; no skew
+	LD L,C		; sonst nur einfache Wert
+        LD A,C		; uebernehmen, ohne Umrechnung.
+        LD (IOS),A	; auch merken
+        LD H,0		; se 0..255 max
+        RET
+
+;-----------------------------------------------------------------------------
+; Set DMA address (used by BDOS)
+; address in BC
+
+SETDMA:	LD L,C
+	LD H,B
+	LD (IOD),HL
+	RET
+
+;-----------------------------------------------------------------------------
+; 0-terminerte Text ausgaben, Adresse in HL
+
+PRMSG: 	LD A,(HL)
+	OR A
+	RET Z		; -> end of text
+	
+	PUSH HL
+	LD C,A
+	CALL CONOUT
+	POP HL
+	INC HL
+	JP PRMSG	; -> next char
+
+;=============================================================================
+; Read and write sector using EXEC into monitor
+
+; HL=DMA ADR
+; DE=TRACK/SECTOR
+; B=0 RSTORE
+;   1 READ
+;   2 WRITE
+; C=DRIVE 0...3		; bei MEXEC, EXEC
+; bei FEXEC ist C bei bestimmt.
+
+;-----------------------------------------------------------------------------
+; Read sector
+
+READ:	LD A,(DBANK)	; dazu Laufwerk bestimmen
+	CP 2		; 
+	JP C,MINIRD	; drive 0,1 -> Mini disks
+	
+	CP 4		
+	JP C,MAXIRD	; drive 2,3 -> Maxi disks
+
+	;---------------------------------------------------------------------
+	; Read RAM disk
+
+	CALL ADRERZ	; hl=Quelladresse
+        EX DE,HL		; Adressumrechnung durchfuehren
+        LD HL,(IOD)	; zieladresse laden
+        EX DE,HL		; und de=ziel, hl=quelle, c=bank quelle
+        LD B,0		; Ziel ist Bank 0
+        CALL REXEC	; und 128 Bytes kopieren, carry=Fehler
+	JP NC,NORERR
+	
+	LD A,1		; Fehler da, Bank nicht vorhanden,
+	RET		; wirkt wie BAD-Sektor
+
+	;---------------------------------------------------------------------
+	
+NORERR:	XOR A		; sonst ok.
+	RET
+
+	;---------------------------------------------------------------------
+	; Calculate address for ram disk, source in HL
+	; SEKTOR 0..E,  TRAck 0..5fh
+	; SSSSTTTT T0000000   , adresse fuer RAM-Floppy
+ADRERZ:	LD A,(IOT)		; Track holen
+ 	RRCA 			; und umrechnen
+ 	AND 0FH		; unterer Teil vom MSB
+ 	LD H,A
+ 	LD A,(IOS)		; dann Sektor dazu
+ 	RLCA
+ 	RLCA
+ 	RLCA
+ 	RLCA
+ 	AND 0F0H
+ 	OR H
+ 	LD H,A		; damit sssstttt ok
+ 	LD A,(IOT)
+ 	RRCA			; txxxxxxx
+ 	AND 80H
+ 	LD L,A		; t0000000
+ 	LD A,(IOT)		; nun noch bank bestimmen, in c und b	
+ 	RLCA			; und dazu msb-Teil des Tracks verwenden
+ 	RLCA			; 0mmttttt
+ 	RLCA			; Banknummer
+ 	AND 03H		; 000000mm
+	ADD A,1			; erst ab Bank 1 starten
+ 	LD B,A		; da BANK 0=CP/M RAM und TPA
+ 	LD C,A		; ok beide definiert
+ 	RET
+
+;-----------------------------------------------------------------------------
+  
+; Umrechnen fuer 8Zoll und neuen Floppy-Einsprung verwenden.
+; nach C laden
+; LW=2, dann Vorderseite LW 3
+; LW=3, dann Rueckseite LW 3
+
+NEUBANK:
+	LD A,(DBANK)
+	CP 2
+	JP NZ,NEUB1
+	
+	LD C,00010100b	; SD, LW=3 (8 Zoll)
+	RET
+
+NEUB1:	LD C,10010100b	; SD, LW3= (8 Zoll), SSO = 1
+	RET
+
+;-----------------------------------------------------------------------------
+; Read Maxi disk
+
+MAXIRD:	LD B,RETRY	; Anzahl der Leseversuche
+
+MAXIR1:	; retry loop
+	PUSH BC		; dann ausfuehren
+	LD HL,(IOD)	; Zieladresse holen
+	LD A,(IOT)	; Spurnummer
+	LD D,A	
+	LD A,(IOS)	; Sektornummer
+	LD E,A
+	LD B,1		; Lese-Befehlscode
+	CALL NEUBANK	; vorher Laufwerkscode umrechnen
+	CALL FEXEC	; und dann ausfuehren
+	POP BC		; Retry-Zaehler
+	RET Z		; kein Fehler, dann ok zurueck
+	DEC B		; sonst nochmals probieren
+	JP NZ,MAXIR1	; -> retry		
+	
+	LD A,1		; BAD SEKTOR
+	OR A
+	RET
+
+;-----------------------------------------------------------------------------
+; Write sector using EXEC into monitor
+
+; HL=DMA ADR
+; DE=TRACK/SECTOR
+; B=0 RSTORE
+;   1 READ
+;   2 WRITE
+; C=DRIVE 0...3		; bei MEXEC, EXEC
+; bei FEXEC ist C bei bestimmt.
+
+WRITE:	LD A,(DBANK)	; dazu Laufwerkscode laden
+	CP 2		; und Floppy-Typ bestimmen
+	JP C,MINIWR	; drive 0,1 -> Mini disks
+	
+	CP 4		; drive 2,3 -> Maxi disks
+	JP C,MAXIWR
+	
+	;---------------------------------------------------------------------
+	; Write RAM disk
+
+	CALL ADRERZ	; hl=Quelladresse
+        EX DE,HL	; umrechnen
+        LD HL,(IOD)	; ziel in BANK hl=Quelle diesmal
+        LD C,0		; Quelle ist Bank 0, b=Ziel, de=Ziel
+        CALL REXEC	; und 128 Bytes kopieren, carry=Fehler
+	JP NC,NORERR	; OK Bank war da, sonst
+	
+	LD A,1		; Fehler ausgeben
+	RET
+
+	;---------------------------------------------------------------------
+	; Write Maxi disk
+
+MAXIWR:	LD B,RETRY
+
+MAXIW1:	PUSH BC		; Dazu Fehlerzaehler retten
+
+	LD HL,(IOD)	; Quelleadresse laden
+	
+	LD A,(IOT)	; Spur
+	LD D,A
+	
+	LD A,(IOS)	; Sektor
+	LD E,A
+	
+	LD B,2		; Schreib-Befehlscode
+	CALL NEUBANK	; vorher Laufwerk umrechnen
+	CALL FEXEC	; und ausfuehren
+	POP BC	
+	RET Z		; -> no error
+	
+	DEC B
+	JP NZ,MAXIW1	; -> retry
+	
+	LD A,1		; bad sector
+	OR A
+	RET
+
+;=============================================================================
+; Read Mini disk, 80 Spur, DD, DS
+
+;READ und WRITE unter Verwendung von MEXEC
+; HL=DMA ADR
+; DE=TRACK/SECTOR
+; B=0 RSTORE
+;   1 READ
+;   2 WRITE
+; C=DRIVE 0...3  10H,11H,12H,13H  DOUBMIN 0D0H,0D1H,0D2H,0D3H
+;                                          A   C    B    D
+; 1K BUFFER IN MONITORGEBIET
+; WIRD DADURCH TEILWEISE UEBERSCHRIEBEN
+; BEI WARMBOOT MUSS BUFFER GELEERT WERDEN
+; DEBLOCK WIRD AUS SICHERHEITSGRUENDEN NICHT VERWENDET
+
+BLKBUF	EQU 0FC00H	; Memory area of interactive Monitor for logical sector (1K)
+
+;-----------------------------------------------------------------------------
+; Calculates physical drive from DBANK and IOT -> C
+; only for Mini disks 0 and 1
+
+; DBANK, IOT     C
+;  0     F    -> 0
+;  1     F    -> 2
+;  0     B    -> 1
+;  1     B    -> 3
+
+; muss fuer Minidisk C und D erweitert werden
+
+; calculates physical sector from logical sector, IOS -> E
+; logical sector 0..39 -> physical sector 1..5
+
+; calculates logical track from physical track, IOT -> D
+; 0..159 -> 0..79 (max 127)
+
+CALC:	; logical sector (1K) to physical sector (128 byte)
+	; 0..39 -> 0..4
+	LD A,(IOS)	; 0..39 IST DER BEREICH (logic sector)
+	RRCA		; X000NNNN 0..15
+        RRCA
+        RRCA
+	AND 00000111b
+	INC A		; 0..4 -> 1..5
+	LD E,A		; save in E
+
+	LD A,(DBANK)	; DRIVE 0->0  1->2
+			; nur 0,1 SUI 4 ; und Track umrechnen , Laufwerk 0,1
+	CP 1		; 0,2,4,6,8 ist Vorderseite 1,3,5... Rueckseite
+	JP NZ,CALC1
+
+	; DBANK=1 
+	LD A,2
+	
+CALC1:	LD C,A		; physical drive
+
+	LD A,(IOT)
+	RRCA		; Track / 2,  = Phys Track, carry=backside
+	LD D,A		; Track merken
+	JP NC,CALC2	; frontside
+
+	; backside, track=0
+	LD A,C
+	OR 1		; if backside: drive 0 -> drive 1,  drive 2 -> drive 3
+	LD C,A
+	
+CALC2:	LD A,D
+	AND 7FH		; Bereich Track 0..79 real
+	LD D,A
+
+	; D=track=D, E=sector, c=drive
+	RET
+	
+;-----------------------------------------------------------------------------
+; Read Mini disk
+; DBANK, IOT, IOS,
+
+MINIRD:	CALL CALC	; calculate physical drive data for compare
+
+	LD A,(CURDRV)
+	CP C		; compare drive
+	JP NZ,MINIR2	; -> drive not equal, load
+	
+	LD A,(CURTRK)
+	CP D		; compare track
+	JP NZ,MINIR2	; -> track not equal, load
+	
+	LD A,(CURSEC)
+	CP E		; compare sector
+	JP NZ,MINIR2	; -> sector not equal, load
+
+MINIR1:	; OK IST SCHON IN BUFFER
+	LD HL,BLKBUF	; ADRESSE BERECHNEN
+	LD A,(IOS)	; 0..39 * 128 + BUFFER
+	AND 00000111b	; 0,1,2,3,4,5,6,7
+	LD D,A
+	LD E,0		; SCHIEBEN MIT Z80 BEFS
+	SRA D		; SRA D
+	RR E		; RR E   = *256/2
+	ADD HL,DE	; +BUFFER, pointer into BLKBUF
+	EX DE,HL	; NACH DE IST ZIEL
+	LD HL,(IOD)	; DMA ADRESSE QUELLE HIER
+	EX DE,HL	; ZIEL DE
+	LD BC,128	; logical sector length
+	LDIR		; (IOD) <- (BLKBUF+Offset), 128 Byte
+	XOR A
+	RET
+
+MINIR2:	; neuen Sektor laden, ggf. alten zurueckschreiben
+	LD A,(BLKCHG)
+	OR A
+	JP Z,MINIR3
+
+	CALL PUTBLK	; ALTEN ZURUECKSCHREIBEN
+	JP C,ERRIO
+	
+MINIR3:	CALL CALC	; BERECHNEN
+
+	LD A,C
+	LD (CURDRV),A
+	LD A,E
+	LD (CURSEC),A
+	LD A,D
+	LD (CURTRK),A
+	CALL GETBLK	; neuen Sektor lesen
+	JP C,ERRIO	; Fehler aufgetreten
+	
+	JP MINIR1
+
+;-----------------------------------------------------------------------------
+; Write Mini disk 
+
+MINIWR:	LD A,C
+	LD (ISDIR),A		; flag for Directory Write (1=write)
+
+	CALL CALC		; calculate physical drive data for compare
+	
+	LD A,(CURDRV)		; und wie bei minird
+	CP C			;
+	JP NZ,MINIW3		; -> load
+	
+	LD A,(CURTRK)
+	CP D
+	JP NZ,MINIW3		; -> load
+	
+	LD A,(CURSEC)
+	CP E
+	JP NZ,MINIW3		; -> load
+	
+MINIW1:	; laden unnoetig, Sektor schon im Buffer
+	LD HL,BLKBUF		; ADRESSE BERECHNEN
+	LD A,(IOS)		; 0..39   * 128 + BUFFER
+	AND 00000111B		; 0,1,2,3,4,5,6,7
+	LD D,A
+	LD E,0			; SCHIEBEN MIT Z80 BEFS
+	SRA D			; SRA D
+	RR E			; RR E   = *256/2
+	ADD HL,DE		; +BUFFER
+	EX DE,HL		; NACH DE IST ZIEL
+	LD HL,(IOD)		; DMA ADRESSE QUELLE HIER
+	LD BC,128		; LAENGE ZIEL DE
+	LDIR
+	LD A,1
+	LD (BLKCHG),A		; NUN BESCHRIEBEN
+	LD A,(ISDIR)		; =1 dann zurueck
+  	CP 1			; wenn Direktory Zugriff, dann
+	JP NZ,MINIW2		; gleich zurueckschreiben.
+
+	CALL PUTBLK 
+	JP C,ERRIO		; falls Fehler, dann BAD SEKTOR
+
+MINIW2:	XOR A			; kein Fehler
+	RET			; OK ENDE
+
+MINIW3:	; neu laden, ggf. alten zureuckschreiben
+	LD A,(BLKCHG)	; 
+	OR A
+	JP Z,MINIW4
+	
+	CALL PUTBLK	; ALTEN ZURUECKSCHREIBEN
+	JP C,ERRIO
+	
+MINIW4:	CALL CALC	; BERECHNEN
+	LD A,C
+	LD (CURDRV),A
+	LD A,E
+	LD (CURSEC),A
+	LD A,D
+	LD (CURTRK),A
+	CALL GETBLK
+	JP C,ERRIO
+	JP MINIW1
+
+;-----------------------------------------------------------------------------
+
+ERRIO:	LD A,1	; Fehler aufgetreten
+	OR A
+	RET
+
+;-----------------------------------------------------------------------------
+; Read physical sector to BLKBUF
+; Mini disk only
+; TRKAKT,SEKAKT,DRVAKT ENTHALTEN NEUE BUFFERADRESSE
+
+GETBLK:	; reset buffer changed flag
+	XOR A		
+	LD (BLKCHG),A
+	
+	LD HL,BLKBUF	; buffer address for data
+	LD A,(CURSEC)
+	LD E,A
+	LD A,(CURDRV)	; 0..3
+	OR 11010000B	; Mini drives are double density
+	LD C,A
+	LD B,1		; sector size (2 = 1K)
+	LD A,(CURTRK)
+	LD D,A
+	CALL MEXEC	; -> old Mini routine
+	JP C,BLKERR
+
+	XOR A
+	RET
+
+;-----------------------------------------------------------------------------
+
+BLKERR:	SCF
+	RET
+
+;-----------------------------------------------------------------------------
+; Write BLKBUF to physical sector
+; Mini disk only
+; TRKAKT,SEKAKT,DRVAKT ENTHALTEN NEUE BUFFERADRESSE
+
+PUTBLK:	; reset buffer changed flag
+	XOR A
+	LD (BLKCHG),A
+	
+	LD HL,BLKBUF	; buffer address with data
+	LD A,(CURSEC)
+	LD E,A
+	LD A,(CURDRV)	; 0..3
+	OR 11010000B	; Mini drives are double density
+	LD C,A
+	LD B,2		; sector size (2 = 1K)
+	LD A,(CURTRK)
+	LD D,A
+	CALL MEXEC	; -> old Mini routine
+	JP C,BLKERR
+	
+	XOR A
+	RET
+
+FEXEC:	JP 0f021h	; FLOMON neuer Vektor
+EXEC:	JP 0f024H	; FLOMON und MC (not used)
+MEXEC:	JP 0f027H	; -> old Mini routine
+REXEC:	JP 0f05bh	; FLOMON RAM-FLOPPY
+
+;=============================================================================
+
+; data area
+
+BLKCHG:	DB 0	; flag if BLKBUF is changed
+CURDRV:	DB 0	; DRIVE das geladen ist
+CURTRK:	DB 0	; TRACK 
+CURSEC:	DB 0	; SEKTOR
+ISDIR:	DB 0	; 1=is directory write
+
+                        ; SPEICHERZELLEN FUER DAS PROGRAMM
+
+DBANK:   DB 0           ; disk bank (00 = drive 0/1, 10 = drive 2/3)
+IOPB:    DB 80H         ; io parameter block (not used)
+ION:     DB 1           ; number of sectors zu read (not used)
+IOT:     DB OFFSAB      ; track number (start value is first usable track)
+IOS:     DB 1           ; sexcNUMMER DES GEWUENSCHTEN SEKTORS
+IOD:     DW BUFF        ; DMA-ADRESSE
+ALTDRV:  DB 1           ; SYSTEM-SPEICHERSTELLEN (not used)
+INDADR:  DW 0		; not used
+INDADR2: DW 0		; not used
+
+          ;ENDEF		; end macro
+
+	; floppy data area (from diskdef.lib) 
+
+BEGDAT	EQU	$
+DIRBUF:	DS	128	;DIRECTORY ACCESS BUFFER
+ALV0:	DS	49
+CSV0:	DS	64
+ALV1:	DS	49
+CSV1:	DS	64
+ALV2:	DS	31
+CSV2:	DS	16
+ALV3:	DS	31
+CSV3:	DS	16
+ALV4:	DS	23
+CSV4:	DS	16
+ENDDAT	EQU	$
+DATSIZ	EQU	$-BEGDAT
+
+	END
+	  
+; END OF FILE

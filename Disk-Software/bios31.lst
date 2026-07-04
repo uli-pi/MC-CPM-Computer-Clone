@@ -1,0 +1,992 @@
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   1
+NBIOS10 Z80
+
+    1                   	;MACLIB DISKDEF1	; LOAD DEFINTION FOR DISKS
+    2                   
+    3                   ;*****************************************************************************
+    4                   ; Version 1.0   Version 80 Spur-Laufwerk                                     *
+    5                   ; gebootet wird vom 80 Spur-Laufwerk                                         *
+    6                   ; A,B sind die beiden 80 Spur Laufwerke                                      *
+    7                   ; C,D ist ein 8Zoll LW, C=Vorderseite,D=Ruecks.                              *
+    8                   ; E ist RAM-Floppy                                                           *
+    9                   ; (C) 1984 Rolf-Dieter Klein     841220                                      *
+   10                   ;                                                                            *
+   11                   ; 24.06.2026 *dg* Kommentare hinzugefuegt                                    *
+   12                   ;                 Binaer identisch zur Origial-Version                       *
+   13                   ; 30.06.2026 *dg* Komplette Ueberarbeitung, Floppy-Routinen aus dem Monitor  *
+   14                   ;                 ins BIOS |ebernehmen                                       *
+   15                   ;                                                                            *
+   16                   ; ****************************************************************************
+   17                   
+   18                   ; modifiziert f|r 3,5K-Test-BIOS *dg* 30.06.2026
+   19                   ; E200..EFFF		
+   20                   
+   21         0016      VERS	EQU 22		; CP/M version
+   22         FFFF      TRUE	EQU 0FFFFH
+   23         0000      FALSE	EQU NOT TRUE
+   24         FFFF      TEST	EQU TRUE
+   25         000D      CR	EQU 0DH		; Zeilenr|cklauf
+   26         000A      LF	EQU 0AH		; Zeilenvorschub
+   27                   
+   28                   
+   29         003A      MSIZE 	EQU 58		; Speichergroesse, hier 58K
+   30                   
+   31         9800      BIAS	EQU (MSIZE-20)*1024	; min=20K
+   32         CC00      CCP	EQU 3400H+BIAS	; Start des CCP
+   33         D406      BDOS	EQU CCP+806H	; dort beginnt das BDOS
+   34         E200      BIOS	EQU CCP+1600H	; und dort das BIOS
+   35                   
+   36         CC00      CPMB	EQU CCP		; Start CP/M-Boot
+   37                   
+   38         1600      CPML	EQU BIOS-CPMB	; Laenge des CP/Ms
+   39         002C      NSECTS	EQU CPML/128	; Anzahl der belegten Sektoren
+   40                   
+   41                   
+   42         E200      	ORG BIOS	; Start of BIOS
+   43                   
+   44                   
+   45         0004      CDISK	EQU 0004H	; address for last used drive
+   46         0080      BUFF	EQU 0080H	; buffer address
+   47         0005      RETRY	EQU 5		; Fehlerversuche bei BOOT und Maxi Read/Write
+   48                   
+   49                   ;-----------------------------------------------------------------------------
+   50                   
+   51                   ; VEKTORTABELLE der BIOS-Einspruenge
+   52                   
+   53 E200  C3 E2F1     	JP BOOT	; Kalt-Start
+   54                   	
+   55 E203  C3 E313     WBOOTE:	JP WBOOT	; Warm-Start, bei CTRL-C
+   56 E206  C3 E2E8     	JP CONST	; Consol Status, Ergebnis in A
+   57 E209  C3 E2EB     	JP CONIN	; Consol Eingabe, nach A	
+   58 E20C  C3 F009     	JP CONOUT	; Consol Ausgabe von C
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   2
+NBIOS10 Z80
+
+   59 E20F  C3 F00F     	JP LIST		; Ausgabe auf den Drucker, von C
+   60 E212  C3 F00C     	JP PUNCH	; Ausgabe auf PO, C-Register
+   61 E215  C3 F006     	JP READER	; Eingabe nach RI, A-Register
+   62                   
+   63 E218  C3 E3B1     	JP HOME		; Laufwerk nur Track 0
+   64 E21B  C3 E3B6     	JP SELDSK	; Select drive, returns disk parameter header block in HL
+   65 E21E  C3 E3CC     	JP SETTRK	; Spur auswaehlen
+   66 E221  C3 E3D1     	JP SETSEC	; Sektor auswaehlen
+   67 E224  C3 E3ED     	JP SETDMA	; Adresse festlegen                     
+   68 E227  C3 E400     	JP READ		; Sektor lesen
+   69 E22A  C3 E476     	JP WRITE	; Sektor schreiben
+   70 E22D  C3 E3AE     	JP LISTST	; Drucker fertig ?
+   71 E230  C3 E3D6     	JP SECTRAN	; sector translation (skew only)
+   72                   
+   73                   ;-----------------------------------------------------------------------------
+   74                   
+   75                   	; size of mini disks A and B
+   76                   	; TRUNC(5 logical sectors * 1024 logical sector size * (2*80 tracks - 4 offset) / 2048 block size) - 1 = ca. 780 KB
+   77                   	; TRUNC (5 * 1024 * (160-4)/2048) - 1 = ca. 780 K
+   78         0185      SIZEAB	EQU 389
+   79                   
+   80                   	; track offset for disk A and B
+   81         0004      OFFSAB	EQU 4
+   82                   
+   83                   	;DISKS 5		; define 5 drives (A..E)
+   84         0005      NDISKS	EQU	5	
+   85                   
+   86         E233      DPBASE	EQU	$		;BASE OF DISK PARAMETER BLOCKS
+   87                   
+   88 E233  0000  0000  DPE0:	DW	XLT0,0000H	;TRANSLATE TABLE
+   89 E237  0000  0000  	DW	0000H,0000H	;SCRATCH AREA
+   90 E23B  E604  E283  	DW	DIRBUF,DPB0	;DIR BUFF,PARM BLOCK
+   91 E23F  E6B5  E684  	DW	CSV0,ALV0	;CHECK, ALLOC VECTORS
+   92                   	
+   93 E243  0000  0000  DPE1:	DW	XLT1,0000H	;TRANSLATE TABLE
+   94 E247  0000  0000  	DW	0000H,0000H	;SCRATCH AREA
+   95 E24B  E604  E283  	DW	DIRBUF,DPB1	;DIR BUFF,PARM BLOCK
+   96 E24F  E726  E6F5  	DW	CSV1,ALV1	;CHECK, ALLOC VECTORS
+   97                   	
+   98 E253  E2A1  0000  DPE2:	DW	XLT2,0000H	;TRANSLATE TABLE
+   99 E257  0000  0000  	DW	0000H,0000H	;SCRATCH AREA
+  100 E25B  E604  E292  	DW	DIRBUF,DPB2	;DIR BUFF,PARM BLOCK
+  101 E25F  E785  E766  	DW	CSV2,ALV2	;CHECK, ALLOC VECTORS
+  102                   	
+  103 E263  E2A1  0000  DPE3:	DW	XLT3,0000H	;TRANSLATE TABLE
+  104 E267  0000  0000  	DW	0000H,0000H	;SCRATCH AREA
+  105 E26B  E604  E292  	DW	DIRBUF,DPB3	;DIR BUFF,PARM BLOCK
+  106 E26F  E7B4  E795  	DW	CSV3,ALV3	;CHECK, ALLOC VECTORS
+  107                   	
+  108 E273  0000  0000  DPE4:	DW	XLT4,0000H	;TRANSLATE TABLE
+  109 E277  0000  0000  	DW	0000H,0000H	;SCRATCH AREA
+  110 E27B  E604  E2BB  	DW	DIRBUF,DPB4	;DIR BUFF,PARM BLOCK
+  111 E27F  E7DB  E7C4  	DW	CSV4,ALV4	;CHECK, ALLOC VECTORS
+  112                   
+  113                   	; Disk 0 (A) ---------------------------------------------------------
+  114                   	
+  115                   	; *** DISKDEF BEDEUTUNG DER PARAMETER***
+  116                   	; 0 = NUMMER DES LAUFWERKS
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   3
+NBIOS10 Z80
+
+  117                   	; 0 = NUMMER DES ERSTEN SEKTORS EINER SPUR
+  118                   	; 39 =  NUMMER DES LETZTEN SEKTORS EINER SPUR
+  119                   	; 0 = OPTIONALER VERSCHIEBUNGSFAKTOR ZUM
+  120                   	;     VERSETZEN ABSPEICHERN DER SEKTOREN
+  121                   	; 2048 = GROESSE EINES BLOCKS
+  122                   	; SIZEAB = ZAHL DER MAX. MOEGLICHEN BLOECKE
+  123                   	; 256 = ZAHL DER DIRECTORY EINTRITTSPUNKTE
+  124                   	; 256 = ZAHL DER GEPRUEFTEN EINTRITTSPUNKTE
+  125                   	; OFFSAB = ADDITIVE KONSTANTE ZUM ANSPRECHEN DER SPUR 00
+  126                   
+  127                   	; physical format: 3,5 inch/5.25 inch, DD, DS, 1024 bytes/sector, 5 sectors/track, 80 tracks
+  128                   	; DISKDEF 0,0,39,0,2048,SIZEAB,256,256,OFFSAB
+  129         E283      DPB0	EQU	$		;DISK PARM BLOCK
+  130 E283  0028        	DW	40		;SEC PER TRACK
+  131 E285  04          	DB	4		;BLOCK SHIFT
+  132 E286  0F          	DB	15		;BLOCK MASK
+  133 E287  00          	DB	0		;EXTNT MASK
+  134 E288  0184        	DW	388		;DISK SIZE-1
+  135 E28A  00FF        	DW	255		;DIRECTORY MAX
+  136 E28C  F0          	DB	240		;ALLOC0
+  137 E28D  00          	DB	0		;ALLOC1
+  138 E28E  0040        	DW	64		;CHECK SIZE
+  139 E290  0004        	DW	4		;OFFSET
+  140         0000      XLT0	EQU	0		;NO XLATE TABLE
+  141                   
+  142                   	; Disk 1 (B), same as Disk A -----------------------------------------
+  143                   	
+  144                   	; DISKDEF 1,0	; LAUFWERK 1 WIE LAUFWERK 0 DEFINIERT
+  145         E283      DPB1	EQU	DPB0	;EQUIVALENT PARAMETERS
+  146                   ;ALS1	EQU	ALS0	;SAME ALLOCATION VECTOR SIZE
+  147                   ;CSS1	EQU	CSS0	;SAME CHECKSUM VECTOR SIZE
+  148         0000      XLT1	EQU	XLT0	;SAME TRANSLATE TABLE
+  149                   
+  150                   	; Disk 2 (C) --------------------------------------------------------
+  151                   	; physical format: 8 inch, SD, SS, 128 bytes/sector, 26 sectors/track, 77 tracks
+  152                   	; DISKDEF 2,1,26,6,1024,243,64,64,2 ; 8 ZOLL DEFINITION
+  153                   	
+  154         E292       DPB2	EQU	$		;DISK PARM BLOCK
+  155 E292  001A         	DW	26		;SEC PER TRACK
+  156 E294  03           	DB	3		;BLOCK SHIFT
+  157 E295  07           	DB	7		;BLOCK MASK
+  158 E296  00           	DB	0		;EXTNT MASK
+  159 E297  00F2         	DW	242		;DISK SIZE-1
+  160 E299  003F         	DW	63		;DIRECTORY MAX
+  161 E29B  C0           	DB	192		;ALLOC0
+  162 E29C  00           	DB	0		;ALLOC1
+  163 E29D  0010         	DW	16		;CHECK SIZE
+  164 E29F  0002         	DW	2		;OFFSET
+  165                   	
+  166         E2A1       XLT2	EQU	$		;TRANSLATE TABLE
+  167 E2A1  01           	DB	1		
+  168 E2A2  07           	DB	7		
+  169 E2A3  0D           	DB	13		
+  170 E2A4  13           	DB	19		
+  171 E2A5  19           	DB	25		
+  172 E2A6  05           	DB	5		
+  173 E2A7  0B           	DB	11		
+  174 E2A8  11           	DB	17		
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   4
+NBIOS10 Z80
+
+  175 E2A9  17           	DB	23		
+  176 E2AA  03           	DB	3		
+  177 E2AB  09           	DB	9		
+  178 E2AC  0F           	DB	15		
+  179 E2AD  15           	DB	21		
+  180 E2AE  02           	DB	2		
+  181 E2AF  08           	DB	8		
+  182 E2B0  0E           	DB	14		
+  183 E2B1  14           	DB	20		
+  184 E2B2  1A            	DB	26		
+  185 E2B3  06           	DB	6		
+  186 E2B4  0C           	DB	12		
+  187 E2B5  12           	DB	18		
+  188 E2B6  18           	DB	24		
+  189 E2B7  04           	DB	4		
+  190 E2B8  0A           	DB	10		
+  191 E2B9  10           	DB	16		
+  192 E2BA  16           	DB	22	
+  193                   
+  194                   	; Disk 3 (D), same as Disk 2 -----------------------------------------
+  195                   	; DISKDEF 3,2	; LAUFWERK 3 WIE LAUFWERK 2 DEFINIERT
+  196         E292      DPB3	EQU	DPB2	;EQUIVALENT PARAMETERS
+  197                   ;ALS3	EQU	ALS2	;SAME ALLOCATION VECTOR SIZE
+  198                   ;CSS3	EQU	CSS2	;SAME CHECKSUM VECTOR SIZE
+  199         E2A1      XLT3	EQU	XLT2	;SAME TRANSLATE TABLE
+  200                   
+  201                   	; Disk 4 (E), RAM Floppy 60K,120K,180K -------------------------------
+  202                   	; DISKDEF 4,0,14,0,1024,180,64,64,0 ; RAM FLOPPY 60K,120K,180K
+  203         E2BB      DPB4	EQU	$		;DISK PARM BLOCK
+  204 E2BB  000F         	DW	15		;SEC PER TRACK
+  205 E2BD  03           	DB	3		;BLOCK SHIFT
+  206 E2BE  07           	DB	7		;BLOCK MASK
+  207 E2BF  00           	DB	0		;EXTNT MASK
+  208 E2C0  00B3         	DW	179		;DISK SIZE-1
+  209 E2C2  003F         	DW	63		;DIRECTORY MAX
+  210 E2C4  C0           	DB	192		;ALLOC0
+  211 E2C5  00           	DB	0		;ALLOC1
+  212 E2C6  0010         	DW	16		;CHECK SIZE
+  213 E2C8  0000         	DW	0		;OFFSET
+  214         0000      XLT4	EQU	0		;NO XLATE TABLE
+  215                   
+  216                   ;-----------------------------------------------------------------------------
+  217                   ; CP/M message after cold start
+  218                   
+  219 E2CA  1A          SIGNON:	DB 26
+  220 E2CB  0D 0A 57 65 	DB CR,LF,'Welcome to 58 K CP/M 2.2'
+  221 E2E5  0D 0A 00    	DB CR,LF,0
+  222                   
+  223                   ;-----------------------------------------------------------------------------
+  224                   ; Monitor routines and addresses
+  225                   
+  226 E2E8  C3 F012     CONST:	JP 0F012H	; DIESE ROUTINE LIEFERT DEN STATUS DER
+  227                   			; EINGABETASTATUR. WURDE EIN ZEICHEN
+  228                   			; EINGEGEBEN, SO LIEFERT DIE ROUTINE 0FFH. 
+  229                   	
+  230 E2EB  CD F003     CONIN:	CALL 0F003H	; DIE ROUTINE HOLT EIN ZEICHEN VON DER
+  231                   			; TASTATUR AB UND SETZT DAS HOECHSTE BIT
+  232                   			; (PARITY BIT) AUF NULL
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   5
+NBIOS10 Z80
+
+  233 E2EE  E6 7F       	AND 7FH
+  234 E2F0  C9          	RET
+  235                   
+  236         F01E      MON80	EQU 0F01EH	; Neustart des Monitors
+  237                   
+  238         F009      CONOUT	EQU 0F009H	; ROUTINE ZUR AUSGABE EINES ZEICHENS IM
+  239                   			; C-REGISTER AN DIE KONSOLE. DAZU SPRUNG 
+  240                   			; IN DEN MONITOR IM EPROM
+  241                   
+  242         F00F      LIST	EQU 0F00FH	; ADRESSE FUER DEN SPRUNG IN DIE AUSGABEROUTINE,
+  243                   			; UM EIN ZEICHEN IM C-REGISTER AN DIE DRUCKER-
+  244                   			; SCHNITTSTELLE ZU LIEFERN
+  245                   
+  246         F00C      PUNCH	EQU 0F00CH	; ADRESSE FUER DEN SPRUNG IN DIE AUSGABEROUTINE,
+  247                   			; UM EIN ZEICHEN IM C-REGISTER AN DIE STANZ-
+  248                   			; SCHNITTSTELLE ZU LIEFERN
+  249                   
+  250         F006      READER	EQU 0F006H	; ADRESSE FUER DEN SPRUNG IN DIE EINGABEROUTINE,
+  251                   			; UM EIN ZEICHEN VON LESER-KANAL ZU HOLEN,
+  252                   			; UND DAS ZEICHEN IM A-REGISTER ABZULIEFERN (RI)	
+  253                   
+  254                   ;-----------------------------------------------------------------------------
+  255                   ; Cold boot
+  256                   
+  257 E2F1  31 0100     BOOT:	LD SP,BUFF+80H	; output start message
+  258 E2F4  21 E2CA     	LD HL,SIGNON
+  259 E2F7  CD E3F3     	CALL PRMSG
+  260                   	
+  261                   	; clear last used drive
+  262 E2FA  AF          	XOR A
+  263 E2FB  32 0004     	LD (CDISK),A
+  264                   	
+  265                   	; sector buffer is empty, set to BLKBUF not changed
+  266 E2FE  AF          	XOR A
+  267 E2FF  32 E5F3     	LD (BLKCHG),A
+  268                   	
+  269                   	; drive is undefined
+  270 E302  3E FF       	LD A,0FFH
+  271 E304  32 E5F4     	LD (CURDRV),A
+  272                   
+  273                   	; disable monitor entries, set to WBOOT
+  274 E307  21 E313     	LD HL,WBOOT
+  275 E30A  22 F034     	LD (0F033H+1),HL
+  276 E30D  22 F037     	LD (0F036H+1),HL
+  277 E310  C3 E36C     	JP GOCPM	; start CP/M
+  278                   
+  279                   ;-----------------------------------------------------------------------------
+  280                   ; Warm boot
+  281                   
+  282 E313              WBOOT:	; write BLKBUF to disk if changed
+  283 E313  3A E5F3     	LD A,(BLKCHG)
+  284 E316  B7          	OR A
+  285 E317  CA E31D     	JP Z,WBOO1
+  286                   	
+  287 E31A  CD E5C8     	CALL PUTBLK	; normalerweise ist Schreibvorgang
+  288                   			; nach einem Direktoryzugriff abgeschlossen
+  289                   			; ACHTUNG BUG!? PUTBLK nur f|r Mini/DD-Laufwerke
+  290                   			; Bei einem anderen Laufwerk geht das wohl schief
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   6
+NBIOS10 Z80
+
+  291                   			
+  292 E31D  3E FF       WBOO1:	LD A,0FFH	; alle Tracks ungueltig, bei Diskettenwechsel wichtig
+  293 E31F  32 E5F4     	LD (CURDRV),A
+  294                   
+  295 E322  31 0080     	LD SP,BUFF	; Stack zuweisen
+  296 E325  0E 05       	LD C,RETRY	; Anzahl der Versuche
+  297 E327  C5          	PUSH BC		; und dann anfangen zu booten
+  298                   
+  299 E328              WBOO2:	; loop
+  300 E328  01 CC00     	LD BC,CPMB	; Boot von MINI-Diskette
+  301 E32B  CD E3ED     	CALL SETDMA	; auf der Startadresse des CP/Ms
+  302 E32E  0E 00       	LD C,0		; Laufwerk A
+  303 E330  CD E3B6     	CALL SELDSK	; auswaehlen
+  304 E333  0E 00       	LD C,0		; Track 0
+  305 E335  CD E3CC     	CALL SETTRK	; und den zweiten phys. Sektor, (Nr 8 logisch)
+  306 E338  0E 08       	LD C,8		; enstpricht Nr 2 bei 1024 Bytes
+  307 E33A  CD E3D1     	CALL SETSEC	; wichtig, da andere Zaehlweise
+  308 E33D  C1          	POP BC		; und von da an n Sektoren einlesen
+  309 E33E  06 2C       	LD B,NSECTS	; aber das BIOS nicht ueberschreiben
+  310                   			; damit Patches leicht moeglich sind
+  311                   
+  312 E340              WBOO3:	; sector read loop
+  313 E340  C5          	PUSH BC		; Anzahl merken
+  314 E341  CD E400     	CALL READ	; LESEN ausfuehren
+  315 E344  C2 E396     	JP NZ,BOOTERR	; Fehler: defekter Sektor
+  316                   	
+  317 E347  2A E5FD     	LD HL,(IOD)	; Zieladresse laden
+  318 E34A  11 0080     	LD DE,128	; um logische Sektorgroesser erhoehen
+  319 E34D  19          	ADD HL,DE			; dazu addieren,
+  320 E34E  22 E5FD     	LD (IOD),HL	; und dann wieder zurueckspeichern.
+  321 E351  3A E5FC     	LD A,(IOS)	; Sektor laden
+  322 E354  FE 27       	CP 39		; Mini 0..39 Sektoren a 128 Bytes
+  323 E356  DA E363     	JP C,WBOO4	; solange auf der gleichen Spur bleiben
+  324                   
+  325                   	; next track
+  326 E359  3A E5FB     	LD A,(IOT)	; Dann neue Spur anwaehlen,
+  327 E35C  3C          	INC A	  	; jedoch im Verfahren 0,2,...
+  328 E35D  3C          	INC A		; SPUR 0, dann SPUR 2, wegen BOOT.ASM
+  329 E35E  32 E5FB     	LD (IOT),A	; denn 1,3,5 ist die Rueckseite des Laufwerks
+  330 E361  3E FF       	LD A,0FFH	; 0,1,2,3.... nach Increment A=0
+  331                   	
+  332 E363  3C          WBOO4:	INC A		; dann 0
+  333 E364  32 E5FC     	LD (IOS),A	; und auch neuesn Sektor anwaehlen
+  334 E367  C1          	POP BC		; Schleifenzaehler zuruech
+  335 E368  05          	DEC B		; und immer weiter lesen
+  336 E369  C2 E340     	JP NZ,WBOO3	; -> read next sector
+  337                   	
+  338                   	;---------------------------------------------------------------------
+  339                   
+  340 E36C  01 0080     GOCPM:	LD BC,BUFF	; Buffer auf Default einstellen
+  341 E36F  CD E3ED     	CALL SETDMA	; so wie es CP/M braucht
+  342 E372  3E C3       	LD A,0C3H	; Sprung auf den WARM-Boot im
+  343 E374  32 0000     	LD (0),A	; RAM ablegen.
+  344 E377  21 E203     	LD HL,WBOOTE	; Warm-Boot-Adresse
+  345 E37A  22 0001     	LD (1),HL	; nicht vergessen
+  346 E37D  32 0005     	LD (5),A	; Sprung auf die BDOS-CALL-Adresse
+  347 E380  21 D406     	LD HL,BDOS	; legen und auch das Ziel
+  348 E383  22 0006     	LD (6),HL	; dorthin
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   7
+NBIOS10 Z80
+
+  349 E386  32 0038     	LD (7*8),A	; RST7 definieren, default ist Monitor
+  350 E389  21 F01E     	LD HL,MON80	; der aber normalerweise kurzgeschl. ist.
+  351 E38C  22 0039     	LD (7*8+1),HL		
+  352 E38F  3A 0004     	LD A,(CDISK)	; das zuletzt verwendete Laufwerk
+  353 E392  4F          	LD C,A		; laden und damit selektieren.
+  354 E393  C3 CC00     	JP CPMB
+  355                   
+  356 E396              BOOTERR:		; im Fehlerfalle, bei BAD-Sektor.
+  357 E396  C1          	POP BC		; erst mal nocheinmal versuchen
+  358 E397  0D          	DEC C
+  359 E398  CA E39F     	JP Z,BOOTE0	; bis hoffnungslos, dann Fehlermeldung
+  360                   	
+  361 E39B  C5          	PUSH BC
+  362 E39C  C3 E328     	JP WBOO2	; -> try again
+  363                   
+  364 E39F              BOOTE0:	; Fehlermeldung ausgeben und Monitor neu starten, bzw. WBOOT
+  365 E39F  21 E3A8     	LD HL,ERRMSG
+  366 E3A2  CD E3F3     	CALL PRMSG
+  367 E3A5  C3 F01E     	JP MON80
+  368                   
+  369 E3A8              ERRMSG:	; Fehlermeldung
+  370 E3A8  3F 42 4F 4F 	DB '?BOOT',0
+  371                   
+  372                   ;-----------------------------------------------------------------------------
+  373                   ; List status (used by BDOS)
+  374                   ; LST state, not used
+  375                   
+  376 E3AE  00          LISTST:	NOP
+  377 E3AF  AF          	XOR A		; ggf. hier Sprung einbauen.
+  378 E3B0  C9          	RET
+  379                   
+  380                   ;-----------------------------------------------------------------------------
+  381                   ; Home drive (used by BDOS)
+  382                   
+  383 E3B1  0E 00       HOME:	LD C,0		; aber nur anwaehlen, nicht
+  384 E3B3  C3 E3CC     	JP SETTRK	; ausfuehren
+  385                   
+  386                   ;-----------------------------------------------------------------------------
+  387                   ; Select disk (used by BDOS)
+  388                   ; drive-code in C (0..3)
+  389                   
+  390 E3B6  21 0000     SELDSK:	LD HL,0		; und pruefen ob gueltig
+  391 E3B9  79          	LD A,C		; wenn groesser als ndisks
+  392 E3BA  FE 05       	CP NDISKS	; dann nicht ok
+  393 E3BC  D0          	RET NC		; Nummer 0 bis n-1 erscheint in A
+  394 E3BD  32 E5F8     	LD (DBANK),A	; dann zusaetzlich die
+  395 E3C0  69          	LD L,C		; Laufwerkstabelle ausrechnen
+  396 E3C1  26 00       	LD H,0		; dazu Nummer mit 16 multiplizieren
+  397 E3C3  29          	ADD HL,HL	
+  398 E3C4  29          	ADD HL,HL	
+  399 E3C5  29          	ADD HL,HL	
+  400 E3C6  29          	ADD HL,HL	
+  401 E3C7  11 E233     	LD DE,DPBASE	; und Basisadresse drauf addieren.
+  402 E3CA  19          	ADD HL,DE
+  403 E3CB  C9          	RET
+  404                   
+  405                   ;-----------------------------------------------------------------------------
+  406                   ; Select track (used by BDOS)
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   8
+NBIOS10 Z80
+
+  407                   ; track in C
+  408                   
+  409 E3CC  21 E5FB     SETTRK:	LD HL,IOT
+  410 E3CF  71          	LD (HL),C
+  411 E3D0  C9          	RET
+  412                   
+  413                   ;-----------------------------------------------------------------------------
+  414                   ; Select sector  (used by BDOS)
+  415                   ; sector in C
+  416                   
+  417 E3D1  21 E5FC     SETSEC:	LD HL,IOS
+  418 E3D4  71          	LD (HL),C
+  419 E3D5  C9          	RET
+  420                   
+  421                   ;-----------------------------------------------------------------------------
+  422                   ; Sector translation (used by BDOS)
+  423                   ; sector in C
+  424                   ; skew table in DE (or 0)
+  425                   
+  426 E3D6  7A          SECTRAN:LD A,D		; wenn ein SKEW-Faktor verwendet wird,
+  427 E3D7  B3                  OR E		; wie z.B. bei 8 Zoll ueblich.
+  428 E3D8  CA E3E5             JP Z,SECTR1	; =0, -> no skew
+  429                   
+  430 E3DB  06 00       	LD B,0		; sonst in DE Adresse der Skew-Tabelle
+  431 E3DD  EB          	EX DE,HL	; skew table -> HL
+  432 E3DE  09          	ADD HL,BC	; add BC
+  433 E3DF  7E          	LD A,(HL)	; load skew value
+  434 E3E0  32 E5FC     	LD (IOS),A	; save in IOS 
+  435 E3E3  6F          	LD L,A		; and in L
+  436 E3E4  C9          	RET
+  437                   
+  438 E3E5              SECTR1:	; no skew
+  439 E3E5  69          	LD L,C		; sonst nur einfache Wert
+  440 E3E6  79                  LD A,C		; uebernehmen, ohne Umrechnung.
+  441 E3E7  32 E5FC             LD (IOS),A	; auch merken
+  442 E3EA  26 00               LD H,0		; se 0..255 max
+  443 E3EC  C9                  RET
+  444                   
+  445                   ;-----------------------------------------------------------------------------
+  446                   ; Set DMA address (used by BDOS)
+  447                   ; address in BC
+  448                   
+  449 E3ED  69          SETDMA:	LD L,C
+  450 E3EE  60          	LD H,B
+  451 E3EF  22 E5FD     	LD (IOD),HL
+  452 E3F2  C9          	RET
+  453                   
+  454                   ;-----------------------------------------------------------------------------
+  455                   ; 0-terminerte Text ausgaben, Adresse in HL
+  456                   
+  457 E3F3  7E          PRMSG: 	LD A,(HL)
+  458 E3F4  B7          	OR A
+  459 E3F5  C8          	RET Z		; -> end of text
+  460                   	
+  461 E3F6  E5          	PUSH HL
+  462 E3F7  4F          	LD C,A
+  463 E3F8  CD F009     	CALL CONOUT
+  464 E3FB  E1          	POP HL
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page   9
+NBIOS10 Z80
+
+  465 E3FC  23          	INC HL
+  466 E3FD  C3 E3F3     	JP PRMSG	; -> next char
+  467                   
+  468                   ;=============================================================================
+  469                   ; Read and write sector using EXEC into monitor
+  470                   
+  471                   ; HL=DMA ADR
+  472                   ; DE=TRACK/SECTOR
+  473                   ; B=0 RSTORE
+  474                   ;   1 READ
+  475                   ;   2 WRITE
+  476                   ; C=DRIVE 0...3		; bei MEXEC, EXEC
+  477                   ; bei FEXEC ist C bei bestimmt.
+  478                   
+  479                   ;-----------------------------------------------------------------------------
+  480                   ; Read sector
+  481                   
+  482 E400  3A E5F8     READ:	LD A,(DBANK)	; dazu Laufwerk bestimmen
+  483 E403  FE 02       	CP 2		; 
+  484 E405  DA E4DB     	JP C,MINIRD	; drive 0,1 -> Mini disks
+  485                   	
+  486 E408  FE 04       	CP 4		
+  487 E40A  DA E456     	JP C,MAXIRD	; drive 2,3 -> Maxi disks
+  488                   
+  489                   	;---------------------------------------------------------------------
+  490                   	; Read RAM disk
+  491                   
+  492 E40D  CD E422     	CALL ADRERZ	; hl=Quelladresse
+  493 E410  EB                  EX DE,HL		; Adressumrechnung durchfuehren
+  494 E411  2A E5FD             LD HL,(IOD)	; zieladresse laden
+  495 E414  EB                  EX DE,HL		; und de=ziel, hl=quelle, c=bank quelle
+  496 E415  06 00               LD B,0		; Ziel ist Bank 0
+  497 E417  CD E5F0             CALL REXEC	; und 128 Bytes kopieren, carry=Fehler
+  498 E41A  D2 E420     	JP NC,NORERR
+  499                   	
+  500 E41D  3E 01       	LD A,1		; Fehler da, Bank nicht vorhanden,
+  501 E41F  C9          	RET		; wirkt wie BAD-Sektor
+  502                   
+  503                   	;---------------------------------------------------------------------
+  504                   	
+  505 E420  AF          NORERR:	XOR A		; sonst ok.
+  506 E421  C9          	RET
+  507                   
+  508                   	;---------------------------------------------------------------------
+  509                   	; Calculate address for ram disk, source in HL
+  510                   	; SEKTOR 0..E,  TRAck 0..5fh
+  511                   	; SSSSTTTT T0000000   , adresse fuer RAM-Floppy
+  512 E422  3A E5FB     ADRERZ:	LD A,(IOT)		; Track holen
+  513 E425  0F           	RRCA 			; und umrechnen
+  514 E426  E6 0F        	AND 0FH		; unterer Teil vom MSB
+  515 E428  67           	LD H,A
+  516 E429  3A E5FC      	LD A,(IOS)		; dann Sektor dazu
+  517 E42C  07           	RLCA
+  518 E42D  07           	RLCA
+  519 E42E  07           	RLCA
+  520 E42F  07           	RLCA
+  521 E430  E6 F0        	AND 0F0H
+  522 E432  B4           	OR H
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  10
+NBIOS10 Z80
+
+  523 E433  67           	LD H,A		; damit sssstttt ok
+  524 E434  3A E5FB      	LD A,(IOT)
+  525 E437  0F           	RRCA			; txxxxxxx
+  526 E438  E6 80        	AND 80H
+  527 E43A  6F           	LD L,A		; t0000000
+  528 E43B  3A E5FB      	LD A,(IOT)		; nun noch bank bestimmen, in c und b	
+  529 E43E  07           	RLCA			; und dazu msb-Teil des Tracks verwenden
+  530 E43F  07           	RLCA			; 0mmttttt
+  531 E440  07           	RLCA			; Banknummer
+  532 E441  E6 03        	AND 03H		; 000000mm
+  533 E443  C6 01       	ADD A,1			; erst ab Bank 1 starten
+  534 E445  47           	LD B,A		; da BANK 0=CP/M RAM und TPA
+  535 E446  4F           	LD C,A		; ok beide definiert
+  536 E447  C9           	RET
+  537                   
+  538                   ;-----------------------------------------------------------------------------
+  539                     
+  540                   ; Umrechnen fuer 8Zoll und neuen Floppy-Einsprung verwenden.
+  541                   ; nach C laden
+  542                   ; LW=2, dann Vorderseite LW 3
+  543                   ; LW=3, dann Rueckseite LW 3
+  544                   
+  545 E448              NEUBANK:
+  546 E448  3A E5F8     	LD A,(DBANK)
+  547 E44B  FE 02       	CP 2
+  548 E44D  C2 E453     	JP NZ,NEUB1
+  549                   	
+  550 E450  0E 14       	LD C,00010100b	; SD, LW=3 (8 Zoll)
+  551 E452  C9          	RET
+  552                   
+  553 E453  0E 94       NEUB1:	LD C,10010100b	; SD, LW3= (8 Zoll), SSO = 1
+  554 E455  C9          	RET
+  555                   
+  556                   ;-----------------------------------------------------------------------------
+  557                   ; Read Maxi disk
+  558                   
+  559 E456  06 05       MAXIRD:	LD B,RETRY	; Anzahl der Leseversuche
+  560                   
+  561 E458              MAXIR1:	; retry loop
+  562 E458  C5          	PUSH BC		; dann ausfuehren
+  563 E459  2A E5FD     	LD HL,(IOD)	; Zieladresse holen
+  564 E45C  3A E5FB     	LD A,(IOT)	; Spurnummer
+  565 E45F  57          	LD D,A	
+  566 E460  3A E5FC     	LD A,(IOS)	; Sektornummer
+  567 E463  5F          	LD E,A
+  568 E464  06 01       	LD B,1		; Lese-Befehlscode
+  569 E466  CD E448     	CALL NEUBANK	; vorher Laufwerkscode umrechnen
+  570 E469  CD E5E7     	CALL FEXEC	; und dann ausfuehren
+  571 E46C  C1          	POP BC		; Retry-Zaehler
+  572 E46D  C8          	RET Z		; kein Fehler, dann ok zurueck
+  573 E46E  05          	DEC B		; sonst nochmals probieren
+  574 E46F  C2 E458     	JP NZ,MAXIR1	; -> retry		
+  575                   	
+  576 E472  3E 01       	LD A,1		; BAD SEKTOR
+  577 E474  B7          	OR A
+  578 E475  C9          	RET
+  579                   
+  580                   ;-----------------------------------------------------------------------------
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  11
+NBIOS10 Z80
+
+  581                   ; Write sector using EXEC into monitor
+  582                   
+  583                   ; HL=DMA ADR
+  584                   ; DE=TRACK/SECTOR
+  585                   ; B=0 RSTORE
+  586                   ;   1 READ
+  587                   ;   2 WRITE
+  588                   ; C=DRIVE 0...3		; bei MEXEC, EXEC
+  589                   ; bei FEXEC ist C bei bestimmt.
+  590                   
+  591 E476  3A E5F8     WRITE:	LD A,(DBANK)	; dazu Laufwerkscode laden
+  592 E479  FE 02       	CP 2		; und Floppy-Typ bestimmen
+  593 E47B  DA E534     	JP C,MINIWR	; drive 0,1 -> Mini disks
+  594                   	
+  595 E47E  FE 04       	CP 4		; drive 2,3 -> Maxi disks
+  596 E480  DA E495     	JP C,MAXIWR
+  597                   	
+  598                   	;---------------------------------------------------------------------
+  599                   	; Write RAM disk
+  600                   
+  601 E483  CD E422     	CALL ADRERZ	; hl=Quelladresse
+  602 E486  EB                  EX DE,HL	; umrechnen
+  603 E487  2A E5FD             LD HL,(IOD)	; ziel in BANK hl=Quelle diesmal
+  604 E48A  0E 00               LD C,0		; Quelle ist Bank 0, b=Ziel, de=Ziel
+  605 E48C  CD E5F0             CALL REXEC	; und 128 Bytes kopieren, carry=Fehler
+  606 E48F  D2 E420     	JP NC,NORERR	; OK Bank war da, sonst
+  607                   	
+  608 E492  3E 01       	LD A,1		; Fehler ausgeben
+  609 E494  C9          	RET
+  610                   
+  611                   	;---------------------------------------------------------------------
+  612                   	; Write Maxi disk
+  613                   
+  614 E495  06 05       MAXIWR:	LD B,RETRY
+  615                   
+  616 E497  C5          MAXIW1:	PUSH BC		; Dazu Fehlerzaehler retten
+  617                   
+  618 E498  2A E5FD     	LD HL,(IOD)	; Quelleadresse laden
+  619                   	
+  620 E49B  3A E5FB     	LD A,(IOT)	; Spur
+  621 E49E  57          	LD D,A
+  622                   	
+  623 E49F  3A E5FC     	LD A,(IOS)	; Sektor
+  624 E4A2  5F          	LD E,A
+  625                   	
+  626 E4A3  06 02       	LD B,2		; Schreib-Befehlscode
+  627 E4A5  CD E448     	CALL NEUBANK	; vorher Laufwerk umrechnen
+  628 E4A8  CD E5E7     	CALL FEXEC	; und ausfuehren
+  629 E4AB  C1          	POP BC	
+  630 E4AC  C8          	RET Z		; -> no error
+  631                   	
+  632 E4AD  05          	DEC B
+  633 E4AE  C2 E497     	JP NZ,MAXIW1	; -> retry
+  634                   	
+  635 E4B1  3E 01       	LD A,1		; bad sector
+  636 E4B3  B7          	OR A
+  637 E4B4  C9          	RET
+  638                   
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  12
+NBIOS10 Z80
+
+  639                   ;=============================================================================
+  640                   ; Read Mini disk, 80 Spur, DD, DS
+  641                   
+  642                   ;READ und WRITE unter Verwendung von MEXEC
+  643                   ; HL=DMA ADR
+  644                   ; DE=TRACK/SECTOR
+  645                   ; B=0 RSTORE
+  646                   ;   1 READ
+  647                   ;   2 WRITE
+  648                   ; C=DRIVE 0...3  10H,11H,12H,13H  DOUBMIN 0D0H,0D1H,0D2H,0D3H
+  649                   ;                                          A   C    B    D
+  650                   ; 1K BUFFER IN MONITORGEBIET
+  651                   ; WIRD DADURCH TEILWEISE UEBERSCHRIEBEN
+  652                   ; BEI WARMBOOT MUSS BUFFER GELEERT WERDEN
+  653                   ; DEBLOCK WIRD AUS SICHERHEITSGRUENDEN NICHT VERWENDET
+  654                   
+  655         FC00      BLKBUF	EQU 0FC00H	; Memory area of interactive Monitor for logical sector (1K)
+  656                   
+  657                   ;-----------------------------------------------------------------------------
+  658                   ; Calculates physical drive from DBANK and IOT -> C
+  659                   ; only for Mini disks 0 and 1
+  660                   
+  661                   ; DBANK, IOT     C
+  662                   ;  0     F    -> 0
+  663                   ;  1     F    -> 2
+  664                   ;  0     B    -> 1
+  665                   ;  1     B    -> 3
+  666                   
+  667                   ; muss fuer Minidisk C und D erweitert werden
+  668                   
+  669                   ; calculates physical sector from logical sector, IOS -> E
+  670                   ; logical sector 0..39 -> physical sector 1..5
+  671                   
+  672                   ; calculates logical track from physical track, IOT -> D
+  673                   ; 0..159 -> 0..79 (max 127)
+  674                   
+  675 E4B5              CALC:	; logical sector (1K) to physical sector (128 byte)
+  676                   	; 0..39 -> 0..4
+  677 E4B5  3A E5FC     	LD A,(IOS)	; 0..39 IST DER BEREICH (logic sector)
+  678 E4B8  0F          	RRCA		; X000NNNN 0..15
+  679 E4B9  0F                  RRCA
+  680 E4BA  0F                  RRCA
+  681 E4BB  E6 07       	AND 00000111b
+  682 E4BD  3C          	INC A		; 0..4 -> 1..5
+  683 E4BE  5F          	LD E,A		; save in E
+  684                   
+  685 E4BF  3A E5F8     	LD A,(DBANK)	; DRIVE 0->0  1->2
+  686                   			; nur 0,1 SUI 4 ; und Track umrechnen , Laufwerk 0,1
+  687 E4C2  FE 01       	CP 1		; 0,2,4,6,8 ist Vorderseite 1,3,5... Rueckseite
+  688 E4C4  C2 E4C9     	JP NZ,CALC1
+  689                   
+  690                   	; DBANK=1 
+  691 E4C7  3E 02       	LD A,2
+  692                   	
+  693 E4C9  4F          CALC1:	LD C,A		; physical drive
+  694                   
+  695 E4CA  3A E5FB     	LD A,(IOT)
+  696 E4CD  0F          	RRCA		; Track / 2,  = Phys Track, carry=backside
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  13
+NBIOS10 Z80
+
+  697 E4CE  57          	LD D,A		; Track merken
+  698 E4CF  D2 E4D6     	JP NC,CALC2	; frontside
+  699                   
+  700                   	; backside, track=0
+  701 E4D2  79          	LD A,C
+  702 E4D3  F6 01       	OR 1		; if backside: drive 0 -> drive 1,  drive 2 -> drive 3
+  703 E4D5  4F          	LD C,A
+  704                   	
+  705 E4D6  7A          CALC2:	LD A,D
+  706 E4D7  E6 7F       	AND 7FH		; Bereich Track 0..79 real
+  707 E4D9  57          	LD D,A
+  708                   
+  709                   	; D=track=D, E=sector, c=drive
+  710 E4DA  C9          	RET
+  711                   	
+  712                   ;-----------------------------------------------------------------------------
+  713                   ; Read Mini disk
+  714                   ; DBANK, IOT, IOS,
+  715                   
+  716 E4DB  CD E4B5     MINIRD:	CALL CALC	; calculate physical drive data for compare
+  717                   
+  718 E4DE  3A E5F4     	LD A,(CURDRV)
+  719 E4E1  B9          	CP C		; compare drive
+  720 E4E2  C2 E50F     	JP NZ,MINIR2	; -> drive not equal, load
+  721                   	
+  722 E4E5  3A E5F5     	LD A,(CURTRK)
+  723 E4E8  BA          	CP D		; compare track
+  724 E4E9  C2 E50F     	JP NZ,MINIR2	; -> track not equal, load
+  725                   	
+  726 E4EC  3A E5F6     	LD A,(CURSEC)
+  727 E4EF  BB          	CP E		; compare sector
+  728 E4F0  C2 E50F     	JP NZ,MINIR2	; -> sector not equal, load
+  729                   
+  730 E4F3              MINIR1:	; OK IST SCHON IN BUFFER
+  731 E4F3  21 FC00     	LD HL,BLKBUF	; ADRESSE BERECHNEN
+  732 E4F6  3A E5FC     	LD A,(IOS)	; 0..39 * 128 + BUFFER
+  733 E4F9  E6 07       	AND 00000111b	; 0,1,2,3,4,5,6,7
+  734 E4FB  57          	LD D,A
+  735 E4FC  1E 00       	LD E,0		; SCHIEBEN MIT Z80 BEFS
+  736 E4FE  CB 2A       	SRA D		; SRA D
+  737 E500  CB 1B       	RR E		; RR E   = *256/2
+  738 E502  19          	ADD HL,DE	; +BUFFER, pointer into BLKBUF
+  739 E503  EB          	EX DE,HL	; NACH DE IST ZIEL
+  740 E504  2A E5FD     	LD HL,(IOD)	; DMA ADRESSE QUELLE HIER
+  741 E507  EB          	EX DE,HL	; ZIEL DE
+  742 E508  01 0080     	LD BC,128	; logical sector length
+  743 E50B  ED B0       	LDIR		; (IOD) <- (BLKBUF+Offset), 128 Byte
+  744 E50D  AF          	XOR A
+  745 E50E  C9          	RET
+  746                   
+  747 E50F              MINIR2:	; neuen Sektor laden, ggf. alten zurueckschreiben
+  748 E50F  3A E5F3     	LD A,(BLKCHG)
+  749 E512  B7          	OR A
+  750 E513  CA E51C     	JP Z,MINIR3
+  751                   
+  752 E516  CD E5C8     	CALL PUTBLK	; ALTEN ZURUECKSCHREIBEN
+  753 E519  DA E5A3     	JP C,ERRIO
+  754                   	
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  14
+NBIOS10 Z80
+
+  755 E51C  CD E4B5     MINIR3:	CALL CALC	; BERECHNEN
+  756                   
+  757 E51F  79          	LD A,C
+  758 E520  32 E5F4     	LD (CURDRV),A
+  759 E523  7B          	LD A,E
+  760 E524  32 E5F6     	LD (CURSEC),A
+  761 E527  7A          	LD A,D
+  762 E528  32 E5F5     	LD (CURTRK),A
+  763 E52B  CD E5A7     	CALL GETBLK	; neuen Sektor lesen
+  764 E52E  DA E5A3     	JP C,ERRIO	; Fehler aufgetreten
+  765                   	
+  766 E531  C3 E4F3     	JP MINIR1
+  767                   
+  768                   ;-----------------------------------------------------------------------------
+  769                   ; Write Mini disk 
+  770                   
+  771 E534  79          MINIWR:	LD A,C
+  772 E535  32 E5F7     	LD (ISDIR),A		; flag for Directory Write (1=write)
+  773                   
+  774 E538  CD E4B5     	CALL CALC		; calculate physical drive data for compare
+  775                   	
+  776 E53B  3A E5F4     	LD A,(CURDRV)		; und wie bei minird
+  777 E53E  B9          	CP C			;
+  778 E53F  C2 E57E     	JP NZ,MINIW3		; -> load
+  779                   	
+  780 E542  3A E5F5     	LD A,(CURTRK)
+  781 E545  BA          	CP D
+  782 E546  C2 E57E     	JP NZ,MINIW3		; -> load
+  783                   	
+  784 E549  3A E5F6     	LD A,(CURSEC)
+  785 E54C  BB          	CP E
+  786 E54D  C2 E57E     	JP NZ,MINIW3		; -> load
+  787                   	
+  788 E550              MINIW1:	; laden unnoetig, Sektor schon im Buffer
+  789 E550  21 FC00     	LD HL,BLKBUF		; ADRESSE BERECHNEN
+  790 E553  3A E5FC     	LD A,(IOS)		; 0..39   * 128 + BUFFER
+  791 E556  E6 07       	AND 00000111B		; 0,1,2,3,4,5,6,7
+  792 E558  57          	LD D,A
+  793 E559  1E 00       	LD E,0			; SCHIEBEN MIT Z80 BEFS
+  794 E55B  CB 2A       	SRA D			; SRA D
+  795 E55D  CB 1B       	RR E			; RR E   = *256/2
+  796 E55F  19          	ADD HL,DE		; +BUFFER
+  797 E560  EB          	EX DE,HL		; NACH DE IST ZIEL
+  798 E561  2A E5FD     	LD HL,(IOD)		; DMA ADRESSE QUELLE HIER
+  799 E564  01 0080     	LD BC,128		; LAENGE ZIEL DE
+  800 E567  ED B0       	LDIR
+  801 E569  3E 01       	LD A,1
+  802 E56B  32 E5F3     	LD (BLKCHG),A		; NUN BESCHRIEBEN
+  803 E56E  3A E5F7     	LD A,(ISDIR)		; =1 dann zurueck
+  804 E571  FE 01         	CP 1			; wenn Direktory Zugriff, dann
+  805 E573  C2 E57C     	JP NZ,MINIW2		; gleich zurueckschreiben.
+  806                   
+  807 E576  CD E5C8     	CALL PUTBLK 
+  808 E579  DA E5A3     	JP C,ERRIO		; falls Fehler, dann BAD SEKTOR
+  809                   
+  810 E57C  AF          MINIW2:	XOR A			; kein Fehler
+  811 E57D  C9          	RET			; OK ENDE
+  812                   
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  15
+NBIOS10 Z80
+
+  813 E57E              MINIW3:	; neu laden, ggf. alten zureuckschreiben
+  814 E57E  3A E5F3     	LD A,(BLKCHG)	; 
+  815 E581  B7          	OR A
+  816 E582  CA E58B     	JP Z,MINIW4
+  817                   	
+  818 E585  CD E5C8     	CALL PUTBLK	; ALTEN ZURUECKSCHREIBEN
+  819 E588  DA E5A3     	JP C,ERRIO
+  820                   	
+  821 E58B  CD E4B5     MINIW4:	CALL CALC	; BERECHNEN
+  822 E58E  79          	LD A,C
+  823 E58F  32 E5F4     	LD (CURDRV),A
+  824 E592  7B          	LD A,E
+  825 E593  32 E5F6     	LD (CURSEC),A
+  826 E596  7A          	LD A,D
+  827 E597  32 E5F5     	LD (CURTRK),A
+  828 E59A  CD E5A7     	CALL GETBLK
+  829 E59D  DA E5A3     	JP C,ERRIO
+  830 E5A0  C3 E550     	JP MINIW1
+  831                   
+  832                   ;-----------------------------------------------------------------------------
+  833                   
+  834 E5A3  3E 01       ERRIO:	LD A,1	; Fehler aufgetreten
+  835 E5A5  B7          	OR A
+  836 E5A6  C9          	RET
+  837                   
+  838                   ;-----------------------------------------------------------------------------
+  839                   ; Read physical sector to BLKBUF
+  840                   ; Mini disk only
+  841                   ; TRKAKT,SEKAKT,DRVAKT ENTHALTEN NEUE BUFFERADRESSE
+  842                   
+  843 E5A7              GETBLK:	; reset buffer changed flag
+  844 E5A7  AF          	XOR A		
+  845 E5A8  32 E5F3     	LD (BLKCHG),A
+  846                   	
+  847 E5AB  21 FC00     	LD HL,BLKBUF	; buffer address for data
+  848 E5AE  3A E5F6     	LD A,(CURSEC)
+  849 E5B1  5F          	LD E,A
+  850 E5B2  3A E5F4     	LD A,(CURDRV)	; 0..3
+  851 E5B5  F6 D0       	OR 11010000B	; Mini drives are double density
+  852 E5B7  4F          	LD C,A
+  853 E5B8  06 01       	LD B,1		; sector size (2 = 1K)
+  854 E5BA  3A E5F5     	LD A,(CURTRK)
+  855 E5BD  57          	LD D,A
+  856 E5BE  CD E5ED     	CALL MEXEC	; -> old Mini routine
+  857 E5C1  DA E5C6     	JP C,BLKERR
+  858                   
+  859 E5C4  AF          	XOR A
+  860 E5C5  C9          	RET
+  861                   
+  862                   ;-----------------------------------------------------------------------------
+  863                   
+  864 E5C6  37          BLKERR:	SCF
+  865 E5C7  C9          	RET
+  866                   
+  867                   ;-----------------------------------------------------------------------------
+  868                   ; Write BLKBUF to physical sector
+  869                   ; Mini disk only
+  870                   ; TRKAKT,SEKAKT,DRVAKT ENTHALTEN NEUE BUFFERADRESSE
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  16
+NBIOS10 Z80
+
+  871                   
+  872 E5C8              PUTBLK:	; reset buffer changed flag
+  873 E5C8  AF          	XOR A
+  874 E5C9  32 E5F3     	LD (BLKCHG),A
+  875                   	
+  876 E5CC  21 FC00     	LD HL,BLKBUF	; buffer address with data
+  877 E5CF  3A E5F6     	LD A,(CURSEC)
+  878 E5D2  5F          	LD E,A
+  879 E5D3  3A E5F4     	LD A,(CURDRV)	; 0..3
+  880 E5D6  F6 D0       	OR 11010000B	; Mini drives are double density
+  881 E5D8  4F          	LD C,A
+  882 E5D9  06 02       	LD B,2		; sector size (2 = 1K)
+  883 E5DB  3A E5F5     	LD A,(CURTRK)
+  884 E5DE  57          	LD D,A
+  885 E5DF  CD E5ED     	CALL MEXEC	; -> old Mini routine
+  886 E5E2  DA E5C6     	JP C,BLKERR
+  887                   	
+  888 E5E5  AF          	XOR A
+  889 E5E6  C9          	RET
+  890                   
+  891 E5E7  C3 F021     FEXEC:	JP 0f021h	; FLOMON neuer Vektor
+  892 E5EA  C3 F024     EXEC:	JP 0f024H	; FLOMON und MC (not used)
+  893 E5ED  C3 F027     MEXEC:	JP 0f027H	; -> old Mini routine
+  894 E5F0  C3 F05B     REXEC:	JP 0f05bh	; FLOMON RAM-FLOPPY
+  895                   
+  896                   ;=============================================================================
+  897                   
+  898                   ; data area
+  899                   
+  900 E5F3  00          BLKCHG:	DB 0	; flag if BLKBUF is changed
+  901 E5F4  00          CURDRV:	DB 0	; DRIVE das geladen ist
+  902 E5F5  00          CURTRK:	DB 0	; TRACK 
+  903 E5F6  00          CURSEC:	DB 0	; SEKTOR
+  904 E5F7  00          ISDIR:	DB 0	; 1=is directory write
+  905                   
+  906                                           ; SPEICHERZELLEN FUER DAS PROGRAMM
+  907                   
+  908 E5F8  00          DBANK:   DB 0           ; disk bank (00 = drive 0/1, 10 = drive 2/3)
+  909 E5F9  80          IOPB:    DB 80H         ; io parameter block (not used)
+  910 E5FA  01          ION:     DB 1           ; number of sectors zu read (not used)
+  911 E5FB  04          IOT:     DB OFFSAB      ; track number (start value is first usable track)
+  912 E5FC  01          IOS:     DB 1           ; sexcNUMMER DES GEWUENSCHTEN SEKTORS
+  913 E5FD  0080        IOD:     DW BUFF        ; DMA-ADRESSE
+  914 E5FF  01          ALTDRV:  DB 1           ; SYSTEM-SPEICHERSTELLEN (not used)
+  915 E600  0000        INDADR:  DW 0		; not used
+  916 E602  0000        INDADR2: DW 0		; not used
+  917                   
+  918                             ;ENDEF		; end macro
+  919                   
+  920                   	; floppy data area (from diskdef.lib) 
+  921                   
+  922         E604      BEGDAT	EQU	$
+  923 E604    0080      DIRBUF:	DS	128	;DIRECTORY ACCESS BUFFER
+  924 E684    0031      ALV0:	DS	49
+  925 E6B5    0040      CSV0:	DS	64
+  926 E6F5    0031      ALV1:	DS	49
+  927 E726    0040      CSV1:	DS	64
+  928 E766    001F      ALV2:	DS	31
+Z80ASM SuperFast Relocating Macro Assembler     	    Z80ASM 1.32 Page  17
+NBIOS10 Z80
+
+  929 E785    0010      CSV2:	DS	16
+  930 E795    001F      ALV3:	DS	31
+  931 E7B4    0010      CSV3:	DS	16
+  932 E7C4    0017      ALV4:	DS	23
+  933 E7DB    0010      CSV4:	DS	16
+  934         E7EB      ENDDAT	EQU	$
+  935         01E7      DATSIZ	EQU	$-BEGDAT
+  936                   
+  937                   	END
+ 0 Error(s) Detected.
+ 1515 Absolute Bytes. 123 Symbols Detected.
+  916 E602  0000        INDADR2: DW 0		; not used
+  917    
