@@ -23,26 +23,36 @@
 ; Somit steht der Speicher durchgaengig ab 0000h bis zu MON_ADR
 ; zur Verfuehgung.
 ; Das CPM BIOS fuer den MC-Computer ueberschreibt den Monitorbereich
-; ab FC00h. Alle relevanten Teile für den Betrieb des Rechners 
+; ab FC00h. Alle relevanten Teile fuer den Betrieb des Rechners 
 ; muessen vor FC00h plaziert werden.
+; Ergaenung: DAs betrifft alle Teile des interaktiven Monitors, der
+; dann nicht mehr funktionsfaehig ist. Funktionsfaehig bleiben nur
+; die Ein-/Ausgabe-Routinen und die Floppy-Routinen, die vom BIOS
+; benoetigt werden.
 
-; 06/2026 Ueberarbeitet von Detlef Gerhardt
+; 07/2026 Ueberarbeitet von Detlef Gerhardt
 ; komplette Ueberarbeitung der Labels und sukzessive Kommentierung des Quellcodes
 ; um nach und nach moeglichst viele Routinen zu verstehen.
 ; Diese Version ist bis auf die Versionsnummer noch binaerkompatibel zu Version 8.0v1
 ; --- Work in progress ---
 
 ;------------------------------------------------------------------------------
-; Mapping of REG-Latch
+; Mapping of REG4-Latch
 
+; write
 ; Bit0 = Drive Select 1
 ; Bit1 = Drive Select 1
 ; Bit2 = Drive Select 3
 ; Bit3 = Drive Select 4
 ; Bit4 = FDC9239 Dens (0=DD, 1=SS)
 ; Bit5 = FDC9239 Mini (0=Maxi, 1=Mini)
-; Bit6 = Motor On (Jumper)
-; Bit7 = Side Select (Jumper)
+; Bit6 = Motor On (Jumper) (0=Motor on, 1=Motor off)
+; Bit7 = Side Select (Jumper) (0=Side 0, 1=Side 1)
+
+; read
+; Bit5 = Headload Status (0=head loaded, 1=head unloaded)
+; Bit6 = FD197x INTREQ (0=not active, 1=active)
+; Bit7 = FD197x DRQ (0=not active, 1=actice)
 
 ;------------------------------------------------------------------------------
 ; Constants
@@ -417,7 +427,7 @@ MEMS3:	DEC H
 TABSTART:
 	;TABELLE SPRUNG-VEKTOREN
 
-; Hier können eigene Routinen stehen für Input/Output
+; Hier koennen eigene Routinen stehen fuer Input/Output
 
 USERCI:	JP CONI1
 USERRI:	JP CONI1
@@ -458,7 +468,7 @@ GETFRM:	DI  		; disable interrupts
 	AND 8FH
 	LD C,A
 	
-	CALL WAWA	; short delay
+	CALL WAWA	; short delay (4 ms)
 	
 	; try Mini SD
 	LD A,C
@@ -577,7 +587,7 @@ SCODA3:	LD C,10010010B 	; LW 2 seite 1
 ; 2 -> 02 (drive 2, side 0, Mini)
 ; 3 -> 82 (drive 2, side 1, Mini)
 
-; hier ist eine Erweiterung für Laufwerke C und D notwendig
+; hier ist eine Erweiterung fuer Laufwerke C und D notwendig
 
 SCODB:	AND 3  		; 0,1,2,3 erlaubt
 	CP 0
@@ -750,7 +760,7 @@ FLOP2:	POP AF
 	LD (SP0),SP 		; save user-stack, maybe to deep for BDOS
 	LD SP,TSTACK 		;
 
-	LD A,0D0H		; ???
+	LD A,11010000B		; Command "Force interrupt"
 	OUT (FLO),A 		; reset floppy controller
 	
 	; set interrupt vector to INTEX
@@ -824,29 +834,30 @@ SETC3:	; noset
 ;------------------------------------------------------------------------------
 ; Read one sector
 ; sector number in E
+; buffer addr in HL
 
 RDFLP:	LD A,C
-	OUT (FLO+4),A 		; erst mal Dichtecode setzen und Seite -> REG4-Latch
+	OUT (FLO+4),A 		; density + side -> REG4-Latch
 	LD A,E
 	OUT (FLO+2),A 		; ins Sektorregister
-	LD C,FLO+3 		; Adresse Datenport dann nach c
+	LD C,FLO+3 		; Adresse Datenport dann nach C
 	CALL SETCMD 		; Register A vorbereiten
-	ADD A,88H 		; Lese-Befehl, sidesel=0
+	ADD A,10001000B		; Command "Read Sector", without SSO
 	OUT (FLO),A 		; Befehl ausfuehren
 
-RDFLP1:	; wait for DRQ
+RDFLP1:	; wait for DRQ = 1
 	IN A,(FLO+4) 		; DRQ schon da ?
-	RLCA  			; bit7 = drq, bit6 = int
-	JP NC,RDFLP1 		; bis drq=1 da ist
+	RLCA  			; bit7 = DRQ, bit6 = int
+	JP NC,RDFLP1 		; -> DRQ = 0
 	
-	INI  			; IN (C) -> (HL), HL++
+	INI  			; IN (C) -> (HL), HL++, B--
 	JP RDFLP1  		; verlassen nur durch INT
 
 ;------------------------------------------------------------------------------
 ; Write one sector
 
 WRFLP:	LD A,C
-	OUT (FLO+4),A 		; erst mal Seite anwaehlen und Dichte -> REG4-Latch
+	OUT (FLO+4),A 		; density + side -> REG4-Latch
 	LD A,E  		; Sektorregister setzen
 	OUT (FLO+2),A
 	LD C,FLO+3		; Adresse Datenport laden
@@ -854,12 +865,12 @@ WRFLP:	LD A,C
 	ADD A,0A8H		; Befehl Schreibe-Sektor
 	OUT (FLO),A 		; und Befehl ausfuehren
 
-WRFLP1:	; wait for DRQ
-	IN A,(FLO+4)
-	RLCA
+WRFLP1:	; wait for DRQ = 1
+	IN A,(FLO+4) 		; DRQ schon da ?
+	RLCA  			; bit7 = DRQ, bit6 = int
 	JP NC,WRFLP1
 	
-	OUTI  			; (HL) -> OUT (C), HL++
+	OUTI  			; (HL) -> OUT (C), HL++, B--
 	JP WRFLP1  		; verlassen nur durch INT
 
 ;------------------------------------------------------------------------------
@@ -885,7 +896,7 @@ DELAY:	DEC BC
 ; Seek to track
 ; C=Drive D=Track E=Sector
 
-SEEK:	CALL WAWA 		; short delay
+SEEK:	CALL WAWA 		; short delay (4 ms)
 
 	LD A,C
 	OUT (FLO+4),A 		; drive code, density and side -> REG4-Latch
@@ -904,17 +915,18 @@ SEEK:	CALL WAWA 		; short delay
 ;------------------------------------------------------------------------------
 ; Kopf auf Spur 0 stellen
 			
-RSTORE:	CALL WAWA		; short delay
+RSTORE:	CALL WAWA		; short delay (4 ms)
 
 	LD A,C  		; Laufwerkscode (drive)
 	OUT (FLO+4),A 		; mit Dichtecode etc. ausgeben -> REG4-Latch
-	
-	LD B,8  		; nur Head-load, kein verify
+
+	; Command "Restore" 0000hvrr, h=head load, v=verify, rr=steprate
+	LD B,00001000B 		; only head load, no verify
 	LD A,(STEPRATE)
-	AND 3  			; 0,1,2,3 zulaessig
+	AND 3  			; 0..3
 	OR B  			; als Befehl kombiniert
 	OUT (FLO),A 		; und ausfuehren
-	
+
 	HALT  			; wait for INT
 
 ;------------------------------------------------------------------------------
@@ -1491,7 +1503,7 @@ BOOT2:	JP ERROR
 
 ;+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++		
 ; Ueberspringt autom. Format Erkennung bei boot 
-; fuer original löschen oder auskommentieren
+; fuer original loeschen oder auskommentieren
 ; 2026 geaendert wg. Boot von DD Disketten
 ; FLO1/FLO2 in A
 
