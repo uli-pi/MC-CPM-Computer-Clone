@@ -9,6 +9,9 @@
 	;*                 wiederhergestellt                                 *
 	;* 03.07.2026 *dg* Quellcode ueberarbeitet und dokumentiert          *
 	;*                 Binaer identisch zur Version 1.22                 *
+	;* 11.07.2026 *dg* ORG 100H zugefuegt, END-Statement geaendert       *
+	;*                 fuehrte sonst zu ungueltiger HEX-File-Endung      *
+	;*                 mit Z80ASM                                        *
 	;*********************************************************************
 
 	; arbeitet unabhaengig vom CP/M - Betriebsystem.
@@ -36,6 +39,8 @@ FLOB3	EQU 033H
 FLOB4	EQU 034H
 
 ;-----------------------------------------------------------------------------
+
+	ORG 100H
 
 	JP START 	; Hauptprogramm
 
@@ -2367,4 +2372,4 @@ CURSEC:	DEFB 0  	; aktueller Sektor
 
 FORMTAB:	; Formatierbereich, hier wird ein Track gelegt.
 
-	END start
+	END
